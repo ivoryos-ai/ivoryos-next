@@ -1,4 +1,5 @@
 import inspect
+import types
 import typing
 from typing import get_origin, get_args
 
@@ -18,6 +19,55 @@ def _is_numeric_annotation(annotation):
     return isinstance(annotation, str) and annotation.strip() in NUMERIC_TYPE_NAMES
 
 
+def _is_union(annotation) -> bool:
+    """`Optional[X]`, `Union[A, B]` or `A | B`. One kind of object since Python 3.14
+    (typing.Union is types.UnionType); before it, typing's form and the `|` form were two."""
+    return get_origin(annotation) is typing.Union or isinstance(annotation, getattr(types, "UnionType", ()))
+
+
+def _holds_union(annotation) -> bool:
+    for arg in get_args(annotation):
+        inner = arg if isinstance(arg, (list, tuple)) else [arg]
+        if any(_is_union(a) or _holds_union(a) for a in inner):
+            return True
+    return False
+
+
+def _argument_name(arg) -> str:
+    if isinstance(arg, (list, tuple)):  # Callable[[int, str], ...]'s parameters
+        return f"[{', '.join(_argument_name(a) for a in arg)}]"
+    if arg is Ellipsis:
+        return "..."
+    return type_name(arg)
+
+
+def type_name(annotation) -> str:
+    """How a type reads in a schema, the same on every Python version.
+
+    Python 3.14 made `Optional[float]` and `float | None` one object, printed as the latter;
+    before it each printed as written. So a union is written one way here, typing's
+    (`Optional[X]`, `Union[A, B]`, with NoneType named when there are several), however the
+    driver wrote it: what the Hub's driver schemas, the forms and the tour (frontend
+    tour/sim.ts baseType) read. A plain class reads as its name, not "<class 'float'>"; anything
+    else as str() writes it without `typing.` or `typing_extensions.`, a union inside it
+    (`List[Optional[float]]`) written as above. `list[int]` is not a class here, though Python 3.10 says it is.
+    """
+    if _is_union(annotation):
+        args = get_args(annotation)
+        members = [a for a in args if a is not type(None)]
+        if len(members) == 1 and len(args) == 2:
+            return f"Optional[{type_name(members[0])}]"
+        return f"Union[{', '.join(type_name(a) for a in args)}]"
+    if isinstance(annotation, type) and not isinstance(annotation, types.GenericAlias):
+        return annotation.__name__
+    # `typing_extensions.` too: what a driver imports from there on an older Python (Self,
+    # Literal) is in typing on a newer one.
+    text = str(annotation).replace("typing_extensions.", "").replace("typing.", "")
+    if not get_args(annotation) or not _holds_union(annotation):
+        return text
+    return f"{text.split('[', 1)[0]}[{', '.join(_argument_name(a) for a in get_args(annotation))}]"
+
+
 def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _seen=None):
     param_type = "Any"
     options = None
@@ -34,15 +84,10 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
     annotation, markers = _split_annotated(annotation)
 
     if annotation != inspect.Parameter.empty:
-        # For a plain class (float, int, a dataclass, ...) str(annotation) is Python's repr,
-        # "<class 'float'>" — noise that isn't used anywhere (cast_value/cast_arguments always
-        # re-introspect the real annotation object, never this string), so use the clean name
-        # directly. typing constructs (List[str], Optional[int], ...) aren't classes and keep
-        # falling through to str(annotation) as before.
-        if isinstance(annotation, type):
-            param_type = annotation.__name__
-        else:
-            param_type = str(annotation).replace("typing.", "")
+        # A plain class by its name rather than "<class 'float'>" (cast_value/cast_arguments
+        # re-introspect the real annotation, never this string), and a union the same way on
+        # every Python version: see type_name.
+        param_type = type_name(annotation)
 
         is_numeric = _is_numeric_annotation(annotation)
 
@@ -467,7 +512,7 @@ def describe_property(name, prop):
             annotation = inspect.Signature.empty
         return_paths = []
         if annotation is not inspect.Signature.empty:
-            return_type = annotation.__name__ if isinstance(annotation, type) else str(annotation).replace("typing.", "")
+            return_type = type_name(annotation)
             # From the hint with its Annotated kept (`-> Annotated[float, Unit("°C")]`), as for a
             # method's return; the type's text above is from the stripped one.
             rich = _resolve_hints(prop.fget, extras=True).get("return", annotation)
@@ -667,7 +712,7 @@ def inspect_class(cls):
             return_paths = []
             if sig.return_annotation != inspect.Signature.empty:
                 ret = hints.get("return", sig.return_annotation)
-                return_type = ret.__name__ if isinstance(ret, type) else str(ret).replace("typing.", "")
+                return_type = type_name(ret)
                 # Described from the hint with its Annotated kept -- `-> Annotated[float,
                 # Unit("g")]`, or a unit on one element of a tuple -- so the markers reach
                 # return_info and every return path. The type's text above is from the stripped

@@ -2557,12 +2557,19 @@ def _script_instruments(module, exclude_names=()) -> tuple:
     """
     import enum
     import types
+    import typing
     found, skipped = {}, {}
     excluded = set(exclude_names or ())
     for var_name, var_value in vars(module).items():
         if var_name.startswith("_"):
             continue
         # Python 3.10 calls `list[float]` a class (fixed in 3.11); it is a typing value, said below.
+        # And since 3.14 `typing.Union` is a class (types.UnionType), whose type is Python's own
+        # `type`: said here, as the typing name it is, or it would pass as something the script
+        # defined.
+        if var_value is getattr(typing, "Union", None) and isinstance(var_value, type):
+            skipped[var_name] = "typing.Union, from Python itself"
+            continue
         is_class = inspect.isclass(var_value) and not isinstance(var_value, types.GenericAlias)
         if is_class or inspect.isfunction(var_value) or inspect.ismodule(var_value):
             continue
