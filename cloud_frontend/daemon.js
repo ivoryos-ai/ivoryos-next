@@ -31,7 +31,7 @@ const {
 } = require('./src/lib/dag.js');
 const presence = require('./src/lib/presence.js');
 const { runContext } = require('./src/lib/cloudLogic.js');
-const { commandStep } = require('./src/lib/taskCommands.js');
+const { commandStep, editResultFor } = require('./src/lib/taskCommands.js');
 const { getStore, resolveBrokerUrl, usesAwsIot } = require('./src/lib/store');
 const { startEmbeddedBroker } = require('./src/lib/embedded-broker.js');
 const { DAEMON_USER, newSecret, brokerAuthEnabled } = require('./src/lib/brokerAuth.js');
@@ -842,6 +842,10 @@ setInterval(() => startQueuedRuns().catch(e => console.error('[Daemon] Starting 
 // decision would be replayed to the device on every reconnect. It is kept until the device's own
 // progress shows the pause has gone, and re-sent while it has not (src/lib/taskCommands.js); the
 // device ignores one whose pause is no longer current, so a re-send cannot apply twice.
+// A change (a retry with new values, or `edit_rows`: the samples still to come) carries an `id`
+// and is done once the device answers it in its progress (`edit_result`). A change of samples the
+// device took replaces the task's stored payload, so its record, and any repeat still to come,
+// run what the device was told.
 async function sendTaskCommands() {
     if (!client.connected) return;
     for (const task of await store.listTaskCommands()) {
@@ -849,14 +853,32 @@ async function sendTaskCommands() {
         const state = deviceState.get(device);
         const up = presence.isUp(state, Date.now());
         const step = commandStep(task, up);
+        const cmd = task.command;
         if (step === 'clear') {
+            const answered = cmd && cmd.id ? editResultFor(task, cmd.id) : null;
+            if (cmd && cmd.action === 'edit_rows' && answered && answered.ok && cmd.run) {
+                await store.updateTaskRun(task.run_id, task.node_id, cmd.run);
+                console.log(`[Daemon] ${device} took the changed samples for ${task.run_id}/${task.node_id}.`);
+            } else if (cmd && cmd.action === 'set_budget' && answered && answered.ok) {
+                // Kept with the task too, so a repeat of it runs with the budget it was given.
+                const stored = (await store.getTask(task.run_id, task.node_id))?.run;
+                if (stored && stored.parameters) {
+                    await store.updateTaskRun(task.run_id, task.node_id, { ...stored, parameters: { ...stored.parameters, budget: cmd.budget } });
+                }
+                console.log(`[Daemon] ${device} now makes ${cmd.budget} trials for ${task.run_id}/${task.node_id}.`);
+            } else if (answered && !answered.ok) {
+                console.log(`[Daemon] ${device} refused the change for ${task.run_id}/${task.node_id}: ${answered.error}`);
+            }
             await store.updateTaskCommand(task.run_id, task.node_id, null);
             continue;
         }
         if (step !== 'send') continue;
-        const cmd = task.command;
         const payload = JSON.stringify({
             runId: task.run_id, nodeId: task.node_id, pause: cmd.pause, action: cmd.action, value: cmd.value,
+            ...(cmd.id ? { id: cmd.id } : {}),
+            ...(cmd.edit ? { edit: cmd.edit } : {}),
+            ...(cmd.action === 'edit_rows' ? { run: cmd.run } : {}),
+            ...(cmd.action === 'set_budget' ? { budget: cmd.budget } : {}),
         });
         await new Promise((resolve) => {
             client.publish(`${TOPIC_PREFIX}/${device}/task-control`, payload, { qos: 1 }, async (err) => {

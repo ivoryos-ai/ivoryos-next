@@ -98,3 +98,4 @@ export { takesRowList, wellChoices, expandWells, compactWells, parseReferences, 
 export type { TrayChoice } from './labware';
 export { TrayPicker } from './TrayPicker';
 export type { TrayPickerProps } from './TrayPicker';
+export { fieldText, parseField, changedArguments } from './stepEdits';

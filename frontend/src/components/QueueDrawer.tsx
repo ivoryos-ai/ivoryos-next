@@ -3,11 +3,11 @@ import { API_BASE, WS_BASE, withBase } from '@/config';
 import CloudRepeats from '@/components/CloudRepeats';
 import { useCallback, useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { ArrowDown, ArrowUp, Check, Cloud, Edit3, ListTodo, Pause, Play, SlidersHorizontal, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, Cloud, Edit3, ListTodo, Pause, Play, SlidersHorizontal, Table2, Trash2, X } from 'lucide-react';
 import { confirmDialog, notify } from '@ivoryos/shared-ui';
 import { runSizeLabel } from '@/runSize';
 import { resumeQueue } from '@/runControl';
-import { editHref } from '@/queuedEdit';
+import { editHref, liveEditHref } from '@/queuedEdit';
 
 const OPEN_EVENT = 'ivoryos-open-queue';
 
@@ -153,7 +153,14 @@ export default function QueueDrawer() {
             {active ? (
               <div className="rounded-lg border border-gray-200 dark:border-white/15 dark:border-white/20 bg-gray-100/60 dark:bg-white/10 px-3 py-2">
                 <div className="text-sm font-semibold truncate" title={active.name}>{active.name}</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">{String(active.status || '').replace(/_/g, ' ')}</div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">{String(active.status || '').replace(/_/g, ' ')}</span>
+                  {/* A run over a table: its samples still to come can change while it goes. */}
+                  {liveEditHref(active) && (
+                    <button onClick={() => { window.location.href = withBase(liveEditHref(active)!); }}
+                      title="Change, add or remove the samples still to come" className={iconBtn}><Table2 className="w-3.5 h-3.5" /></button>
+                  )}
+                </div>
               </div>
             ) : <p className="text-sm text-gray-400 dark:text-gray-500">Nothing running.</p>}
           </section>

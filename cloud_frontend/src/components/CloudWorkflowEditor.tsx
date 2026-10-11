@@ -19,6 +19,8 @@ import { parallelOnSameDevice } from '@/lib/canvasChecks';
 import { useDocumentTheme } from '@/lib/useDocumentTheme';
 import DeviceAvatar from './DeviceAvatar';
 import PauseActions from './PauseActions';
+import TaskRowsEditor from './TaskRowsEditor';
+import BudgetControl from './BudgetControl';
 import { GRID, freeHandleOf, isIfNode, pickAutoSource, slotBelow, tidyLayout } from '@/lib/canvasLayout';
 
 interface CloudWorkflowEditorProps {
@@ -274,6 +276,8 @@ const CustomCloudNode = ({ data, id, selected }: any) => {
   const isMissing = !isLogic && !isStart
     && (!statusData?.instruments?.[block.instrument] || !statusData?.instruments?.[block.instrument]?.[block.method]);
   const problems = canvas.problems.get(String(id)) || [];
+  // The samples still to come of this step's run, open for changing while it runs.
+  const [changingRows, setChangingRows] = useState(false);
 
   const handleParamChange = (paramKey: string, val: any) => {
     updateNodeData(id, { block: { ...block, params: { ...block.params, [paramKey]: val } } });
@@ -443,6 +447,18 @@ const CustomCloudNode = ({ data, id, selected }: any) => {
                     <span className="truncate">{[loop, where].filter(Boolean).join(' · ')}</span>
                     <span className="shrink-0 font-bold tabular-nums">{pr.done}/{pr.total}</span>
                   </div>
+                  {/* A run over a table: its samples still to come can change while it goes. */}
+                  {typeof pr.editable_from === 'number' && data.runConfig?.mode === 'spreadsheet' && !taskStatus.mergedInto && (
+                    <button onClick={() => setChangingRows(true)} title="Change, add or remove the samples this step has not started yet"
+                      className="nodrag mt-1 text-[11px] font-semibold text-accent-fg hover:underline">
+                      Change samples still to come
+                    </button>
+                  )}
+                  {changingRows && <TaskRowsEditor runId={taskStatus.runId} nodeId={taskStatus.nodeId} onClose={() => setChangingRows(false)} />}
+                  {/* An optimization: how many trials it makes in all can change while it goes. */}
+                  {typeof pr.budget === 'number' && !taskStatus.mergedInto && (
+                    <BudgetControl runId={taskStatus.runId} nodeId={taskStatus.nodeId} progress={pr} />
+                  )}
                 </div>
               );
             })()}
@@ -466,6 +482,7 @@ const CustomCloudNode = ({ data, id, selected }: any) => {
                     kind: isError ? 'error' : 'input',
                     pause: pr.pause, prompt: pr.prompt, inputType: pr.input_type, error: pr.error,
                     sent: taskStatus.sent || null,
+                    edit: pr.edit || null, editResult: pr.edit_result || null,
                   }} />
                 </div>
               );

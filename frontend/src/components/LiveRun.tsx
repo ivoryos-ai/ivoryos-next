@@ -1,8 +1,12 @@
 "use client";
-import { API_BASE, WS_BASE } from '@/config';
+import { API_BASE, WS_BASE, withBase } from '@/config';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronUp, CircleDot, Eraser, FastForward, Flag, HandHelping, ListTodo, Pause, Play, RefreshCcw, Square, X } from 'lucide-react';
+import { Bot, ChevronUp, CircleDot, Eraser, FastForward, Flag, Gauge, HandHelping, ListTodo, Pause, Pencil, Play, RefreshCcw, Square, Table2, X } from 'lucide-react';
 import { choicesFor, choiceWords, decideFailure, stopGracefully, type PendingDecision } from '@/runControl';
+import { askBudget, openFailedStepEditor } from '@/runEdits';
+import StepEditDialog from './StepEditDialog';
+import { liveEditHref } from '@/queuedEdit';
+import { reviewSamplesHref, useRunProposals } from '@/runProposals';
 import { setPromptMinimized } from '@/inputPrompt';
 import RunProgress, { buildProgress, parseServerTime, positionText, type RunLike } from './RunProgress';
 import { openQueue } from './QueueDrawer';
@@ -35,7 +39,10 @@ const LINGER_MS = 5000;
  * the steps). Exactly one progress bar, the strip along its top; opening it shows the steps, not
  * a second bar. Controls are icons with tooltips because a row of labelled buttons crowded the
  * name off the line, with one exception: a failed step waiting for a decision spells out Retry
- * and Skip.
+ * and Skip, and Change (its values, then retry: StepEditor, in the failure pop-up). While a run
+ * over a table goes, the table button opens its samples still to come on the Iterate page; the
+ * steps it has not run yet each have a pencil in the opened step list (StepEditDialog); and an
+ * optimization's budget can be changed (the gauge, or "change budget" in the step list).
  *
  * It sits below the page's scrolling area, not inside it, so it is never a scroll away while the
  * spreadsheet scrolls above. Opened, the steps live in a box of their own height above the row
@@ -54,6 +61,8 @@ export default function LiveRun() {
   const [paused, setPaused] = useState(false);
   const [open, setOpen] = useState(false);
   const [closed, setClosed] = useState<number | null>(null);
+  // A step still to come, open for changing.
+  const [editingStep, setEditingStep] = useState<any>(null);
   const finishedAt = useRef<Map<number, number>>(new Map());
   // Read in the initializer on purpose: this component renders nothing until a run arrives
   // from the client-side fetch, so the first (hydrated) render never depends on the value.
@@ -63,6 +72,8 @@ export default function LiveRun() {
   });
   const steps = useRef<HTMLDivElement>(null);
   const touched = useRef(0);
+  // Samples an agent proposed for the run under way, to review in its table.
+  const [suggested] = useRunProposals(run && !FINISHED.includes(run.status) ? run.id : run?.status === 'error' && run.id === awaiting ? run.id : null);
   const startDrag = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
     const from = e.clientY;
@@ -187,6 +198,13 @@ export default function LiveRun() {
   // and still shows here has nothing left to answer.
   const waitingDecision = run.status === 'error' && awaiting === run.id;
   const choices = choicesFor(decision, run.id);
+  const canChangeStep = waitingDecision && (decision?.kind ?? 'step') === 'step' && choices.includes('retry');
+  // The samples still to come of a run over a table, changed on the Iterate page (a full load,
+  // since that page reads ?edit= once, when it opens).
+  const rowsHref = (!finished || waitingDecision) && !graceful ? liveEditHref(run) : null;
+  // Steps that have not run, and an optimization's budget, change while the run goes on.
+  const changeable = (!finished || waitingDecision) && !graceful && run.status !== 'cancelling';
+  const isOptimization = run.parameters?.type === 'Optimization';
 
   const s = run.status;
   const kind = s === 'waiting_input' ? 'ask' : ['paused', 'pausing'].includes(s) ? 'hold' : ['error', 'cancelling', 'cancelled'].includes(s) ? 'bad' : s === 'completed' ? 'done' : 'go';
@@ -236,11 +254,14 @@ export default function LiveRun() {
             onPointerDown={() => { touched.current = Date.now(); }}
             className="border-b border-gray-100 dark:border-white/5 px-4 pb-4 overflow-y-auto overscroll-contain"
           >
-            <RunProgress run={run} live={!finished && s !== 'pending'} hideOverall pinSummary />
+            <RunProgress run={run} live={!finished && s !== 'pending'} hideOverall pinSummary
+              onEditStep={changeable ? setEditingStep : undefined}
+              onChangeBudget={changeable && isOptimization ? () => askBudget(run) : undefined} />
           </div>
         </>
       )}
 
+      {editingStep && <StepEditDialog run={run} step={editingStep} onClose={() => setEditingStep(null)} />}
       <div className="pl-4 pr-2 py-2 flex items-center gap-3">
         {/* What is running */}
         <span className={`shrink-0 w-2.5 h-2.5 rounded-full ${dot} ${kind === 'go' || kind === 'ask' ? 'animate-pulse' : ''}`} />
@@ -259,11 +280,18 @@ export default function LiveRun() {
           )}
           {waitingDecision && (
             <>
+              {canChangeStep && <button onClick={openFailedStepEditor} title="Change this step's values, for it alone or for every later run of it too, then retry" className={`${word} bg-white text-gray-700 border-gray-200 hover:bg-gray-50 dark:bg-white/5 dark:text-gray-200 dark:border-white/10`}><Pencil className="w-3.5 h-3.5" /><span className="hidden xl:inline">Change</span></button>}
               {choices.includes('retry') && <button onClick={() => decideFailure(run.id, 'retry')} title={choiceWords(decision?.kind, 'retry')[1]} className={`${word} bg-accent-soft text-accent-fg border-accent-tint/60 hover:bg-accent-tint/30`}><RefreshCcw className="w-3.5 h-3.5" /> Retry</button>}
               {choices.includes('skip') && <button onClick={() => decideFailure(run.id, 'skip')} title={choiceWords(decision?.kind, 'skip')[1]} className={`${word} bg-white text-gray-700 border-gray-200 hover:bg-gray-50 dark:bg-white/5 dark:text-gray-200 dark:border-white/10`}><FastForward className="w-3.5 h-3.5" /> Skip</button>}
               {choices.includes('cleanup') && <button onClick={() => decideFailure(run.id, 'cleanup')} title={choiceWords(decision?.kind, 'cleanup')[1]} className={`${word} bg-red-50 text-red-700 border-red-200 hover:bg-red-100 dark:bg-red-500/10 dark:text-red-300 dark:border-red-500/30`}><Eraser className="w-3.5 h-3.5" /> Cleanup</button>}
             </>
           )}
+          {rowsHref && suggested.filter(p => p.kind === 'run_rows').slice(0, 1).map(p => (
+            <button key={p.id} aria-label="Suggested samples" onClick={() => window.location.assign(withBase(reviewSamplesHref(p)))} title={p.summary || 'Review the samples the assistant proposed'}
+              className={`${word} bg-accent-soft text-accent-fg border-accent-tint/60 hover:bg-accent-tint/30`}><Bot className="w-3.5 h-3.5" /><span className="hidden xl:inline">Suggested samples</span></button>
+          ))}
+          {rowsHref && <button onClick={() => window.location.assign(withBase(rowsHref))} title="Change, add or remove the samples still to come" className={icon}><Table2 className="w-4 h-4" /></button>}
+          {changeable && isOptimization && <button onClick={() => askBudget(run)} title="Change how many trials it makes in all" className={icon}><Gauge className="w-4 h-4" /></button>}
           {s === 'paused' && <button onClick={() => control('resume')} title="Resume" className={`${icon} !text-green-600 dark:!text-green-400`}><Play className="w-4 h-4" /></button>}
           {!finished && !['paused', 'pausing', 'cancelling', 'error'].includes(s) && <button onClick={() => control('pause')} title="Pause after the current step" className={icon}><Pause className="w-4 h-4" /></button>}
           {!finished && !waitingDecision && !graceful && !['cancelling', 'error'].includes(s) && (

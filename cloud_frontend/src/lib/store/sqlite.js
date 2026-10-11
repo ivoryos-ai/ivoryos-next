@@ -919,6 +919,35 @@ function createSqliteStore(filePath) {
       return res.changes > 0;
     },
 
+    /**
+     * Record a change of a running task's samples still to come (taskCommands.js `edit_rows`).
+     * Not tied to a pause; taken only while the task runs and nothing else is on its way to it.
+     */
+    async setTaskEditCommand(runId, nodeId, command) {
+      const res = run(
+        `update run_tasks set command = ?, updated_at = ?
+         where run_id = ? and node_id = ? and status = 'running' and command is null`,
+        JSON.stringify(command), nowIso(), runId, nodeId,
+      );
+      return res.changes > 0;
+    },
+
+    /** One task with its payload, progress and any command on its way: what a change starts from. */
+    async getTask(runId, nodeId) {
+      const row = get(
+        `select run_id, node_id, device_id, status, block, run, progress, command, repeat_done, repeat_total
+         from run_tasks where run_id = ? and node_id = ?`,
+        runId, nodeId,
+      );
+      return row ? { ...hydrateTask(row), command: row.command ? jsonParse(row.command, null) : null } : null;
+    },
+
+    /** The task's payload, replaced once its device took a change of samples (daemon.js). */
+    async updateTaskRun(runId, nodeId, payload) {
+      run('update run_tasks set run = ? where run_id = ? and node_id = ?',
+        payload ? JSON.stringify(payload) : null, runId, nodeId);
+    },
+
     /** Decisions not yet seen to take effect, with the progress to check them against. */
     async listTaskCommands() {
       return all(

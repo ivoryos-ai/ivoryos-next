@@ -177,8 +177,10 @@ async def test_a_queued_run_can_be_changed_until_it_starts():
         assert edited["parameters"]["queue_position"] == 0.5                 # kept its place
         assert edited["parameters"]["_source"] == {"page": "once"}
 
-        # The run under way, and a changed run that would not run, are refused.
-        assert (await ac.put(f"/api/queue/runs/{running}", json=body)).status_code == 400
+        # The run under way, and a changed run that would not run, are refused. (Only the samples
+        # still to come of a run over a table can change once it runs: test_run_edits.py.)
+        under_way = await ac.put(f"/api/queue/runs/{running}", json=body)
+        assert under_way.status_code == 409 and "table of samples" in under_way.json()["error"]
         bad = {**body, "sequence": [step("echo_method", value="#nothing")]}
         refused = await ac.put(f"/api/queue/runs/{waiting}", json=bad)
         assert refused.status_code == 400 and "#nothing" in refused.json()["error"]

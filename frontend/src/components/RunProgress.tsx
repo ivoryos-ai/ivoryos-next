@@ -9,10 +9,13 @@
  * along is this?", sat at the bottom of a long scroll. Here each authored main step appears once,
  * with how many of its calls are done, and the loop's progress (samples, batches, or optimizer
  * iterations) is a strip above it. Every call is still available, collapsed, for editing.
+ *
+ * While the run goes, a step that has not run yet can be changed (`onEditStep`, the pencil on its
+ * row: for a step that repeats, its next run), and a step changed during the run says so.
  */
 
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, Check, ChevronDown, ChevronRight, Copy, Layers, Link2, Loader2, Repeat } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, ChevronRight, Copy, Layers, Link2, Loader2, Pencil, Repeat } from 'lucide-react';
 
 export type RunStep = {
   id: number;
@@ -311,6 +314,28 @@ const argsText = (step: RunStep | undefined) => {
   return entries.map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : String(v)}`).join(', ');
 };
 
+/** The pencil that opens a step still to come for changing, and the mark of one already changed. */
+function EditMark({ step, onEdit, title, changed }: {
+  step?: RunStep; onEdit?: (step: RunStep) => void; title?: string;
+  /** The calls to read "changed" from, when it is not `step` alone (every run of a repeated step). */
+  changed?: RunStep[];
+}) {
+  const edited: string[] = Array.from(new Set((changed || (step ? [step] : [])).flatMap(s => s.parameters?._edited || [])));
+  return (
+    <>
+      {edited.length > 0 && (
+        <span title={`Changed during the run: ${edited.join(', ')}`} className="shrink-0 text-[10px] font-semibold text-accent-fg">changed</span>
+      )}
+      {onEdit && step && step.status === 'pending' && (
+        <button onClick={() => onEdit(step)} title={title || 'Change this step before it runs'}
+          className="shrink-0 rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-white/10 dark:hover:text-gray-100">
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </>
+  );
+}
+
 function ErrorBox({ step, where }: { step: RunStep; where?: string }) {
   return (
     <div className="group/err relative mt-1.5 ml-7 p-2.5 pr-9 text-xs font-mono rounded-lg bg-red-50 text-red-700 border border-red-100 dark:bg-red-900/20 dark:text-red-300 dark:border-red-500/20 break-words">
@@ -328,7 +353,7 @@ function ErrorBox({ step, where }: { step: RunStep; where?: string }) {
 }
 
 /** A plain step that runs once (Prep, Cleanup, or a Main that doesn't loop). */
-function OnceRow({ step }: { step: RunStep }) {
+function OnceRow({ step, onEdit }: { step: RunStep; onEdit?: (step: RunStep) => void }) {
   const args = argsText(step);
   return (
     <div>
@@ -342,6 +367,7 @@ function OnceRow({ step }: { step: RunStep }) {
         </span>
         <span className="text-sm font-medium text-gray-800 dark:text-gray-100 shrink-0">{label(step.method)}</span>
         {args && <span className="text-xs font-mono text-gray-400 dark:text-gray-500 truncate min-w-0">{args}</span>}
+        <span className="ml-auto flex items-center gap-1.5"><EditMark step={step} onEdit={onEdit} /></span>
       </div>
       {step.status === 'error' && step.error && <ErrorBox step={step} />}
     </div>
@@ -364,7 +390,7 @@ const OncePill = () => (
   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600 dark:bg-white/10 dark:text-gray-300">once</span>
 );
 
-export default function RunProgress({ run, live, stepEditor, hideOverall = false, pinSummary = false }: {
+export default function RunProgress({ run, live, onEditStep, onChangeBudget, hideOverall = false, pinSummary = false }: {
   run: RunLike;
   /**
    * Keep the summary (elapsed time, and the sample / batch / iteration badges) stuck to the top
@@ -377,8 +403,10 @@ export default function RunProgress({ run, live, stepEditor, hideOverall = false
   hideOverall?: boolean;
   /** Whether the server is executing this run right now (drives elapsed/remaining time). */
   live: boolean;
-  /** Renders the per-call list's edit affordance for a pending step; the page owns the API call. */
-  stepEditor?: (step: RunStep) => React.ReactNode;
+  /** Open a step that has not run yet for changing (StepEditDialog); omitted, nothing is editable. */
+  onEditStep?: (step: RunStep) => void;
+  /** Change an optimization's budget while it runs (runEdits.ts askBudget). */
+  onChangeBudget?: () => void;
 }) {
   const [showCalls, setShowCalls] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -483,8 +511,11 @@ export default function RunProgress({ run, live, stepEditor, hideOverall = false
 
       {p.kind === 'optimization' && p.iterations.total > 0 && (
         <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/[0.03] p-3">
-          <span className="block text-sm font-bold text-gray-800 dark:text-gray-100 mb-2.5">
+          <span className="flex items-baseline gap-2 text-sm font-bold text-gray-800 dark:text-gray-100 mb-2.5">
             iteration {Math.min(p.iterations.done + (run.status === 'completed' ? 0 : 1), p.iterations.total)}/{p.iterations.total}
+            {onChangeBudget && (
+              <button onClick={onChangeBudget} className="text-xs font-semibold text-accent-fg hover:underline">change budget</button>
+            )}
           </span>
           <div className="flex flex-wrap gap-1">
             {Array.from({ length: p.iterations.total }, (_, i) => (
@@ -508,7 +539,7 @@ export default function RunProgress({ run, live, stepEditor, hideOverall = false
       {p.prep.length > 0 && (
         <section>
           <PhaseHeader name="Prep" count={p.prep.length} badge={<OncePill />} />
-          <div className="space-y-1">{p.prep.map(s => <OnceRow key={s.id} step={s} />)}</div>
+          <div className="space-y-1">{p.prep.map(s => <OnceRow key={s.id} step={s} onEdit={onEditStep} />)}</div>
         </section>
       )}
 
@@ -527,7 +558,7 @@ export default function RunProgress({ run, live, stepEditor, hideOverall = false
             ) : <OncePill />}
           />
           {!loops ? (
-            <div className="space-y-1">{p.template.map(t => <OnceRow key={t.key} step={t.calls[0]} />)}</div>
+            <div className="space-y-1">{p.template.map(t => <OnceRow key={t.key} step={t.calls[0]} onEdit={onEditStep} />)}</div>
           ) : (
             <div className="rounded-xl border-2 border-dashed border-gray-200 dark:border-white/15 dark:border-white/20 bg-gray-100/30 dark:bg-white/10 dark:bg-white/[0.04] p-2 space-y-1">
               {p.template.map(t => {
@@ -537,6 +568,8 @@ export default function RunProgress({ run, live, stepEditor, hideOverall = false
                   || t.calls.find(s => !DONE.has(s.status))
                   || t.calls[t.calls.length - 1];
                 const failed = t.calls.find(s => s.status === 'error');
+                // Its next run that has not started: what the pencil opens.
+                const next = t.calls.find(s => s.status === 'pending');
                 const args = argsText(current);
                 const pct = t.total ? (t.done / t.total) * 100 : 0;
                 return (
@@ -557,6 +590,8 @@ export default function RunProgress({ run, live, stepEditor, hideOverall = false
                         <span className="text-xs font-mono text-gray-400 dark:text-gray-500 truncate min-w-0">{args}</span>
                       )}
                       <div className="ml-auto flex items-center gap-2 shrink-0">
+                        <EditMark step={next} onEdit={onEditStep} changed={t.calls}
+                          title={next && rowOf(next) !== null ? `Change its next run (sample ${rowOf(next)! + 1}), or every later one` : 'Change its next run, or every later one'} />
                         {p.kind === 'rows' && (
                           t.perBatch ? (
                             <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-700 dark:text-purple-300">
@@ -593,12 +628,12 @@ export default function RunProgress({ run, live, stepEditor, hideOverall = false
       {p.cleanup.length > 0 && (
         <section>
           <PhaseHeader name="Cleanup" count={p.cleanup.length} badge={<OncePill />} />
-          <div className="space-y-1">{p.cleanup.map(s => <OnceRow key={s.id} step={s} />)}</div>
+          <div className="space-y-1">{p.cleanup.map(s => <OnceRow key={s.id} step={s} onEdit={onEditStep} />)}</div>
         </section>
       )}
 
       {/* Every call, for the rare case you need one in particular — collapsed, since the summary
-          above is what the page is for. Pending calls can still be edited here. */}
+          above is what the page is for. A call that has not run can be changed here too. */}
       {(run.steps?.length ?? 0) > 0 && (
         <section>
           <button
@@ -618,8 +653,8 @@ export default function RunProgress({ run, live, stepEditor, hideOverall = false
                     <span className="text-xs text-gray-500 dark:text-gray-400">{phaseOf(s)}{rowOf(s) !== null ? ` · row ${rowOf(s)! + 1}` : ''} · </span>
                     <span className="text-xs font-medium text-gray-800 dark:text-gray-100">{label(s.instrument)} {label(s.method)}</span>
                     {argsText(s) && <p className="text-[11px] font-mono text-gray-400 break-words">{argsText(s)}</p>}
-                    {stepEditor?.(s)}
                   </div>
+                  <EditMark step={s} onEdit={onEditStep} />
                 </div>
               ))}
             </div>

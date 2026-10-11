@@ -97,6 +97,13 @@ class DummyInstrument:
         exact value a step actually received without caring what the value means."""
         return value
 
+    def strict_echo(self, value: float = 0.0) -> float:
+        """Returns `value`, and fails above 10: a step that fails because of the value it was
+        given, so a test can change the value and retry rather than retry the same failure."""
+        if float(value) > 10:
+            raise ValueError(f"{value} is more than this instrument takes")
+        return float(value)
+
     def fail_first_call(self) -> float:
         """Fails the first time after `calls_seen` is reset to 0, then returns 2.0: one trial of
         an optimization round failing while the next succeeds."""

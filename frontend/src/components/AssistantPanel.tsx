@@ -23,9 +23,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  AlertTriangle, Bot, Check, GitCompare, Library, Loader2, MessageSquarePlus, PenLine, RefreshCw, Send, Settings2, ShieldCheck, Sparkles, Trash2, X,
+  AlertTriangle, Bot, Check, GitCompare, Library, Loader2, MessageSquarePlus, PenLine, RefreshCw, Send, Settings2, ShieldCheck, Sparkles, Table2, Trash2, X,
 } from 'lucide-react';
-import { API_BASE } from '@/config';
+import { API_BASE, withBase } from '@/config';
+import { applyProposal, describeStepFix, reviewSamplesHref, type RunProposal } from '@/runProposals';
 import {
   WorkflowDiff, confirmDialog, diffSteps, notify, toSequenceBlocks,
 } from '@ivoryos/shared-ui';
@@ -441,6 +442,48 @@ export default function AssistantPanel() {
           {decided ? <div className="mt-2 text-[11px] text-gray-400 italic">{proposal.status}</div> : (
             <div className="flex items-center gap-2 mt-2">
               <button onClick={() => startRun(proposal)} className="px-2 py-1 rounded-lg text-[11px] font-bold bg-amber-500 text-white hover:bg-amber-600">Start the run</button>
+              <button onClick={() => dismiss(proposal)} className={secondaryButton}>No</button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // A change to a run under way (propose-step-fix, propose-samples): a step fix is applied here
+    // (and retried, when it was proposed with one); samples are reviewed and saved in the run's
+    // table, which opens with them filled in.
+    if (proposal.kind === 'step_edit' || proposal.kind === 'run_rows') {
+      const fix = proposal.kind === 'step_edit';
+      return (
+        <div className="mt-2 rounded-xl border border-accent-tint bg-white dark:bg-[#141414] p-3">
+          <div className="text-xs font-bold text-gray-800 dark:text-gray-100">
+            {fix ? `Change ${proposal.payload?.step} in “${proposal.name}”?` : `New samples for “${proposal.name}”?`}
+          </div>
+          {fix && <div className="text-[11px] font-mono text-gray-700 dark:text-gray-300 mt-1 [overflow-wrap:anywhere]">{describeStepFix(proposal.payload)}{proposal.payload?.scope === 'later' ? ', and for every later run of it' : ''}</div>}
+          <div className="text-[11px] text-gray-500 mt-1">{proposal.summary}</div>
+          <div className="text-[10px] text-gray-400 mt-1">asked by {proposal.source || 'agent'}</div>
+          {decided ? <div className="mt-2 text-[11px] text-gray-400 italic">{proposal.status}</div> : (
+            <div className="flex items-center gap-2 mt-2">
+              {fix ? (
+                <button
+                  onClick={async () => {
+                    try {
+                      await applyProposal(proposal.id);
+                      markProposal(proposal.id, 'accepted');
+                    } catch (e: any) {
+                      await notify(e.message, { title: 'Not applied', tone: 'error' });
+                    }
+                  }}
+                  className={primaryButton}
+                >
+                  {proposal.payload?.then === 'retry' ? 'Apply and retry' : 'Apply'}
+                </button>
+              ) : (
+                // A full load: the Iterate page reads ?edit= and ?proposal= when it opens.
+                <button onClick={() => { closeAssistant(); window.location.assign(withBase(reviewSamplesHref(proposal as unknown as RunProposal))); }} className={primaryButton}>
+                  <Table2 className="w-3 h-3" /> Review in the table
+                </button>
+              )}
               <button onClick={() => dismiss(proposal)} className={secondaryButton}>No</button>
             </div>
           )}

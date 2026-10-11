@@ -224,6 +224,55 @@ def propose_safety(add: dict, summary: str, questions: list[str] | None = None, 
 
 
 @server.tool()
+def runs_under_way() -> dict:
+    """The runs under way and queued, and the latest ones: what each is waiting on (a failed
+    step, a question), and from which sample a run over a table can still change. Start here
+    before proposing a change to a run; then read its steps with get_run_steps. (Finished runs
+    and their data: search_runs and get_run_data.)"""
+    return _get("/api/agent/live")
+
+
+@server.tool()
+def get_run_steps(run_id: int) -> dict:
+    """One run's steps, to change it while it runs: every step with its id, status, sample and
+    arguments (and which arguments come from a table column), the table of samples with the
+    first one that can still change, and, when it waits for a decision, the failed step and its
+    error."""
+    return _get(f"/api/agent/runs/{run_id}/steps")
+
+
+@server.tool()
+def propose_step_fix(run_id: int, step_id: int, args: dict, summary: str,
+                     scope: str = "later", retry: bool = True) -> dict:
+    """Propose new values for a step of a run, usually the failed step the run waits on, so a
+    retry does not fail the same way. This does not change anything: a person applies it.
+
+    `args` are only the arguments to change, {name: value}. `scope="later"` also changes every
+    later run of the same step (the same step on the samples, or in the trials, still to come);
+    an argument a later sample takes from its own table column keeps that sample's value, so to
+    change a column for the samples still to come use propose_sample_changes. `retry` retries the
+    failed step once the values are in. Say in `summary` what was wrong and why the new values
+    are right: the person reads that before deciding. These are real instrument settings; when in
+    doubt about a value, ask the scientist instead.
+    """
+    payload = {"step_id": step_id, "args": args, "scope": scope, "retry": retry, "summary": summary, "source": SOURCE}
+    return _post(f"/api/agent/runs/{run_id}/propose-step-fix", payload)
+
+
+@server.tool()
+def propose_sample_changes(run_id: int, samples: list, summary: str) -> dict:
+    """Propose the samples of a run over a table as they should be, while it runs.
+
+    `samples` is the whole table, one {column: value} per sample, in order: the samples already
+    started (before `samples_that_can_change_from` in get_run_steps) exactly as they are, then the rest
+    changed, added or removed. Nothing changes until a person reviews them in the table and saves.
+    Say in `summary` what you changed and why.
+    """
+    payload = {"samples": samples, "summary": summary, "source": SOURCE}
+    return _post(f"/api/agent/runs/{run_id}/propose-samples", payload)
+
+
+@server.tool()
 def list_proposals(status: str = "pending") -> dict:
     """Check what you have already put forward and whether it was accepted or rejected.
 

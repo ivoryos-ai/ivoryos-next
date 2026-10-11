@@ -214,8 +214,11 @@ export interface PacedRunPayload {
 
 export type NodeRunPayload = EdgeRunPayload | PacedRunPayload;
 
-/** The node with only these rows and no pacing: what one firing of a paced node runs. */
-function withRows(node: any, rows: SpreadsheetRow[]): any {
+/**
+ * The node with only these rows and no pacing: what one firing of a paced node runs, and what a
+ * running task's changed samples are planned from (api/cloud-workflows/rows).
+ */
+export function withRows(node: any, rows: SpreadsheetRow[]): any {
   const config = runConfigOf(node);
   return {
     ...node,

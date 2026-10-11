@@ -646,6 +646,66 @@ async def handle_cloud_task(payload: dict):
         publish_task_status(run_id, node_id, "error", str(e))
 
 
+async def handle_cloud_row_edit(payload: dict) -> str:
+    """Cloud changed the samples still to come of a task running here.
+
+    `run` is the whole task again, built by Cloud from the node's changed table with the same
+    shared walk it was first built with, so it goes through prepare_run and replan_active_run like
+    a change made at the bench (PUT /api/queue/runs/{id}). Whether it went in is reported with the
+    run's progress as `edit_result`, under the command's `id`, so Cloud stops re-sending it.
+    """
+    from .run_edits import RunEditError
+    run_id = await _cloud_task_run(payload)
+    if run_id is None:
+        return "not running here"
+    command_id = payload.get("id")
+    if command_id and queue_manager.cloud_edit_results.get(run_id, {}).get("id") == command_id:
+        await queue_manager.report_cloud_progress(run_id, force=True)
+        return "already applied"
+    body = payload.get("run") if isinstance(payload.get("run"), dict) else {}
+    try:
+        parameters, steps = prepare_run(
+            dict(body.get("parameters") or {}), body.get("prep") or [], body.get("sequence") or [], body.get("cleanup") or [],
+        )
+        await queue_manager.replan_active_run(run_id, None, steps, parameters, who="cloud")
+        queue_manager.cloud_edit_results[run_id] = {"id": command_id, "ok": True}
+    except (RunEditError, WorkflowError, LookupError) as e:
+        queue_manager.cloud_edit_results[run_id] = {"id": command_id, "ok": False, "error": str(e)}
+    await queue_manager.report_cloud_progress(run_id, force=True)
+    return "applied" if queue_manager.cloud_edit_results[run_id]["ok"] else "refused"
+
+
+async def _cloud_task_run(payload: dict):
+    """The run under way here for this Cloud task, or None."""
+    run_id = queue_manager.active_run_id
+    current = await queue_manager.get_run_status(run_id) if run_id is not None else None
+    params = (current or {}).get("parameters") or {}
+    if not current or params.get("cloud_run_id") != payload.get("runId") or params.get("cloud_node_id") != payload.get("nodeId"):
+        return None
+    return run_id
+
+
+async def handle_cloud_budget(payload: dict) -> str:
+    """Cloud changed how many trials an optimization task running here makes in all
+    (queue.set_budget, as the bench does). The answer goes back with the run's progress as
+    `edit_result`, under the command's `id`."""
+    from .run_edits import RunEditError
+    run_id = await _cloud_task_run(payload)
+    if run_id is None:
+        return "not running here"
+    command_id = payload.get("id")
+    if command_id and queue_manager.cloud_edit_results.get(run_id, {}).get("id") == command_id:
+        await queue_manager.report_cloud_progress(run_id, force=True)
+        return "already applied"
+    try:
+        await queue_manager.set_budget(run_id, payload.get("budget"), who="cloud")
+        queue_manager.cloud_edit_results[run_id] = {"id": command_id, "ok": True}
+    except (RunEditError, LookupError) as e:
+        queue_manager.cloud_edit_results[run_id] = {"id": command_id, "ok": False, "error": str(e)}
+    await queue_manager.report_cloud_progress(run_id, force=True)
+    return "applied" if queue_manager.cloud_edit_results[run_id]["ok"] else "refused"
+
+
 def _cloud_run_label(run: dict) -> str:
     """A readable name for a Cloud task that arrived without one: what it runs, not Cloud's ids.
 
@@ -671,11 +731,23 @@ async def handle_broker_message(topic: str, payload: dict):
         await queue_manager.broadcast_global_queue()
         return
     if topic.rsplit("/", 1)[-1] == "task-control":
+        if payload.get("action") == "edit_rows":
+            # The samples still to come of a Cloud task, changed in Cloud (handle_cloud_row_edit).
+            outcome = await handle_cloud_row_edit(payload)
+            print(f"Cloud change of samples for {payload.get('nodeId')}: {outcome}")
+            return
+        if payload.get("action") == "set_budget":
+            # An optimization's budget, changed in Cloud (handle_cloud_budget).
+            outcome = await handle_cloud_budget(payload)
+            print(f"Cloud change of budget for {payload.get('nodeId')}: {outcome}")
+            return
         # Someone in Cloud answered a question or decided about an error (see
         # WorkflowQueueManager.apply_cloud_control).
         outcome = await queue_manager.apply_cloud_control(
             payload.get("runId"), payload.get("nodeId"), payload.get("pause"),
             payload.get("action"), payload.get("value"),
+            edit=payload.get("edit") if isinstance(payload.get("edit"), dict) else None,
+            command_id=payload.get("id"),
         )
         print(f"Cloud '{payload.get('action')}' for {payload.get('nodeId')}: {outcome}")
         return
@@ -1560,18 +1632,127 @@ async def create_run_group(req: Request):
 
 @app.put("/api/queue/runs/{run_id}")
 async def edit_queued_run(run_id: int, req: Request):
-    """Replace a queued run with a changed one (new spreadsheet values, a new optimization
-    configuration): the same body as POST /api/queue/runs, checked the same way. It keeps its
-    place in the queue. Refused once the run has started."""
+    """Replace a run with a changed one: the same body as POST /api/queue/runs, checked the
+    same way.
+
+    A run still waiting in the queue is replaced whole (new spreadsheet values, a new optimization
+    configuration) and keeps its place. A run under way has its samples still to come replaced
+    (queue.replan_active_run): the body is the whole run again, built from the changed table, and
+    the samples already started must be unchanged in it. 409 says why a change was refused."""
+    from .run_edits import RunEditError
     data = await req.json()
     try:
         parameters, steps = prepare_run(data.get("parameters", {}), data.get("prep", []), data.get("sequence", []), data.get("cleanup", []))
+        async with async_session() as session:
+            run = await session.get(WorkflowRun, run_id)
+            if not run:
+                return JSONResponse(status_code=404, content={"error": "Run not found"})
+            waiting = run.status == "pending" and queue_manager.active_run_id != run_id
+        if not waiting:
+            proposal = await _pending_rows_proposal(data.get("proposal"), run_id)
+            who = data.get("by")
+            if proposal is not None:
+                who = f"accepted from {proposal.source or 'an agent'} (proposal {proposal.id})"
+            result = await queue_manager.replan_active_run(run_id, data.get("name"), steps, parameters, who=who)
+            if proposal is not None:
+                await _close_rows_proposal(proposal.id, run_id, parameters.get("rows"))
+            return {"status": "updated", "run_id": run_id, "running": True, **result}
         await queue_manager.replace_pending_run(run_id, data.get("name"), steps, parameters)
     except LookupError as e:
         return JSONResponse(status_code=404, content={"error": str(e)})
+    except RunEditError as e:
+        return JSONResponse(status_code=409, content={"error": str(e)})
     except Exception as e:
         return JSONResponse(status_code=400, content={"error": str(e)})
     return {"status": "updated", "run_id": run_id}
+
+
+async def _pending_rows_proposal(proposal_id, run_id):
+    """The agent's proposed samples a change of a run comes from (the Iterate table opened with
+    ?proposal=), or None. Saved there, the person has reviewed it: it is closed as accepted."""
+    if proposal_id in (None, ""):
+        return None
+    from .models import AgentProposal
+    try:
+        proposal_id = int(proposal_id)
+    except (TypeError, ValueError):
+        return None
+    async with async_session() as session:
+        row = await session.get(AgentProposal, proposal_id)
+    if row is None or row.kind != "run_rows" or row.status != "pending" or (row.payload or {}).get("run_id") != run_id:
+        return None
+    return row
+
+
+async def _close_rows_proposal(proposal_id, run_id, rows):
+    from datetime import datetime as _dt
+    from .models import AgentProposal
+    async with async_session() as session:
+        row = await session.get(AgentProposal, proposal_id)
+        if row is None or row.status != "pending":
+            return
+        proposed = (row.payload or {}).get("samples")
+        same = json.dumps(proposed, sort_keys=True, default=str) == json.dumps(rows, sort_keys=True, default=str)
+        row.status = "accepted"
+        row.result_id = run_id
+        row.decided_note = "Applied as proposed." if same else "Applied with changes made in the table."
+        row.decided_at = _dt.utcnow()
+        await session.commit()
+
+
+@app.get("/api/queue/runs/{run_id}/steps/{step_id}")
+async def get_run_step_for_edit(run_id: int, step_id: int):
+    """One step of a run as it can be changed: its arguments, which come from a table column,
+    how many later runs of it are still to come, its method's schema, and whether it can be
+    changed now (and if not, why)."""
+    try:
+        return await queue_manager.step_edit_info(run_id, step_id)
+    except LookupError as e:
+        return JSONResponse(status_code=404, content={"error": str(e)})
+
+
+@app.patch("/api/queue/runs/{run_id}/budget")
+async def change_run_budget(run_id: int, req: Request):
+    """Change how many trials the optimization under way makes in all (`{budget, by?}`). Not
+    below the trials already begun; 409 says why a change was refused."""
+    from .run_edits import RunEditError
+    try:
+        data = await req.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Invalid JSON"})
+    try:
+        result = await queue_manager.set_budget(run_id, data.get("budget"), who=data.get("by"))
+    except LookupError as e:
+        return JSONResponse(status_code=404, content={"error": str(e)})
+    except RunEditError as e:
+        return JSONResponse(status_code=409, content={"error": str(e)})
+    return {"status": "updated", **result}
+
+
+@app.patch("/api/queue/runs/{run_id}/steps/{step_id}")
+async def edit_run_step(run_id: int, step_id: int, req: Request):
+    """Change a step's arguments before it runs, or before a failed step is retried.
+
+    Body: `{args: {name: value}, scope: "step" | "later", then?: "retry", by?: str}`. `later` also
+    changes every later run of the same step (the samples and trials still to come), except where
+    a later sample takes that argument from its own table column. Checked against the method's
+    arguments and the safety guard; 409 says why a change was refused."""
+    from .run_edits import RunEditError
+    try:
+        data = await req.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Invalid JSON"})
+    then = data.get("then")
+    if then not in (None, "retry"):
+        return JSONResponse(status_code=400, content={"error": "'then' can only be 'retry'."})
+    try:
+        result = await queue_manager.edit_step(run_id, step_id, data.get("args"), data.get("scope") or "step",
+                                               who=data.get("by"), then=then)
+    except LookupError as e:
+        return JSONResponse(status_code=404, content={"error": str(e)})
+    except RunEditError as e:
+        return JSONResponse(status_code=409, content={"error": str(e)})
+    return {"status": "updated", **result}
 
 
 @app.get("/api/queue/runs/{run_id}")
