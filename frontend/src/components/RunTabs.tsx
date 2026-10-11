@@ -1,6 +1,6 @@
 "use client";
 
-import { ListOrdered, Play, Rows3, Zap } from 'lucide-react';
+import { ArrowLeft, ListOrdered, Play, Rows3, Workflow, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect } from 'react';
 
@@ -16,6 +16,10 @@ import { useEffect } from 'react';
  * Once and Iterate are one page in two modes (components/RunWorkflowPage.tsx). Iterate keeps the
  * key `configure` and the route /execution it had as Configure, so a remembered tab, the
  * Designer's Configure button and a bookmark all still land where they did.
+ *
+ * The way back to the Designer leads the strip: these pages are where a workflow is run from, and
+ * going back to change it is the next thing most people do. With the nav in the sidebar the
+ * Designer entry is far from the tabs (and off screen on a short window).
  */
 
 export const RUN_TABS = [
@@ -69,26 +73,38 @@ export default function RunTabs({ active }: { active: RunTabKey }) {
   }, [active]);
 
   return (
-    <nav className="flex items-center gap-1 p-0.5 rounded-lg bg-gray-100 dark:bg-white/5" aria-label="Run mode">
-      {RUN_TABS.map(tab => {
-        const Icon = tab.icon;
-        const isActive = tab.key === active;
-        return (
-          <Link
-            key={tab.key}
-            href={tab.href}
-            aria-current={isActive ? 'page' : undefined}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-              isActive
-                ? 'bg-white text-accent-fg shadow-sm ring-1 ring-accent-tint/60 dark:bg-accent-soft dark:ring-0'
-                : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'
-            }`}
-          >
-            <Icon className="w-3.5 h-3.5" />
-            {tab.label}
-          </Link>
-        );
-      })}
-    </nav>
+    <div className="flex items-center gap-2 min-w-0">
+      <Link
+        href="/designer"
+        title="Back to the Designer"
+        className="flex items-center gap-1 px-2 py-1.5 rounded-md text-xs font-semibold text-gray-500 hover:text-gray-800 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-white/5 transition-colors"
+      >
+        <ArrowLeft className="w-3.5 h-3.5" />
+        <Workflow className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline">Designer</span>
+      </Link>
+      <span className="h-5 w-px bg-gray-200 dark:bg-white/10" aria-hidden="true" />
+      <nav className="flex items-center gap-1 p-0.5 rounded-lg bg-gray-100 dark:bg-white/5" aria-label="Run mode">
+        {RUN_TABS.map(tab => {
+          const Icon = tab.icon;
+          const isActive = tab.key === active;
+          return (
+            <Link
+              key={tab.key}
+              href={tab.href}
+              aria-current={isActive ? 'page' : undefined}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                isActive
+                  ? 'bg-white text-accent-fg shadow-sm ring-1 ring-accent-tint/60 dark:bg-accent-soft dark:ring-0'
+                  : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {tab.label}
+            </Link>
+          );
+        })}
+      </nav>
+    </div>
   );
 }
