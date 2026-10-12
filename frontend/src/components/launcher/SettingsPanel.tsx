@@ -62,6 +62,16 @@ export default function SettingsPanel({ api, snap }: {
 
       <Section title="Updates">
         <UpdateRow api={api} update={snap.update} />
+        {snap.update.manual && (
+          <div className="mt-3 flex items-center gap-3 text-sm text-gray-600 dark:text-gray-300">
+            <span className="flex-1">IvoryOS is not in your Applications folder, so it cannot install updates itself. Moved there, new versions arrive by themselves.</span>
+            <Button small onClick={async () => {
+              if (await confirmDialog('Move IvoryOS to Applications? Running decks are stopped, and IvoryOS opens again from Applications.', { title: 'Move to Applications?', confirmLabel: 'Move' })) {
+                api.moveToApplications().catch((e: any) => notify(e.message, { title: 'Move to Applications', tone: 'error' }));
+              }
+            }}><FolderOpen className="w-3.5 h-3.5" /> Move to Applications</Button>
+          </div>
+        )}
         {snap.update.state !== 'unsupported' && !snap.update.manual && (
           <label className="mt-3 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
             <input type="checkbox" checked={snap.autoUpdate} onChange={e => api.setAutoUpdate(e.target.checked)} className="accent-accent" />

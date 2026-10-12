@@ -161,10 +161,14 @@ running). `npm run smoke` with `IVORYOS_SMOKE_TRAY=1` checks minimize and close 
 
 ## Updates
 
-`src/updater.js`, from the GitHub releases CI publishes. Windows and Linux: electron-updater
-checks shortly after launch and every 4 hours, downloads in the background (Settings can turn that
-off), and installs on **Restart to update**, which stops every deck first. macOS: unsigned apps
-cannot install their own updates, so it only checks and offers the download.
+`src/updater.js`, from the GitHub releases CI publishes. electron-updater checks shortly after
+launch and every 4 hours, downloads in the background (Settings can turn that off), and installs on
+**Restart to update**, which stops every deck first. On macOS it goes through Squirrel.Mac, which
+installs only a signed app delivered as a `.zip`, so each release carries a `.zip` beside the
+`.dmg` (people download the `.dmg`; the updater fetches the `.zip`). Squirrel replaces the app
+where it stands, so a copy running outside Applications (straight from the `.dmg`, or from
+Downloads, which macOS runs from a read-only copy) only checks and links to the download, and
+Settings offers **Move to Applications** (`app.moveToApplicationsFolder()`).
 
 ## The contract with the edge
 
@@ -189,17 +193,23 @@ native binary. `npm run dist:dir` builds an unpacked app for testing, and
 
 **Download links (CI).** `.github/workflows/desktop.yml` builds all three OSes on their own
 runners, runs `npm test`, and smoke-tests each packaged app against an empty profile folder. Any
-push touching `desktop/` attaches the installers to the workflow run as artifacts. To publish
-download links, push a tag:
+push touching `desktop/` attaches the installers to the workflow run as artifacts, unsigned. To
+publish download links, push a tag:
 
 ```bash
 git tag desktop-v0.1.0-test.1 && git push origin desktop-v0.1.0-test.1
 ```
 
 That creates a GitHub **pre-release** with the Windows `.exe`, macOS (Apple silicon) `.dmg` and
-Linux `.AppImage`, and first-open instructions for unsigned builds. A tag without a suffix
-(`desktop-v0.2.0`) is a full release, which is what installed apps update to; the version comes
-from the tag, so `package.json`'s `version` does not need editing.
+Linux `.AppImage`. A tag without a suffix (`desktop-v0.2.0`) is a full release, which is what
+installed apps update to; the version comes from the tag, so `package.json`'s `version` does not
+need editing.
+
+**Signing.** Tagged builds are signed: the macOS app with a Developer ID and notarized by Apple,
+the Windows installer and app through Azure Trusted Signing (the AppImage is not signed). The
+secrets and variables this needs are listed at the top of the workflow; a signed build missing any
+of them stops before building and names them. **Run workflow** on the workflow's Actions page
+makes the same signed build without releasing anything, which is how to check the setup.
 
 **App icon:** `build/icon.png` (1024×1024) is generated from `build/logo.png` by
 `uv run --with pillow python scripts/make-icon.py`. electron-builder makes the macOS and Windows
@@ -209,9 +219,6 @@ packaged builds are named IvoryOS throughout.
 
 ## Not done yet
 
-- **Code signing and notarization.** Builds are unsigned, so macOS Gatekeeper and Windows
-  SmartScreen will warn. This needs an Apple Developer ID and a Windows signing certificate in CI.
-- **Auto-install on macOS** needs code signing (see above); until then macOS only checks.
 - **Real plans.** The Pro switch is a preview on a user-writable field (see Accounts).
 - **Offline first launch.** uv downloads Python on first run; bundling a standalone Python would
   remove that.

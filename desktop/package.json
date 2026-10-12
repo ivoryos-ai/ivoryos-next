@@ -21,7 +21,9 @@
       "src/**/*",
       "package.json",
       "build/icon.png",
-      "build/icon-win.png"
+      "build/icon-win.png",
+      "build/trayTemplate.png",
+      "build/trayTemplate@2x.png"
     ],
     "extraResources": [
       {
@@ -43,7 +45,8 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
-        "dmg"
+        "dmg",
+        "zip"
       ]
     },
     "win": {
@@ -76,7 +79,7 @@
   },
   "devDependencies": {
     "electron": "^44.4.5",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.17.0"
   },
   "dependencies": {
     "electron-updater": "^6.8.9"

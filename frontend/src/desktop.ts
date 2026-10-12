@@ -62,7 +62,8 @@ export type UpdateStatus = {
   version?: string;
   percent?: number;
   message?: string | null;
-  /** macOS: unsigned builds cannot install themselves, so an update is a download link. */
+  /** macOS outside Applications: the app cannot replace itself, so an update is a download link
+   *  and Settings offers to move the app (moveToApplications). */
   manual?: boolean;
   releaseUrl?: string;
   downloadUrl?: string;
@@ -401,6 +402,7 @@ export interface DesktopApi {
   downloadUpdate(): Promise<void>;
   installUpdate(): Promise<void>;
   openUpdatePage(): Promise<void>;
+  moveToApplications(): Promise<void>;
   setAutoUpdate(on: boolean): Promise<void>;
   setWindowPref(key: 'minimizeToTray' | 'closeToTray', on: boolean): Promise<void>;
   revealData(): Promise<void>;

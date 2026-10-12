@@ -3,16 +3,32 @@ name: Desktop installers
 # Builds the IvoryOS desktop app for Windows, macOS and Linux, and checks each packaged build
 # boots (--smoke-test: installs Python with the bundled uv, starts a deck, loads the launcher).
 #
-# - Any push touching desktop/ (or this file): build and test; installers are attached to the
-#   workflow run as artifacts (Actions tab -> the run -> Artifacts; needs a GitHub login).
-# - A tag `desktop-v<version>`: the same, built as that version, then a GitHub release with the
+# - Any push touching desktop/ (or this file): build and test, unsigned; installers are attached
+#   to the workflow run as artifacts (Actions tab -> the run -> Artifacts; needs a GitHub login).
+# - Run workflow (Actions tab -> Desktop installers -> Run workflow): the same, but signed and
+#   notarized. Still only artifacts, so it is how to check the signing setup without publishing.
+# - A tag `desktop-v<version>`: signed, built as that version, then a GitHub release with the
 #   installers as public download links.
-#     desktop-v0.2.0         a release. Installed apps offer it as an update (desktop/src/updater.js
-#                            reads latest.yml / latest-linux.yml from the newest release).
+#     desktop-v0.2.0         a release. Installed apps update to it (desktop/src/updater.js reads
+#                            latest.yml / latest-mac.yml / latest-linux.yml from the newest release;
+#                            on macOS the update is the .zip, which Squirrel.Mac installs only into
+#                            a signed app).
 #     desktop-v0.2.0-test.1  a pre-release: downloadable for testing, never offered as an update.
 #
-# Each OS builds on its own runner because the bundled uv is a native binary. Builds are unsigned
-# (no Apple Developer ID or Windows certificate yet), so Gatekeeper and SmartScreen will warn.
+# Signing (Settings -> Secrets and variables -> Actions). The Linux AppImage is never signed.
+#   macOS    Developer ID certificate, then notarized by Apple. Secrets: MAC_CSC_LINK (the .p12,
+#            base64), MAC_CSC_KEY_PASSWORD, and an App Store Connect API key: APPLE_API_KEY_P8_BASE64
+#            (the AuthKey_*.p8, base64), APPLE_API_KEY_ID, APPLE_API_ISSUER.
+#   Windows  Azure Trusted Signing. Secrets: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET
+#            (an app registration holding the Certificate Profile Signer role). Variables, not
+#            secret: AZURE_SIGNING_ENDPOINT (the account's region URL, like
+#            https://eus.codesigning.azure.net/), AZURE_SIGNING_ACCOUNT, AZURE_SIGNING_PROFILE, and
+#            AZURE_SIGNING_PUBLISHER (the certificate's subject CN, exactly; installed apps refuse
+#            an update signed by any other name).
+# A signed build with any of these missing stops before building and names them, and
+# electron-builder runs with forceCodeSigning, so nothing goes out unsigned by accident.
+#
+# Each OS builds on its own runner because the bundled uv is a native binary.
 
 on:
   push:
@@ -46,6 +62,7 @@ jobs:
             native: darwin-arm64
             installer: |
               desktop/dist/*.dmg
+              desktop/dist/*.zip
               desktop/dist/latest*.yml
               desktop/dist/*.blockmap
             app: 'desktop/dist/mac-arm64/IvoryOS.app/Contents/MacOS/IvoryOS'
@@ -61,7 +78,9 @@ jobs:
       run:
         shell: bash
     env:
-      CSC_IDENTITY_AUTO_DISCOVERY: 'false' # unsigned: don't go looking for a certificate
+      # Release tags and manual runs are signed. Branch pushes are not: no notarization wait, no
+      # signing quota spent on builds nobody downloads.
+      SIGN: ${{ startsWith(github.ref, 'refs/tags/desktop-v') || github.event_name == 'workflow_dispatch' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -70,6 +89,59 @@ jobs:
           node-version: 22
 
       - uses: astral-sh/setup-uv@v6
+
+      - name: Signing credentials
+        if: env.SIGN == 'true' && runner.os != 'Linux'
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+          AZURE_SIGNING_PUBLISHER: ${{ vars.AZURE_SIGNING_PUBLISHER }}
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = macOS ]; then
+            names="MAC_CSC_LINK MAC_CSC_KEY_PASSWORD APPLE_API_KEY_P8_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER"
+          else
+            names="AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_SIGNING_ENDPOINT AZURE_SIGNING_ACCOUNT AZURE_SIGNING_PROFILE AZURE_SIGNING_PUBLISHER"
+          fi
+          missing=""
+          for n in $names; do [ -n "${!n:-}" ] || missing="$missing $n"; done
+          if [ -n "$missing" ]; then
+            echo "::error::A signed build needs these in Settings -> Secrets and variables -> Actions:$missing"
+            exit 1
+          fi
+          [ "$RUNNER_OS" = macOS ] || exit 0
+
+          # electron-builder and notarytool take the certificate and the API key as files. Node's
+          # base64 reader skips line breaks, whichever tool did the encoding.
+          decode() { node -e "require('fs').writeFileSync(process.argv[1], Buffer.from(process.env[process.argv[2]], 'base64'))" "$1" "$2"; }
+          decode "$RUNNER_TEMP/developer-id.p12" MAC_CSC_LINK
+          decode "$RUNNER_TEMP/apple-api-key.p8" APPLE_API_KEY_P8_BASE64
+
+          # Check both now rather than after a ten-minute build. The certificate must open with its
+          # password and be a Developer ID Application one with its private key (exporting an
+          # "Apple Development" or "Apple Distribution" certificate is the usual mistake).
+          kc="$RUNNER_TEMP/check.keychain-db"
+          security create-keychain -p check "$kc"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$kc" -P "$MAC_CSC_KEY_PASSWORD" >/dev/null \
+            || { echo "::error::MAC_CSC_LINK does not open with MAC_CSC_KEY_PASSWORD"; exit 1; }
+          identities="$(security find-identity -p codesigning "$kc")"
+          security delete-keychain "$kc"
+          grep -m1 '"Developer ID Application:' <<<"$identities" \
+            || { echo "::error::MAC_CSC_LINK holds no Developer ID Application certificate with its private key"; exit 1; }
+          xcrun notarytool history --key "$RUNNER_TEMP/apple-api-key.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" >/dev/null \
+            || { echo "::error::Apple refused the notarization key (APPLE_API_KEY_P8_BASE64, APPLE_API_KEY_ID, APPLE_API_ISSUER)"; exit 1; }
+
+          echo "CSC_LINK=$RUNNER_TEMP/developer-id.p12" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY=$RUNNER_TEMP/apple-api-key.p8" >> "$GITHUB_ENV"
 
       - name: Install workspace packages
         run: |
@@ -108,8 +180,64 @@ jobs:
         working-directory: desktop
 
       - name: Package
-        run: npm run dist -- --publish never
         working-directory: desktop
+        env:
+          # Read by electron-builder. Off, it ignores CSC_LINK as well, so it is on only when signing.
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ env.SIGN == 'true' && runner.os == 'macOS' }}
+          CSC_KEY_PASSWORD: ${{ env.SIGN == 'true' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          APPLE_API_KEY_ID: ${{ env.SIGN == 'true' && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ env.SIGN == 'true' && secrets.APPLE_API_ISSUER || '' }}
+          AZURE_TENANT_ID: ${{ env.SIGN == 'true' && secrets.AZURE_TENANT_ID || '' }}
+          AZURE_CLIENT_ID: ${{ env.SIGN == 'true' && secrets.AZURE_CLIENT_ID || '' }}
+          AZURE_CLIENT_SECRET: ${{ env.SIGN == 'true' && secrets.AZURE_CLIENT_SECRET || '' }}
+          AZURE_SIGNING_ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ vars.AZURE_SIGNING_PROFILE }}
+          AZURE_SIGNING_PUBLISHER: ${{ vars.AZURE_SIGNING_PUBLISHER }}
+        run: |
+          set -euo pipefail
+          args=(--publish never)
+          if [ "$SIGN" = true ] && [ "$RUNNER_OS" != Linux ]; then
+            args+=(-c.forceCodeSigning=true)
+          fi
+          if [ "$SIGN" = true ] && [ "$RUNNER_OS" = Windows ]; then
+            args+=(
+              "-c.win.azureSignOptions.endpoint=$AZURE_SIGNING_ENDPOINT"
+              "-c.win.azureSignOptions.codeSigningAccountName=$AZURE_SIGNING_ACCOUNT"
+              "-c.win.azureSignOptions.certificateProfileName=$AZURE_SIGNING_PROFILE"
+              "-c.win.azureSignOptions.publisherName=$AZURE_SIGNING_PUBLISHER"
+            )
+          fi
+          npm run prepare-resources
+          # electron-builder itself rather than `npm run dist`, so a publisher name with spaces or
+          # commas arrives as one argument (npm re-quotes extra arguments for cmd.exe on Windows).
+          node node_modules/electron-builder/cli.js "${args[@]}"
+
+      - name: Check the signature and notarization (macOS)
+        if: env.SIGN == 'true' && runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          app=desktop/dist/mac-arm64/IvoryOS.app
+          codesign --verify --deep --strict --verbose=2 "$app"
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=4 "$app" # "source=Notarized Developer ID"
+          # What installed copies update from: without the .zip listed, every Mac would stay put.
+          grep -E 'url: .+\.zip$' desktop/dist/latest-mac.yml \
+            || { echo "::error::latest-mac.yml lists no .zip, so installed Macs could not update"; exit 1; }
+
+      - name: Check the signatures (Windows)
+        if: env.SIGN == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # The installer and the app are what SmartScreen and the updater look at.
+          $required = @(Get-ChildItem desktop/dist/*.exe) + @(Get-Item desktop/dist/win-unpacked/IvoryOS.exe)
+          $unsigned = 0
+          foreach ($f in $required + @(Get-Item desktop/dist/win-unpacked/resources/bin/uv.exe)) {
+            $s = Get-AuthenticodeSignature $f.FullName
+            "{0}: {1} ({2})" -f $f.Name, $s.Status, $s.SignerCertificate.Subject
+            if ($s.Status -ne 'Valid' -and $required.FullName -contains $f.FullName) { $unsigned++ }
+          }
+          if ($unsigned) { throw "$unsigned file(s) above are not validly signed" }
 
       - name: Smoke-test the packaged app on a clean profile folder
         run: |
@@ -151,13 +279,14 @@ jobs:
           make_latest: ${{ steps.kind.outputs.pre == 'false' }}
           files: installers/*
           body: |
-            Test build of the IvoryOS desktop launcher. Unsigned, so the OS will warn on first open:
+            The IvoryOS desktop launcher.
 
-            - **Windows**: SmartScreen says "Windows protected your PC" -> More info -> Run anyway.
-            - **macOS (Apple silicon)**: open the .dmg and drag IvoryOS to Applications. If macOS says
-              the app "is damaged" or "can't be opened", run `xattr -cr /Applications/IvoryOS.app` once.
+            - **Windows**: run `IvoryOS-Setup-*.exe`. The installer is signed; if SmartScreen still
+              warns (it can for a newly signed app), choose More info -> Run anyway.
+            - **macOS (Apple silicon)**: open the .dmg and drag IvoryOS to Applications. The app is
+              signed and notarized by Apple.
             - **Linux**: `chmod +x IvoryOS-*.AppImage` and run it.
 
             First launch downloads Python (via the bundled uv), so it needs internet and takes a minute.
-            Installed on Windows or Linux, later versions arrive by themselves (Settings -> Updates);
-            on macOS the app says when one is out and links here.
+            Once installed, later versions arrive by themselves (Settings -> Updates). On macOS that
+            needs IvoryOS in the Applications folder; Settings offers to move it there.

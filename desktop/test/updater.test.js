@@ -44,16 +44,27 @@ test('with automatic downloads off, an update waits to be downloaded', async () 
     await assert.rejects(up.install(), /No update is ready/);
 });
 
-test('macOS (unsigned) only checks, and links to the .dmg', async () => {
+test('macOS in Applications updates itself like the others', async () => {
+    const auto = fakeAutoUpdater((u) => u.emit('update-available', { version: '0.2.0' }));
+    const up = new Updates({ currentVersion: '0.1.0', packaged: true, platform: 'darwin', fetch: () => { throw new Error('must not fetch'); }, loadAutoUpdater: () => auto, autoDownload: () => true });
+    assert.equal(up.status().manual, false);
+    await up.check();
+    await new Promise((r) => setImmediate(r));
+    assert.equal(up.status().state, 'ready');
+    await up.install(async () => {});
+    assert.ok(auto.installed);
+});
+
+test('macOS outside Applications only checks, and links to the .dmg', async () => {
     const fetch = async () => new Response(JSON.stringify({
         tag_name: 'desktop-v0.3.0', html_url: 'https://github.com/o/r/releases/tag/desktop-v0.3.0',
         assets: [{ name: 'IvoryOS-0.3.0-arm64.dmg', browser_download_url: 'https://dl/IvoryOS.dmg' }],
     }));
-    const up = new Updates({ currentVersion: '0.2.0', packaged: true, platform: 'darwin', fetch, loadAutoUpdater: () => { throw new Error('must not load'); } });
+    const up = new Updates({ currentVersion: '0.2.0', packaged: true, platform: 'darwin', canInstall: false, fetch, loadAutoUpdater: () => { throw new Error('must not load'); } });
     const s = await up.check();
     assert.equal(s.state, 'available');
     assert.equal(s.manual, true);
     assert.equal(s.downloadUrl, 'https://dl/IvoryOS.dmg');
-    const same = new Updates({ currentVersion: '0.3.0', packaged: true, platform: 'darwin', fetch });
+    const same = new Updates({ currentVersion: '0.3.0', packaged: true, platform: 'darwin', canInstall: false, fetch });
     assert.equal((await same.check()).state, 'up-to-date');
 });
