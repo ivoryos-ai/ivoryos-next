@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { ListTodo, Play, Pause, XCircle, Edit3, Check, X, ArrowUp, ArrowDown, Trash2, Cloud } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import RunProgress, { type RunStep } from '@/components/RunProgress';
+import StepEditDialog from '@/components/StepEditDialog';
 import { confirmDialog, notify, useDocumentTheme } from '@ivoryos/shared-ui';
 import { runSizeLabel } from '@/runSize';
 
@@ -91,8 +92,8 @@ export default function QueuePage() {
   const theme = useDocumentTheme();
   const [activeWorkflowId, setActiveWorkflowId] = useState<number | null>(null);
   const [workflow, setWorkflow] = useState<any>(null);
-  const [editingStep, setEditingStep] = useState<number | null>(null);
-  const [editParams, setEditParams] = useState<string>("");
+  // A step still to come, open for changing (StepEditDialog: the checked edit, not raw JSON).
+  const [editingStep, setEditingStep] = useState<RunStep | null>(null);
   const [activeRun, setActiveRun] = useState<any>(null);
   const [pendingRuns, setPendingRuns] = useState<any[]>([]);
   const [renamingRunId, setRenamingRunId] = useState<number | null>(null);
@@ -294,56 +295,6 @@ export default function QueuePage() {
     } catch (e: any) {
       await notify(e.message, { title: 'Could not remove', tone: 'error' });
     }
-  };
-
-  const startEdit = (step: any) => {
-      setEditingStep(step.id);
-      setEditParams(JSON.stringify(step.parameters, null, 2));
-  };
-
-  const saveEdit = async (stepId: number) => {
-      try {
-          const parsed = JSON.parse(editParams);
-          const res = await fetch(`${API_BASE}/api/steps/${stepId}`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ parameters: parsed })
-          });
-          const data = await res.json();
-          if (data.error) {
-              await notify(data.error, { title: 'Could not save', tone: 'error' });
-          } else {
-              setEditingStep(null);
-              fetchQueue();
-          }
-      } catch (e: any) {
-          await notify(e.message, { title: 'Invalid JSON parameters', tone: 'error' });
-      }
-  };
-
-  const stepEditor = (step: RunStep) => {
-    if (step.status !== 'pending') return null;
-    if (editingStep !== step.id) {
-      return (
-        <button onClick={() => startEdit(step)} className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-900 dark:hover:text-white">
-          <Edit3 className="w-3 h-3" /> edit
-        </button>
-      );
-    }
-    return (
-      <div className="mt-1.5 space-y-1.5">
-        <textarea
-          className="w-full text-xs font-mono p-2 bg-gray-100 dark:bg-black/40 border border-gray-300 dark:border-white/10 rounded resize-y outline-none focus:border-accent"
-          rows={3}
-          value={editParams}
-          onChange={(e) => setEditParams(e.target.value)}
-        />
-        <div className="flex gap-2">
-          <button onClick={() => saveEdit(step.id)} className="flex items-center gap-1 px-2.5 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700"><Check className="w-3 h-3" />Save</button>
-          <button onClick={() => setEditingStep(null)} className="flex items-center gap-1 px-2.5 py-1 bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-xs"><X className="w-3 h-3" />Cancel</button>
-        </div>
-      </div>
-    );
   };
 
   const live = isLive(activeRun, activeWorkflowId);
@@ -559,7 +510,8 @@ export default function QueuePage() {
                   </div>
                   {statusPill(shownRun.status)}
                 </div>
-                <RunProgress run={shownRun} live={shownIsActive && live} stepEditor={stepEditor} />
+                <RunProgress run={shownRun} live={shownIsActive && live} onEditStep={setEditingStep} />
+                {editingStep && <StepEditDialog run={shownRun} step={editingStep} onClose={() => setEditingStep(null)} />}
               </div>
             )}
           </main>

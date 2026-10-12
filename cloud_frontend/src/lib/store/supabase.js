@@ -461,6 +461,30 @@ function createSupabaseStore(url, serviceRoleKey) {
       return (data || []).length > 0;
     },
 
+    async setTaskEditCommand(runId, nodeId, command) {
+      const { data, error } = await supabase.from('run_tasks')
+        .update({ command, updated_at: nowIso() })
+        .eq('run_id', runId).eq('node_id', nodeId).eq('status', 'running')
+        .is('command', null)
+        .select('node_id');
+      if (error) fail(`Failed to record the change for ${runId}/${nodeId}`, error);
+      return (data || []).length > 0;
+    },
+
+    async getTask(runId, nodeId) {
+      const { data, error } = await supabase.from('run_tasks')
+        .select('run_id, node_id, device_id, status, block, run, progress, command, repeat_done, repeat_total')
+        .eq('run_id', runId).eq('node_id', nodeId).maybeSingle();
+      if (error) fail(`Failed to read task ${runId}/${nodeId}`, error);
+      return data || null;
+    },
+
+    async updateTaskRun(runId, nodeId, payload) {
+      const { error } = await supabase.from('run_tasks')
+        .update({ run: payload || null }).eq('run_id', runId).eq('node_id', nodeId);
+      if (error) fail(`Failed to update the payload for ${runId}/${nodeId}`, error);
+    },
+
     async listTaskCommands() {
       const { data, error } = await supabase.from('run_tasks')
         .select('run_id, node_id, device_id, status, progress, command')

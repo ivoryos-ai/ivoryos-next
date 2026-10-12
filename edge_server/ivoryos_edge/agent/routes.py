@@ -16,6 +16,10 @@ so it is worth being blunt about which is which:
     POST /api/agent/runs/compare        several runs side by side, numbers computed here
     GET  /api/agent/safety              the safety configuration and what the deck offers to it
     POST /api/agent/propose-safety      file safety additions (states, limits, rules) for review
+    GET  /api/agent/live                runs under way and queued, what each is waiting on
+    GET  /api/agent/runs/{id}/steps     one run's steps: ids, arguments, what can still change
+    POST /api/agent/runs/{id}/propose-step-fix   new values for a step (a failed one), for review
+    POST /api/agent/runs/{id}/propose-samples    new samples still to come, for review
     GET  /api/agent/proposals           the review queue
     POST /api/agent/proposals/{id}/accept   a *person* applies it
     POST /api/agent/proposals/{id}/reject
@@ -422,6 +426,194 @@ def _as_dict(proposal):
     }
 
 
+# --- runs under way: reading them, and proposing changes ------------------------------------
+#
+# The same two changes a person makes from the run bar (queue.edit_step, replan_active_run): new
+# values for a step before it is retried, and different samples still to come. An agent only
+# proposes them; a person applies them, a step fix from the failure pop-up or the assistant panel,
+# samples in the Iterate table, where they are reviewed as the table they will be.
+
+MAX_RUN_STEPS = 200
+
+
+def _first_line(text):
+    return str(text or "").strip().split("\n", 1)[0][:300]
+
+
+def _compact_run(run, decision=None):
+    """A run as an agent needs it: lossy on purpose, like describe_deck."""
+    params = run.get("parameters") or {}
+    steps = []
+    for s in run.get("steps") or []:
+        p = s.get("parameters") or {}
+        entry = {
+            "step_id": s.get("id"),
+            "step": f"{s.get('instrument')}.{s.get('method')}",
+            "status": s.get("status"),
+            "phase": p.get("_phase") or "main",
+            "args": {k: v for k, v in p.items() if not str(k).startswith("_")},
+        }
+        if isinstance(p.get("_row"), int):
+            entry["sample"] = p["_row"] + 1
+        if p.get("_vars"):
+            entry["from_columns"] = p["_vars"]
+        if s.get("error"):
+            entry["error"] = _first_line(s.get("error"))
+        steps.append(entry)
+    omitted = 0
+    if len(steps) > MAX_RUN_STEPS:
+        # What has not finished matters; what has, is history.
+        open_steps = [e for e in steps if e["status"] not in ("completed", "skipped")]
+        omitted = len(steps) - min(len(open_steps), MAX_RUN_STEPS)
+        steps = open_steps[:MAX_RUN_STEPS]
+    first_open = run.get("editable_from")
+    out = {
+        "run_id": run.get("id"),
+        "name": run.get("name"),
+        "status": run.get("status"),
+        "type": params.get("type") or "Simple",
+        "steps": steps,
+    }
+    if omitted:
+        out["steps_omitted"] = omitted
+    if params.get("type") == "Spreadsheet":
+        out["columns"] = params.get("variables") or []
+        out["samples"] = params.get("rows") or []
+        out["batch_size"] = params.get("batch_size") or 1
+        out["samples_that_can_change_from"] = first_open + 1 if isinstance(first_open, int) else None
+    if decision and decision.get("run_id") == run.get("id"):
+        failed = next((s for s in run.get("steps") or [] if s.get("status") == "error"), None)
+        out["waiting_on"] = {
+            "kind": decision.get("kind"),
+            "title": decision.get("title"),
+            "error": _first_line(decision.get("error")),
+            "choices": decision.get("choices"),
+            **({"failed_step_id": failed.get("id")} if failed and decision.get("kind") == "step" else {}),
+        }
+    return out
+
+
+@router.get("/live")
+async def agent_live_runs():
+    """The runs under way and queued and the latest ones, briefly: start here to find a run to
+    change. (Finished runs are searched with GET /runs, history.py.)"""
+    from ivoryos_edge.server import queue_manager
+    runs = await queue_manager.get_live_runs(recent=5)
+    out = []
+    for run in runs:
+        compact = _compact_run(run, queue_manager.decision)
+        out.append({k: v for k, v in compact.items() if k not in ("steps", "samples")}
+                   | {"steps_total": len(run.get("steps") or [])})
+    return {"runs": out, "active_run_id": queue_manager.active_run_id}
+
+
+@router.get("/runs/{run_id}/steps")
+async def agent_run_steps(run_id: int):
+    """One run's steps as needed to change it while it runs (its data as a table: GET /runs/{id})."""
+    from ivoryos_edge.server import queue_manager
+    run = await queue_manager.get_run_status(run_id)
+    if not run:
+        return JSONResponse(status_code=404, content={"error": "No such run."})
+    return _compact_run(run, queue_manager.decision)
+
+
+async def _file_run_proposal(kind, name, payload, summary, source):
+    async with async_session() as session:
+        proposal = AgentProposal(kind=kind, name=str(name or "Run")[:255], payload=payload,
+                                 summary=_clip(summary, MAX_SUMMARY), source=_clip(source, 128),
+                                 issues=[], status="pending")
+        session.add(proposal)
+        await session.commit()
+        await session.refresh(proposal)
+        result = _as_dict(proposal)
+    result["note"] = "Filed for review. Nothing changes until a person applies it."
+    return result
+
+
+@router.post("/runs/{run_id}/propose-step-fix")
+async def agent_propose_step_fix(run_id: int, request: Request):
+    """Propose new values for one step of a run, usually the failed step it waits on, so a retry
+    does not fail the same way. `scope: "later"` also proposes them for every later run of that
+    step (the samples or trials still to come). Checked now as the edge would check it when
+    applied; a person applies it."""
+    from ivoryos_edge.server import queue_manager
+    from ivoryos_edge.run_edits import RunEditError, check_arguments
+    from ivoryos_edge.queue import FLOW_CONTROL_INSTRUMENTS
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Invalid JSON"})
+    try:
+        step_id = int(data.get("step_id"))
+    except (TypeError, ValueError):
+        return JSONResponse(status_code=400, content={"error": "step_id is the id of a step of this run (get_run lists them)."})
+    scope = data.get("scope") or "later"
+    if scope not in ("step", "later"):
+        return JSONResponse(status_code=400, content={"error": "scope is 'step' or 'later'."})
+    try:
+        info = await queue_manager.step_edit_info(run_id, step_id)
+    except LookupError as e:
+        return JSONResponse(status_code=404, content={"error": str(e)})
+    if not info["editable"]:
+        return JSONResponse(status_code=409, content={"error": info["reason"]})
+    step = info["step"]
+    args = data.get("args")
+    try:
+        args = check_arguments(args, info["schema"], step["instrument"] in FLOW_CONTROL_INSTRUMENTS, info["args"])
+    except RunEditError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    problems = safety.guard.check_params(step["instrument"], step["method"], {**info["args"], **args})
+    if problems:
+        return JSONResponse(status_code=400, content={"error": "Safety guard: " + " ".join(problems)})
+    run = await queue_manager.get_run_status(run_id)
+    then = "retry" if data.get("retry", True) and step["status"] == "error" else None
+    payload = {
+        "run_id": run_id, "step_id": step_id, "step": f"{step['instrument']}.{step['method']}",
+        "args": args, "before": {k: info["args"].get(k) for k in args}, "scope": scope, "then": then,
+        "columns": {k: v for k, v in info["columns"].items() if k in args},
+    }
+    return await _file_run_proposal("step_edit", (run or {}).get("name"), payload, data.get("summary"), data.get("source"))
+
+
+@router.post("/runs/{run_id}/propose-samples")
+async def agent_propose_samples(run_id: int, request: Request):
+    """Propose the samples of a run over a table as they should be: every row, the ones already
+    started unchanged, the rest changed, added or removed. A person reviews them in the Iterate
+    table and saves them there."""
+    from ivoryos_edge.server import queue_manager
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"error": "Invalid JSON"})
+    run = await queue_manager.get_run_status(run_id)
+    if not run:
+        return JSONResponse(status_code=404, content={"error": "No such run."})
+    params = run.get("parameters") or {}
+    if params.get("type") != "Spreadsheet":
+        return JSONResponse(status_code=409, content={"error": "Only a run over a table of samples has samples to change."})
+    first = run.get("editable_from")
+    if not isinstance(first, int):
+        return JSONResponse(status_code=409, content={"error": "No sample of this run can change any more."})
+    if not params.get("_source"):
+        return JSONResponse(status_code=409, content={"error": "This run was not started from the Iterate page, so its samples cannot be changed there."})
+    rows = data.get("samples")
+    columns = list(params.get("variables") or [])
+    if not isinstance(rows, list) or not rows or any(not isinstance(r, dict) for r in rows):
+        return JSONResponse(status_code=400, content={"error": "samples is the whole list of rows, each {column: value}."})
+    unknown = sorted({k for r in rows for k in r} - set(columns))
+    if unknown:
+        return JSONResponse(status_code=400, content={"error": f"Not a column of this run: {', '.join(unknown)}. Its columns are {', '.join(columns)}."})
+    started = (params.get("rows") or [])[:first]
+    if len(rows) < len(started) or any(json.dumps(a, sort_keys=True, default=str) != json.dumps(b, sort_keys=True, default=str)
+                                       for a, b in zip(started, rows)):
+        return JSONResponse(status_code=409, content={
+            "error": f"Samples 1-{first} have started and must stay as they are: {json.dumps(started)}." if first
+            else "The samples must be given in full."})
+    payload = {"run_id": run_id, "samples": rows, "columns": columns, "from": first + 1,
+               "before": params.get("rows") or []}
+    return await _file_run_proposal("run_rows", run.get("name"), payload, data.get("summary"), data.get("source"))
+
+
 @router.get("/proposals")
 async def agent_proposals(status: str = "pending", limit: int = 50):
     async with async_session() as session:
@@ -582,6 +774,36 @@ async def agent_accept(proposal_id: int, request: Request):
             row.decided_at = datetime.utcnow()
             await session.commit()
             return {"ok": True, "kind": "safety", "saved": True}
+
+        if row.kind == "step_edit":
+            from ivoryos_edge.server import queue_manager
+            from ivoryos_edge.run_edits import RunEditError
+            p = row.payload or {}
+            try:
+                result = await queue_manager.edit_step(
+                    p.get("run_id"), p.get("step_id"), p.get("args"), p.get("scope") or "step",
+                    who=f"accepted from {row.source or 'an agent'} (proposal {row.id})",
+                    then=p.get("then") if data.get("retry", True) else None,
+                )
+            except LookupError as e:
+                return JSONResponse(status_code=404, content={"error": str(e)})
+            except RunEditError as e:
+                return JSONResponse(status_code=409, content={"error": str(e)})
+            row.result_id = p.get("run_id")
+            row.status = "accepted"
+            row.decided_note = data.get("note")
+            row.decided_at = datetime.utcnow()
+            await session.commit()
+            return {"ok": True, "kind": "step_edit", **result}
+
+        if row.kind == "run_rows":
+            # Applied where it is reviewed: the Iterate table, which plans the samples again with
+            # the walk a new run is built with (PUT /api/queue/runs/{id} with `proposal`).
+            run_id = (row.payload or {}).get("run_id")
+            return JSONResponse(status_code=409, content={
+                "error": "Samples are applied from the table: review and save them there.",
+                "review": f"/execution?edit={run_id}&proposal={row.id}",
+            })
 
         return JSONResponse(status_code=400, content={"error": f"Unknown proposal kind '{row.kind}'."})
 

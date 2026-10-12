@@ -171,8 +171,16 @@ export function formatRun(r: any): FormattedRun {
       const status = hasError ? 'error' : isRunning ? 'running' : iterSteps.some(failedThenSkipped) ? 'failed' : neverRan(iterSteps) ? 'not_run' : isPending ? 'pending' : 'completed';
 
       // The suggested value for each search-space parameter shows up as a step argument
-      // somewhere in this iteration's steps (whichever templated call actually used it).
+      // somewhere in this iteration's steps (whichever templated call actually used it). The
+      // argument is rarely called what the #variable is called (`#catalyst_ml` feeds
+      // `volume_ml`), which is what the step's `_vars` {argument: name} records; a step whose
+      // argument happens to share the name is the fallback for runs recorded before `_vars`.
       const paramValues = paramNames.map((name: string) => {
+        for (const s of iterSteps) {
+          const vars = s.parameters?._vars || {};
+          const arg = Object.keys(vars).find((a) => vars[a] === name);
+          if (arg !== undefined && arg in s.parameters) return s.parameters[arg];
+        }
         const step = iterSteps.find((s: any) => s.parameters && name in (s.parameters || {}));
         return step ? step.parameters[name] : '';
       });

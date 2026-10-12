@@ -1,6 +1,6 @@
 "use client";
 import { unmodifiedSavedWorkflowName } from '@/savedWorkflow';
-import { API_BASE } from '@/config';
+import { API_BASE, WS_BASE } from '@/config';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Play, Download, Upload, AlertTriangle, Layers, ListTree, Grid3x3, Target, Plus, X } from 'lucide-react';
@@ -21,11 +21,12 @@ import {
   toSubmittedStep,
   toWireBlock, useDocumentTheme, runtimeVarNames, splitRepeatedLinks, mainOnlyLinks,
   TrayPicker, guardHint, guardProblem, guardSuggestions, guardsFor, trayForGuards, unitOf, SuggestInput,
-  formatReference, referenceStart, rowListVariables, RunConfigError,
+  formatReference, referenceStart, rowListVariables, RunConfigError, isRowActive,
   type FieldGuard, type FieldRef } from '@ivoryos/shared-ui';
 import Link from 'next/link';
 import { useQueueBusy } from '@/queueBusy';
-import { editRunIdFromUrl, hydrateBlocks, leaveEdit, loadQueuedRun, saveQueuedRun, sourceBlock, type QueuedEdit } from '@/queuedEdit';
+import { editRunIdFromUrl, hydrateBlocks, leaveEdit, loadQueuedRun, proposalIdFromUrl, saveQueuedRun, sourceBlock, type QueuedEdit } from '@/queuedEdit';
+import { dismissProposal } from '@/runProposals';
 import { currentStages, loadStage, stageKeeper, type EmbeddedStage } from '@/stages';
 
 /** One condition of Iterate's "Stop early": a saved result compared with a number. */
@@ -131,6 +132,9 @@ export default function RunWorkflowPage({ mode, stage }: {
   // Editing a run that waits in the queue (?edit=<id>, queuedEdit.ts): the page shows that run, and
   // saves nothing over the person's own spreadsheet or fixed values while it does.
   const [editing, setEditing] = useState<QueuedEdit | null>(null);
+  // Samples an agent proposed for the run being changed (?proposal=), loaded into the table to
+  // review: saving applies them as the table shows them, and closes the proposal.
+  const [proposal, setProposal] = useState<{ id: number; summary: string; source: string } | null>(null);
   const editingRef = useRef(false);
   // How many stages the Designer's workflow would make, for the hint that offers them.
   const [stageCount, setStageCount] = useState(0);
@@ -246,15 +250,26 @@ export default function RunWorkflowPage({ mode, stage }: {
         let stageLoaded: Awaited<ReturnType<typeof loadStage>> | null = null;
         if (editId) {
           try {
-            const { run, source, instruments } = await loadQueuedRun(editId);
+            const { run, source, instruments, live, lockedRows } = await loadQueuedRun(editId);
             parsedSeq = hydrateBlocks(source.sequence, instruments);
             pSeq = hydrateBlocks(source.prep, instruments);
             cSeq = hydrateBlocks(source.cleanup, instruments);
             const size = Number(run.parameters?.batch_size) || 1;
             restored = { rows: run.parameters?.rows || [], batchSize: size > 1 ? String(size) : '', globalValues: source.globalValues || {} };
+            const proposalId = live ? proposalIdFromUrl() : null;
+            if (proposalId) {
+              const found = await fetch(`${API_BASE}/api/agent/proposals/${proposalId}`).then(r => (r.ok ? r.json() : null)).catch(() => null);
+              if (found?.kind === 'run_rows' && found.status === 'pending' && found.payload?.run_id === run.id) {
+                // What has started stays as it ran, whatever the proposal says about it.
+                restored.rows = [...restored.rows.slice(0, lockedRows), ...(found.payload.samples || []).slice(lockedRows)];
+                setProposal({ id: found.id, summary: found.summary || '', source: found.source || '' });
+              } else if (found) {
+                await notify(`That suggestion was already ${found.status === 'pending' ? 'for another run' : found.status}.`, { title: 'Suggestion not loaded' });
+              }
+            }
             restoredStop = stopEarlyFrom(run.parameters?.early_stop);
             editingRef.current = true;
-            setEditing({ id: run.id, name: run.name });
+            setEditing({ id: run.id, name: run.name, live, lockedRows });
           } catch (e: any) {
             await notify(e.message, { title: 'Cannot edit this run', tone: 'error' });
             leaveEdit();
@@ -469,6 +484,10 @@ export default function RunWorkflowPage({ mode, stage }: {
   }, [rows]);
 
 
+  // Changing a run under way: the samples it has started are locked (the edge refuses changes to
+  // them), and only the rest of the table can change.
+  const locked = editing?.live ? editing.lockedRows ?? 0 : 0;
+
   const addRow = () => {
     const newRow: Record<string, any> = {};
     variables.forEach(v => newRow[v] = '');
@@ -476,13 +495,14 @@ export default function RunWorkflowPage({ mode, stage }: {
   };
 
   const removeRow = (idx: number) => {
-    if (rows.length === 1) return;
+    if (rows.length === 1 || idx < locked) return;
     const newRows = [...rows];
     newRows.splice(idx, 1);
     setRows(newRows);
   };
 
   const reorderRows = (from: number, to: number) => {
+    if (from < locked || to < locked) return;
     const newRows = Array.from(rows);
     const [moved] = newRows.splice(from, 1);
     newRows.splice(to, 0, moved);
@@ -490,6 +510,7 @@ export default function RunWorkflowPage({ mode, stage }: {
   };
 
   const updateRow = (idx: number, variable: string, value: string) => {
+    if (idx < locked) return;
     const newRows = [...rows];
     newRows[idx][variable] = value;
     setRows(newRows);
@@ -497,18 +518,62 @@ export default function RunWorkflowPage({ mode, stage }: {
 
   // Positions picked on a tray become the column, one row each, in visiting order. Rows are added
   // as needed; a row past the last position loses this column's value, and is dropped when that
-  // leaves it empty at the end of the table.
+  // leaves it empty at the end of the table. With samples locked, the column fills from the first
+  // one that can still change.
   const fillColumn = (variable: string, values: string[]) => {
     const next = rows.map(r => ({ ...r }));
-    values.forEach((value, i) => {
-      if (!next[i]) next[i] = Object.fromEntries(variables.map(v => [v, '']));
-      next[i][variable] = value;
+    const fill = locked ? values.slice(locked) : values;
+    fill.forEach((value, i) => {
+      if (!next[locked + i]) next[locked + i] = Object.fromEntries(variables.map(v => [v, '']));
+      next[locked + i][variable] = value;
     });
     const isEmpty = (r: Record<string, any>) => variables.every(v => r[v] === undefined || r[v] === null || r[v] === '');
-    for (let i = values.length; i < next.length; i++) next[i][variable] = '';
-    while (next.length > Math.max(1, values.length) && isEmpty(next[next.length - 1])) next.pop();
+    for (let i = locked + fill.length; i < next.length; i++) next[i][variable] = '';
+    while (next.length > Math.max(1, locked + fill.length) && isEmpty(next[next.length - 1])) next.pop();
     setRows(next);
   };
+
+  // While the run goes on, the samples it starts lock here as well, and take the values they
+  // started with: a value typed into one a moment too late is put back and said so.
+  const liveId = editing?.live ? editing.id : null;
+  const lockedRef = useRef(0);
+  const rowsRef = useRef<Record<string, any>[]>([]);
+  useEffect(() => { lockedRef.current = locked; rowsRef.current = rows; }, [locked, rows]);
+  useEffect(() => {
+    if (liveId === null) return;
+    const ws = new WebSocket(`${WS_BASE}/api/ws/queue`);
+    ws.onmessage = event => {
+      try {
+        const data = JSON.parse(event.data);
+        const run = data.active_run?.id === liveId ? data.active_run : data.recent_run?.id === liveId ? data.recent_run : null;
+        if (!run) return;
+        const from = typeof run.editable_from === 'number' ? run.editable_from : null;
+        const started: any[] = run.parameters?.rows || [];
+        const before = lockedRef.current;
+        const now = from ?? started.length;
+        if (from !== null && now <= before) return;
+        const next = rowsRef.current.map(r => ({ ...r }));
+        const taken: number[] = [];
+        for (let i = before; i < Math.min(now, started.length); i++) {
+          if (JSON.stringify(next[i]) !== JSON.stringify(started[i])) taken.push(i + 1);
+          next[i] = { ...started[i] };
+        }
+        rowsRef.current = next;
+        setRows(next);
+        // Nothing left to change: everything stays locked (a save would be refused, and says why).
+        const lockTo = from === null ? Math.max(now, next.length) : now;
+        lockedRef.current = lockTo;
+        setEditing(e => (e && e.id === liveId ? { ...e, lockedRows: lockTo } : e));
+        if (from === null) {
+          notify('The run has no samples left that can change: it has started them all, or it has ended.', { title: 'Nothing left to change' });
+        } else if (taken.length) {
+          notify(`Sample${taken.length === 1 ? '' : 's'} ${taken.join(', ')} started before your change was saved, so ${taken.length === 1 ? 'it runs' : 'they run'} with the values ${taken.length === 1 ? 'it' : 'they'} had.`,
+            { title: 'Started meanwhile' });
+        }
+      } catch { /* a malformed frame */ }
+    };
+    return () => ws.close();
+  }, [liveId]);
 
   const downloadCSV = () => {
     if (variables.length === 0) return;
@@ -584,7 +649,8 @@ export default function RunWorkflowPage({ mode, stage }: {
             });
             newRows.push(row);
           }
-          if (newRows.length > 0) setRows(newRows);
+          // Samples a running run has started stay as they are; the file fills the rest.
+          if (newRows.length > 0) setRows(locked ? [...rows.slice(0, locked), ...newRows] : newRows);
         }
       }
     };
@@ -592,8 +658,10 @@ export default function RunWorkflowPage({ mode, stage }: {
     e.target.value = '';
   };
 
-  // Once runs the first row only, start to finish.
-  const runRows = once ? rows.slice(0, 1) : rows;
+  // Once runs the first row only, start to finish. A run under way is changed with its blank rows
+  // left out, so each sample's place in the table is its place in the run (the edge matches the
+  // samples already started by it).
+  const runRows = once ? rows.slice(0, 1) : editing?.live ? rows.filter(isRowActive) : rows;
   const runBatchSize = once ? '' : batchSize;
 
   /**
@@ -682,6 +750,19 @@ export default function RunWorkflowPage({ mode, stage }: {
         ...body,
       };
 
+      if (editing?.live) {
+        const done = await saveQueuedRun(editing.id, { ...payload, by: 'bench', ...(proposal ? { proposal: proposal.id } : {}) });
+        const parts = [
+          done.changed?.length ? `sample${done.changed.length === 1 ? '' : 's'} ${done.changed.join(', ')} changed` : '',
+          done.added ? `${done.added} added` : '',
+          done.removed ? `${done.removed} removed` : '',
+        ].filter(Boolean);
+        const said = parts.join(', ') || 'Updated';
+        await notify(`${said[0].toUpperCase()}${said.slice(1)}. The run carries on with ${done.rows} sample${done.rows === 1 ? '' : 's'}.`,
+          { title: 'Samples still to come changed' });
+        leaveEdit();
+        return;
+      }
       if (editing) {
         await saveQueuedRun(editing.id, payload);
         await notify(`"${editing.name}" is updated and keeps its place in the queue.`, { title: 'Queued run saved' });
@@ -754,8 +835,24 @@ export default function RunWorkflowPage({ mode, stage }: {
           {editing && (
             <div className="mb-4 flex items-center gap-3 rounded-lg border border-gray-300 bg-gray-100 px-4 py-2.5 text-sm text-gray-800 dark:border-white/15 dark:bg-white/10 dark:text-gray-100">
               <span className="flex-1 min-w-0">
-                Editing the queued run <b className="font-semibold">{editing.name}</b>. Save changes to replace it; it keeps its place in the queue.
+                {proposal && (
+                  <span className="mb-1 block">
+                    <b className="font-semibold">Suggested by {proposal.source || 'the assistant'}:</b> {proposal.summary || 'new samples still to come.'}{' '}
+                    The table shows them; change anything you like, then save to apply.
+                  </span>
+                )}
+                {editing.live ? (
+                  <>Changing the samples still to come of <b className="font-semibold">{editing.name}</b>, which is running.{' '}
+                    {locked > 0 ? <>Sample{locked === 1 ? '' : 's'} 1{locked > 1 ? `-${locked}` : ''} {locked === 1 ? 'has' : 'have'} started and {locked === 1 ? 'is' : 'are'} locked. </> : null}
+                    Change, add or remove the others, then save; the run carries on with them.</>
+                ) : (
+                  <>Editing the queued run <b className="font-semibold">{editing.name}</b>. Save changes to replace it; it keeps its place in the queue.</>
+                )}
               </span>
+              {proposal && (
+                <button type="button" onClick={async () => { await dismissProposal(proposal.id).catch(() => {}); leaveEdit(); }}
+                  className="shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-white dark:text-gray-300 dark:hover:bg-white/10">Dismiss suggestion</button>
+              )}
               <button type="button" onClick={leaveEdit} className="shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-white dark:text-gray-300 dark:hover:bg-white/10">Cancel</button>
             </div>
           )}
@@ -785,6 +882,7 @@ export default function RunWorkflowPage({ mode, stage }: {
                   <input
                      type="text"
                      value={globalValues[v] || ''}
+                     disabled={!!editing?.live}
                      onChange={e => {
                        const updated = {...globalValues, [v]: e.target.value};
                        setGlobalValues(updated);
@@ -909,6 +1007,7 @@ export default function RunWorkflowPage({ mode, stage }: {
               varGuards={varGuards}
               safety={safety}
               onFillColumn={fillColumn}
+              lockedRows={locked}
             />
           )}
 
@@ -919,6 +1018,7 @@ export default function RunWorkflowPage({ mode, stage }: {
                 <input
                   type="checkbox"
                   checked={stopEarly.on}
+                  disabled={!!editing?.live}
                   onChange={e => setStopEarly(s => ({
                     ...s, on: e.target.checked,
                     conditions: e.target.checked && !s.conditions.length && resultNames.length ? [{ metric: resultNames[0], op: '>=', threshold: '' }] : s.conditions,
@@ -995,8 +1095,10 @@ export default function RunWorkflowPage({ mode, stage }: {
                       min="1"
                       placeholder="1"
                       value={batchSize}
+                      disabled={!!editing?.live}
+                      title={editing?.live ? 'The batch size cannot change while the run goes' : undefined}
                       onChange={e => setBatchSize(e.target.value)}
-                      className="w-16 px-2 py-2 rounded-lg text-sm bg-white border border-gray-200 text-gray-700 focus:outline-none focus:border-purple-400 dark:bg-black/50 dark:border-white/10 dark:text-gray-200"
+                      className="w-16 px-2 py-2 rounded-lg disabled:opacity-60 text-sm bg-white border border-gray-200 text-gray-700 focus:outline-none focus:border-purple-400 dark:bg-black/50 dark:border-white/10 dark:text-gray-200"
                     />
                   </div>
                 )}

@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from ivoryos_edge.introspection import serialize_result
 from ivoryos_edge.models import async_session, WorkflowRun, WorkflowStep
 from ivoryos_edge.safety import SafetyViolation, guard as safety_guard
+from ivoryos_edge.run_edits import column_arguments, editable_from, later_runs, template_overrides, with_arguments
 
 def extract_return_values(return_bindings, return_var, serialized_res, result):
     """Map a step's declared outputs onto the value the step actually returned.
@@ -253,6 +254,16 @@ def step_phase(step) -> str:
     """prep, main or cleanup: expand_workflow_blocks stamps every step of a run with `_phase`."""
     params = (step.get("params") if isinstance(step, dict) else getattr(step, "parameters", None)) or {}
     return params.get("_phase") or "main"
+
+
+def last_main_step_of_rows(steps: list) -> Dict[int, int]:
+    """Each spreadsheet row's last main step, by position: when it is behind the run, the sample
+    is done (Iterate's "Stop early" checks it then)."""
+    last: Dict[int, int] = {}
+    for i, s in enumerate(steps):
+        if step_phase(s) == "main" and step_row(s) is not None:
+            last[step_row(s)] = i
+    return last
 
 
 class NoImprovement:
@@ -538,6 +549,32 @@ def pause_summary(run: Dict[str, Any], current: Dict[str, Any]) -> Dict[str, Any
     return {}
 
 
+# The failed step's arguments travel with its pause so Cloud can offer to change them before a
+# retry; past this size they are left out (Cloud then offers retry, skip and stop only).
+EDIT_ARGS_MAX = 2000
+
+
+def step_edit_summary(steps: List[Dict[str, Any]], current: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """What Cloud needs to offer "change and retry" on a failed step: which step, its arguments,
+    which of them come from a table column, and how many later runs of it are still to come."""
+    params = current.get("parameters") or {}
+    args = {k: v for k, v in params.items() if not str(k).startswith("_")}
+    try:
+        if len(json.dumps(args, default=str)) > EDIT_ARGS_MAX:
+            return None
+    except (TypeError, ValueError):
+        return None
+    index = next((i for i, s in enumerate(steps) if s.get("id") == current.get("id")), None)
+    return {
+        "step_id": current.get("id"),
+        "instrument": current.get("instrument"),
+        "method": current.get("method"),
+        "args": args,
+        "columns": column_arguments(current),
+        "later": len(later_runs(steps, index)) if index is not None else 0,
+    }
+
+
 def run_progress_summary(run: Dict[str, Any], decision: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Where a run is up to, in as few bytes as will say it (~150-250 B of JSON).
 
@@ -573,6 +610,10 @@ def run_progress_summary(run: Dict[str, Any], decision: Optional[Dict[str, Any]]
         if isinstance(row, int):
             summary["row"] = row + 1
         summary.update(pause_summary(run, current))
+        if summary.get("pause", "").startswith("error:") and current.get("status") == "error":
+            editing = step_edit_summary(steps, current)
+            if editing:
+                summary["edit"] = editing
     if decision and decision.get("kind") != "step" and decision.get("run_id") == run.get("id"):
         message = str(decision.get("error") or "").strip().split("\n", 1)[0]
         summary["error"] = f"{decision.get('title')}: {message}"[:PAUSE_TEXT_MAX]
@@ -588,6 +629,10 @@ def run_progress_summary(run: Dict[str, Any], decision: Optional[Dict[str, Any]]
         summary["iteration"] = min(budget, main_done // per_trial + (0 if run.get("status") == "completed" else 1))
         summary["budget"] = budget
     else:
+        first_open = editable_from(run)
+        if first_open is not None:
+            # The first sample (0-based) whose values can still change: Cloud locks those before it.
+            summary["editable_from"] = first_open
         rows = sorted({(s.get("parameters") or {}).get("_row") for s in main} - {None})
         if len(rows) > 1:
             by_row = {r: [s for s in main if (s.get("parameters") or {}).get("_row") == r] for r in rows}
@@ -787,10 +832,24 @@ class WorkflowQueueManager:
         # Runs that just ended, for notifications (finished_notice): kept for NOTICE_KEEP_S and sent
         # in every queue status, so a listener that reconnects in that window still hears of them.
         self.notices: List[Dict[str, Any]] = []
+        # The outcome of the last change Cloud asked for on a run ({id, ok, error}): sent with the
+        # run's progress, which is how Cloud learns whether its change went in (see daemon.js).
+        self.cloud_edit_results: Dict[int, Dict[str, Any]] = {}
         
         self.current_task: Optional[asyncio.Task] = None
         self.current_step_task: Optional[asyncio.Future] = None
         self._runner_lock: Optional[asyncio.Lock] = None
+        # Held while the execution loop starts a step, and while a run is changed under it
+        # (edit_step, replan_active_run): a step is either started before the change, and so kept
+        # as it was, or after, and so runs as changed. Never held while waiting.
+        self._plan_lock: Optional[asyncio.Lock] = None
+        # Runs whose steps were re-planned while they ran: the loop reloads its step list.
+        self._replanned: set = set()
+        # The run that is ending: past its last step, it takes no more changes.
+        self._finishing: Optional[int] = None
+        # How many trials an optimization run has begun (the round in progress included): its
+        # budget may not be changed to less (set_budget).
+        self._trials_begun: Dict[int, int] = {}
 
         # WebSocket tracking: run_id -> list of WebSockets
         self.active_connections: Dict[int, List[Any]] = {}
@@ -811,6 +870,8 @@ class WorkflowQueueManager:
             self.pause_event.set()
         if self._runner_lock is None:
             self._runner_lock = asyncio.Lock()
+        if self._plan_lock is None:
+            self._plan_lock = asyncio.Lock()
 
     async def cleanup_zombies(self):
         from ivoryos_edge.models import async_session, WorkflowRun, WorkflowStep
@@ -893,6 +954,11 @@ class WorkflowQueueManager:
             for r in runs.scalars().unique():
                 d = r.as_dict()
                 d["steps"] = [s.as_dict() for s in r.steps]
+                # As get_run_status says it: from which sample on the run can still change.
+                if self.active_run_id == r.id and self._finishing != r.id:
+                    first_open = editable_from(d)
+                    if first_open is not None:
+                        d["editable_from"] = first_open
                 result.append(d)
             return result
 
@@ -993,7 +1059,16 @@ class WorkflowQueueManager:
                     run_dict['status'] = 'error'
                 elif self.paused and run_dict.get('status') == 'running':
                     run_dict['status'] = 'paused'
-                    
+
+            # The first sample whose values can still change, for the pages that offer to change
+            # them (run_edits.editable_from), so they do not each work it out. Only for the run
+            # under way: a queued run is changed whole (replace_pending_run).
+            first_open = editable_from(run_dict) if self.active_run_id == run_id and self._finishing != run_id else None
+            if first_open is not None:
+                run_dict['editable_from'] = first_open
+            # The fewest trials an optimization under way can be told to make (set_budget).
+            if self.active_run_id == run_id and run_id in self._trials_begun:
+                run_dict['trials_begun'] = self._trials_begun[run_id]
             return run_dict
 
     async def update_step_parameters(self, step_id: int, parameters: dict):
@@ -1077,6 +1152,249 @@ class WorkflowQueueManager:
                     run.name = name.strip()[:128]
                 await session.commit()
         await self.broadcast_global_queue()
+
+    # --- Changing a run while it runs (run_edits.py) ---------------------------------------
+
+    def _method_schema(self, instrument: str, method: str) -> Optional[dict]:
+        schemas = getattr(self.app.state, "instrument_schemas", None) or {}
+        return (schemas.get(instrument) or {}).get(method)
+
+    def _edit_refusal(self, run, step) -> Optional[str]:
+        """Why this step's arguments cannot be changed now, or None when they can."""
+        if run.end_time or run.status in ("completed", "cancelled") or self._finishing == run.id:
+            return "This run has ended."
+        if self.active_run_id == run.id and self.cancelled:
+            return "This run is stopping."
+        if self.active_run_id == run.id and self.graceful:
+            return "This run is stopping after the iteration it is on."
+        if step.status == "pending":
+            return None
+        if step.status == "error":
+            waiting = self.awaiting_decision == run.id and (self.decision or {}).get("kind", "step") == "step"
+            return None if waiting else "This step failed and is no longer waiting for a decision."
+        return {
+            "running": "This step is running.",
+            "waiting_input": "This step is waiting for an answer.",
+            "skipped": "This step was left out.",
+        }.get(step.status, "This step has already run.")
+
+    async def _ordered_steps(self, session, run_id: int) -> list:
+        result = await session.execute(
+            select(WorkflowStep).where(WorkflowStep.run_id == run_id).order_by(WorkflowStep.sequence_index, WorkflowStep.id)
+        )
+        return list(result.scalars())
+
+    async def step_edit_info(self, run_id: int, step_id: int) -> Dict[str, Any]:
+        """What a person (or a proposal) needs to change one step: its arguments, which come from
+        a table column or the optimizer, how many later runs of it are still to come, its method's
+        schema, and whether it can be changed now and if not, why."""
+        from ivoryos_edge import run_edits
+        async with async_session() as session:
+            run = await session.get(WorkflowRun, run_id)
+            if not run:
+                raise LookupError("Run not found")
+            steps = await self._ordered_steps(session, run_id)
+            index = next((i for i, s in enumerate(steps) if s.id == step_id), None)
+            if index is None:
+                raise LookupError("That step is not part of this run.")
+            step = steps[index]
+            params = step.parameters or {}
+            reason = self._edit_refusal(run, step)
+            later = run_edits.later_runs(steps, index)
+            trials = (run.parameters or {}).get("type") == "Optimization" and isinstance(params.get("_tmpl"), int) \
+                and step_phase(step) == "main"
+            return {
+                "run_id": run_id,
+                "step": step.as_dict(),
+                "editable": reason is None,
+                "reason": reason,
+                "args": {k: v for k, v in params.items() if not str(k).startswith("_")},
+                "columns": run_edits.column_arguments(step),
+                "edited": list(params.get("_edited") or []),
+                "later": len(later),
+                # The same step in trials not yet made: an optimization builds each from its template.
+                "later_trials": trials,
+                "schema": self._method_schema(step.instrument, step.method),
+            }
+
+    async def edit_step(self, run_id: int, step_id: int, args: Dict[str, Any], scope: str = "step",
+                        who: Optional[str] = None, then: Optional[str] = None) -> Dict[str, Any]:
+        """Change a step's arguments before it runs, or before a failed step is retried.
+
+        `scope="later"` also changes every later run of the same authored step (run_edits.py),
+        and keeps the change for steps not yet made (the samples a change of rows re-plans, the
+        trials an optimization has yet to make). `then="retry"` answers the failed step's decision
+        with retry once the change is in, in one go. Raises RunEditError (refused, with why) or
+        LookupError.
+        """
+        from ivoryos_edge import run_edits
+        await self.init_asyncio()
+        async with self._plan_lock:
+            async with async_session() as session:
+                run = await session.get(WorkflowRun, run_id)
+                if not run:
+                    raise LookupError("Run not found")
+                steps = await self._ordered_steps(session, run_id)
+                index = next((i for i, s in enumerate(steps) if s.id == step_id), None)
+                if index is None:
+                    raise LookupError("That step is not part of this run.")
+                step = steps[index]
+                reason = self._edit_refusal(run, step)
+                if reason:
+                    raise run_edits.RunEditError(reason)
+                is_flow = step.instrument in FLOW_CONTROL_INSTRUMENTS
+                args = run_edits.check_arguments(args, self._method_schema(step.instrument, step.method),
+                                                 is_flow, step.parameters or {})
+                plan = run_edits.plan_step_edit(steps, index, args, scope)
+                if not is_flow:
+                    problems = safety_guard.check_params(step.instrument, step.method, plan["target"])
+                    if problems:
+                        raise run_edits.RunEditError("Safety guard: " + " ".join(problems))
+                # A '#name' typed in has to be something a step before this one saves.
+                wire = [{"instrument": s.instrument, "method": s.method, "params": s.parameters or {}} for s in steps[:index]]
+                wire.append({"instrument": step.instrument, "method": step.method, "params": plan["target"]})
+                own = f"Step {index + 1} ("
+                missing = [p for p in unproduced_references(wire) if p.startswith(own)]
+                if missing:
+                    raise run_edits.RunEditError(missing[0].replace(own, "This step (", 1))
+
+                step.parameters = plan["target"]
+                for j, params in plan["later"].items():
+                    steps[j].parameters = params
+                parameters = run_edits.with_override(run.parameters, plan["key"], args) if scope == "later" \
+                    else dict(run.parameters or {})
+                run.parameters = run_edits.with_edit(parameters, run_edits.edit_record(
+                    "step", who, step_id=step.id, step=f"{step.instrument}.{step.method}",
+                    row=step_row(step), changes=plan["changes"], scope=scope, later=len(plan["later"]),
+                ))
+                was_failed = step.status == "error"
+                await session.commit()
+        retried = False
+        if then == "retry" and was_failed and self.awaiting_decision == run_id:
+            self.error_action = "retry"
+            retried = True
+        await self.broadcast_updates(run_id)
+        return {"changed": plan["changes"], "scope": scope, "later": len(plan["later"]), "retried": retried}
+
+    async def replan_active_run(self, run_id: int, name: Optional[str], sequence: List[Dict[str, Any]],
+                                parameters: dict, who: Optional[str] = None) -> Dict[str, Any]:
+        """Replace the samples still to come of the run under way with a re-planned set.
+
+        `sequence` and `parameters` are the whole run again, as prepare_run makes them from the
+        same body POST /api/queue/runs takes, built from the changed table. The samples already
+        started are checked to be unchanged and kept as they are (run_edits.plan_splice); the
+        prep and cleanup are kept too. The loop picks the new steps up before it starts another.
+        """
+        from ivoryos_edge import run_edits
+        await self.init_asyncio()
+        async with self._plan_lock:
+            async with async_session() as session:
+                run = await session.get(WorkflowRun, run_id)
+                if not run:
+                    raise LookupError("Run not found")
+                if run.end_time or run.status in ("completed", "cancelled") or self._finishing == run_id:
+                    raise run_edits.RunEditError("This run has ended.")
+                if self.active_run_id == run_id and (self.cancelled or self.graceful):
+                    raise run_edits.RunEditError("This run is stopping.")
+                old = await self._ordered_steps(session, run_id)
+                plan = run_edits.plan_splice([s.as_dict() for s in old], run.parameters or {}, sequence, parameters)
+
+                removed = set(plan["remove"])
+                kept = [s for s in old if s.id not in removed and step_phase(s) != "cleanup"]
+                cleanup = [s for s in old if step_phase(s) == "cleanup"]
+                for s in old:
+                    if s.id in removed:
+                        await session.delete(s)
+                position = (max(s.sequence_index for s in kept) + 1) if kept else 0
+                for new in plan["add"]:
+                    session.add(WorkflowStep(
+                        run_id=run_id, sequence_index=position, instrument=new["instrument"],
+                        method=new["method"], parameters=new.get("params", {}),
+                    ))
+                    position += 1
+                for s in cleanup:
+                    s.sequence_index = position
+                    position += 1
+
+                kept_params = dict(run.parameters or {})
+                kept_params["rows"] = plan["rows"]
+                if (parameters or {}).get("_source"):
+                    kept_params["_source"] = parameters["_source"]
+                # A link that follows its workflow's newest version may now run a newer one for the
+                # samples to come; the record keeps every body the run used.
+                links = list(kept_params.get("resolved_links") or [])
+                for link in (parameters or {}).get("resolved_links") or []:
+                    if not any(l.get("name") == link.get("name") and l.get("version") == link.get("version") for l in links):
+                        links.append(link)
+                if links:
+                    kept_params["resolved_links"] = links
+                run.parameters = run_edits.with_edit(kept_params, run_edits.edit_record(
+                    "rows", who, from_row=plan["from_row"] + 1, changed=[i + 1 for i in plan["changed"]],
+                    added=plan["added"], removed=plan["removed"], rows=len(plan["rows"]),
+                ))
+                if name and name.strip():
+                    run.name = name.strip()[:128]
+                await session.commit()
+            if self.active_run_id == run_id:
+                self._replanned.add(run_id)
+        await self.broadcast_updates(run_id)
+        return {"from_row": plan["from_row"] + 1, "changed": [i + 1 for i in plan["changed"]],
+                "added": plan["added"], "removed": plan["removed"], "rows": len(plan["rows"])}
+
+    async def set_budget(self, run_id: int, budget: Any, who: Optional[str] = None) -> Dict[str, Any]:
+        """Change how many trials the optimization under way makes in all.
+
+        Read by its loop at the start of every round, so more rounds are made, or fewer. Never less
+        than the trials already begun (the round in progress counts whole: its trials were
+        suggested together). Lowered to exactly that, the run ends after the round in progress,
+        with its cleanup, as a run that used its budget does. Raises RunEditError or LookupError.
+        """
+        from ivoryos_edge import run_edits
+        try:
+            budget = int(budget)
+            if isinstance(budget, bool):
+                raise ValueError
+        except (TypeError, ValueError):
+            raise run_edits.RunEditError("The budget is a whole number of trials.")
+        await self.init_asyncio()
+        async with self._plan_lock:
+            async with async_session() as session:
+                run = await session.get(WorkflowRun, run_id)
+                if not run:
+                    raise LookupError("Run not found")
+                params = dict(run.parameters or {})
+                if params.get("type") != "Optimization":
+                    raise run_edits.RunEditError("Only an optimization has a budget of trials.")
+                if run.end_time or run.status in ("completed", "cancelled"):
+                    raise run_edits.RunEditError("This run has ended.")
+                if self.active_run_id != run_id:
+                    raise run_edits.RunEditError("This run has not started; change it from the queue.")
+                if self.cancelled or self.graceful:
+                    raise run_edits.RunEditError("This run is stopping.")
+                begun = self._trials_begun.get(run_id, 0)
+                floor = max(1, begun)
+                if budget < floor:
+                    raise run_edits.RunEditError(
+                        f"{begun} trial{'s have' if begun != 1 else ' has'} already begun, so the budget cannot be less than {floor}.")
+                before = params.get("budget")
+                if before == budget:
+                    raise run_edits.RunEditError(f"The budget is already {budget}.")
+                params["budget"] = budget
+                run.parameters = run_edits.with_edit(params, run_edits.edit_record(
+                    "budget", who, before=before, after=budget, begun=begun))
+                await session.commit()
+        await self.broadcast_updates(run_id)
+        return {"budget": budget, "before": before, "begun": begun}
+
+    async def _reload_steps(self, session, run_id: int) -> list:
+        """The run's steps again, after replan_active_run changed them under the loop."""
+        self._replanned.discard(run_id)
+        result = await session.execute(
+            select(WorkflowStep).where(WorkflowStep.run_id == run_id)
+            .order_by(WorkflowStep.sequence_index, WorkflowStep.id)
+            .execution_options(populate_existing=True)
+        )
+        return list(result.scalars())
 
     def pause(self):
         self.paused = True
@@ -1190,6 +1508,8 @@ class WorkflowQueueManager:
         await session.commit()
         print(f"[optimizer] {title}: {error}")
         action = await self._await_choice(run_id, kind, title, error, choices)
+        # Read again: a change made while it waited (edit_step) is written to the run too.
+        await session.refresh(run, ["parameters"])
         params = dict(run.parameters or {})
         params["_decisions"] = [*(params.get("_decisions") or []), {
             "kind": kind, "error": error, "action": action, "time": datetime.utcnow().isoformat(),
@@ -1284,7 +1604,8 @@ class WorkflowQueueManager:
             event.set()
 
     async def apply_cloud_control(self, cloud_run_id: str, cloud_node_id: str, pause: str,
-                                  action: str, value: Any = None) -> str:
+                                  action: str, value: Any = None, edit: Optional[Dict[str, Any]] = None,
+                                  command_id: Optional[str] = None) -> str:
         """Carry out a decision made in Cloud about a run stopped for a person.
 
         The same three answers the bench has -- an input value, or retry/skip/stop on an error --
@@ -1296,6 +1617,11 @@ class WorkflowQueueManager:
         Stop differs from the bench's abort in one way: it resumes the queue. The bench leaves the
         queue paused after an abort for the operator standing there; a remote stop would leave the
         device holding every later Cloud task behind a pause nobody at the bench knows about.
+
+        A retry may carry `edit` ({step_id, args, scope}): the failed step's arguments changed
+        first (edit_step), then retried. Whether the change went in is reported back with the
+        run's progress as `edit_result` under `command_id`; a refused change leaves the step
+        waiting, as the bench does.
         """
         run_id = self.active_run_id
         run = await self.get_run_status(run_id) if run_id is not None else None
@@ -1310,6 +1636,18 @@ class WorkflowQueueManager:
         elif action in ("retry", "skip") and self.decision and action not in self.decision.get("choices", []):
             # Not every pause offers both: the optimizer failing to suggest cannot be skipped.
             print(f"[cloud] '{action}' does not apply to this pause ({self.decision.get('kind')}); ignored")
+        elif action == "retry" and edit and pause.startswith("error:"):
+            if command_id and self.cloud_edit_results.get(run_id, {}).get("id") == command_id:
+                return "already applied"
+            from ivoryos_edge.run_edits import RunEditError
+            try:
+                await self.edit_step(run_id, int(edit.get("step_id")), edit.get("args"), edit.get("scope") or "step",
+                                     who="cloud", then="retry")
+                self.cloud_edit_results[run_id] = {"id": command_id, "ok": True}
+            except (RunEditError, LookupError, TypeError, ValueError) as e:
+                self.cloud_edit_results[run_id] = {"id": command_id, "ok": False, "error": str(e)}
+            await self.report_cloud_progress(run_id, force=True)
+            return "applied" if self.cloud_edit_results[run_id]["ok"] else "refused"
         elif action in ("retry", "skip") and pause.startswith("error:"):
             self.error_action = action
         elif action == "stop" and pause.startswith("error:"):
@@ -1460,6 +1798,8 @@ class WorkflowQueueManager:
             return
 
         summary = run_progress_summary(run, self.decision)
+        if run_id in self.cloud_edit_results:
+            summary["edit_result"] = self.cloud_edit_results[run_id]
         if summary == state["sent"] and not force:
             return
         loop = asyncio.get_running_loop()
@@ -1467,7 +1807,9 @@ class WorkflowQueueManager:
         # A run that has just stopped for a person is sent at once rather than after the throttle:
         # it is the one update someone is waiting to be told about.
         newly_paused = bool(summary.get("pause")) and summary.get("pause") != (state["sent"] or {}).get("pause")
-        if wait > 0 and not (force or newly_paused):
+        # The answer to a change asked for in Cloud is waited on too.
+        newly_answered = summary.get("edit_result") != (state["sent"] or {}).get("edit_result")
+        if wait > 0 and not (force or newly_paused or newly_answered):
             if not state["timer"]:
                 def flush():
                     state["timer"] = None
@@ -1479,7 +1821,7 @@ class WorkflowQueueManager:
         # A paused summary goes at QoS 1: nothing later supersedes it until someone answers, so a
         # lost copy would leave Cloud never knowing the run is waiting.
         publish_task_status(params["cloud_run_id"], params.get("cloud_node_id"), "running", progress=summary,
-                            reliable=bool(summary.get("pause")))
+                            reliable=bool(summary.get("pause")) or newly_answered)
         state["sent_at"] = loop.time()
         state["sent"] = summary
 
@@ -1504,6 +1846,7 @@ class WorkflowQueueManager:
                         
                     run_id = run.id
                     self.active_run_id = run_id
+                    self._finishing = None
                     self.cancelled = False
                     self.graceful = None
                     
@@ -1532,73 +1875,90 @@ class WorkflowQueueManager:
                     # as a graceful stop does, between iterations with cleanup, but as a success:
                     # it got where it was going, so nothing is recorded as stopped early.
                     early_stop = (run.parameters or {}).get("early_stop")
-                    last_of_row: Dict[int, int] = {}
-                    for i, s in enumerate(steps):
-                        if step_phase(s) == "main" and step_row(s) is not None:
-                            last_of_row[step_row(s)] = i
+                    last_of_row = last_main_step_of_rows(steps)
                     checked_rows: set = set()
                     reached = None
                     index = 0
-                    while index < len(steps):
+                    while True:
+                        if run_id in self._replanned:
+                            # The samples still to come were changed (replan_active_run). The steps
+                            # up to here are kept as they were, so `index` still points where it did.
+                            steps = await self._reload_steps(session, run_id)
+                            last_of_row = last_main_step_of_rows(steps)
+                            continue
+                        if index >= len(steps):
+                            # The end, unless samples were added as the last step finished. From
+                            # here on the run takes no more changes (_finishing).
+                            async with self._plan_lock:
+                                if run_id not in self._replanned:
+                                    self._finishing = run_id
+                            if self._finishing == run_id:
+                                break
+                            continue
                         step = steps[index]
                         if step.status != "pending" and step.status != "error":
                             index += 1
                             continue
-                            
+
                         # Wait if paused
                         await self.pause_event.wait()
-                        
+
                         if self.cancelled:
                             break
 
-                        if early_stop and reached is None:
-                            for row, last in last_of_row.items():
-                                if last < index and row not in checked_rows:
-                                    checked_rows.add(row)
-                                    met = target_reached(early_stop, row_contexts.get(row, {}))
-                                    if met:
-                                        reached = met
-                                        print(f"Stop early: sample {row + 1} reached {', '.join(met)}; "
-                                              "the rest is skipped and cleanup runs.")
-                                        break
+                        # From here until the step is marked running, nothing may change the run
+                        # under it (edit_step, replan_active_run): see _plan_lock.
+                        async with self._plan_lock:
+                            if run_id in self._replanned:
+                                continue
 
-                        # A graceful stop takes effect between iterations (graceful_stop_here).
-                        if (self.graceful or reached) and not graceful_applied and (graceful_stop_here(steps, index, batch_size) or step_phase(step) == "cleanup"):
-                            graceful_applied = True
-                            left_out = skip_after_graceful_stop(steps, index, self.graceful["cleanup"] if self.graceful else True)
-                            if self.graceful:
-                                stopped_early = left_out > 0
-                            await session.commit()
-                            await self.broadcast_updates(run_id)
+                            if early_stop and reached is None:
+                                for row, last in last_of_row.items():
+                                    if last < index and row not in checked_rows:
+                                        checked_rows.add(row)
+                                        met = target_reached(early_stop, row_contexts.get(row, {}))
+                                        if met:
+                                            reached = met
+                                            print(f"Stop early: sample {row + 1} reached {', '.join(met)}; "
+                                                  "the rest is skipped and cleanup runs.")
+                                            break
+
+                            # A graceful stop takes effect between iterations (graceful_stop_here).
+                            if (self.graceful or reached) and not graceful_applied and (graceful_stop_here(steps, index, batch_size) or step_phase(step) == "cleanup"):
+                                graceful_applied = True
+                                left_out = skip_after_graceful_stop(steps, index, self.graceful["cleanup"] if self.graceful else True)
+                                if self.graceful:
+                                    stopped_early = left_out > 0
+                                await session.commit()
+                                cut = True
+                            else:
+                                cut = False
+
+                            if not cut:
+                                # Read again: its arguments may have been changed while it waited.
+                                await session.refresh(step)
+                                step.status = "running"
+                                step.error = None
+                                step.start_time = datetime.utcnow()
+                                run = await session.get(WorkflowRun, run_id)
+                                # Only emit 'running' status once per run when the first step starts
+                                first_start = run.status != "running"
+                                if first_start:
+                                    run.status = "running"
+                                await session.commit()
+                        await self.broadcast_updates(run_id)
+                        if cut:
                             continue
-                            
-                        # Refresh step in case params were edited while paused
-                        await session.refresh(step)
-                            
-                        step.status = "running"
-                        step.error = None
-                        step.start_time = datetime.utcnow()
-                        
-                        run = await session.get(WorkflowRun, run_id)
-                        
-                        # Only emit 'running' status once per run when the first step starts
-                        if run.status != "running":
-                            run.status = "running"
-                            await session.commit()
-                            await self.broadcast_updates(run_id)
-                            if run.parameters and run.parameters.get("cloud_run_id"):
-                                # Imported lazily: server.py imports this module at load time, so a
-                                # module-level import here would be circular.
-                                from ivoryos_edge.server import publish_task_status
-                                publish_task_status(
-                                    run.parameters["cloud_run_id"],
-                                    run.parameters.get("cloud_node_id"),
-                                    "running",
-                                )
-                        else:
-                            await session.commit()
-                            await self.broadcast_updates(run_id)
-                        
+                        if first_start and run.parameters and run.parameters.get("cloud_run_id"):
+                            # Imported lazily: server.py imports this module at load time, so a
+                            # module-level import here would be circular.
+                            from ivoryos_edge.server import publish_task_status
+                            publish_task_status(
+                                run.parameters["cloud_run_id"],
+                                run.parameters.get("cloud_node_id"),
+                                "running",
+                            )
+
                         try:
                             if step.instrument in FLOW_CONTROL_INSTRUMENTS:
                                 next_index = await self._flow_control_step(
@@ -1692,16 +2052,28 @@ class WorkflowQueueManager:
                                 index += 1
                                 continue
                             if action == "cleanup":
-                                # The failed step keeps its error, so the run still ends as one.
-                                skip_to_cleanup(steps, index + 1)
-                                await session.commit()
+                                async with self._plan_lock:
+                                    if run_id in self._replanned:
+                                        steps = await self._reload_steps(session, run_id)
+                                        last_of_row = last_main_step_of_rows(steps)
+                                    # The failed step keeps its error, so the run still ends as one.
+                                    skip_to_cleanup(steps, index + 1)
+                                    await session.commit()
                                 await self.broadcast_updates(run_id)
                                 index += 1
                                 continue
                             break
-                    
+
+                    # A stop or a cancel ends the loop early: no change is taken after that either.
+                    async with self._plan_lock:
+                        self._finishing = run_id
                     # Update run status
                     run = await session.get(WorkflowRun, run_id)
+                    # Read again: a change made during the run (run_edits.py) is written to the run
+                    # from elsewhere, and merging into a stale copy below would drop it.
+                    await session.refresh(run, ["parameters", "name"])
+                    if run_id in self._replanned:
+                        steps = await self._reload_steps(session, run_id)
                     if self.cancelled:
                         run.status = "cancelled"
                     elif any(s.status == "error" for s in steps):
@@ -1963,7 +2335,7 @@ class WorkflowQueueManager:
         )
         self.active_optimizer = optimizer
         self.active_optimizer_run_id = run_id
-
+        self._trials_begun[run_id] = 0
 
         run = await session.get(WorkflowRun, run_id)
         run.status = "running"
@@ -1975,7 +2347,10 @@ class WorkflowQueueManager:
             A failure in existing data or prep used to return early, leaving the run without an
             end time, Cloud never told it had ended, and the queue running on."""
             nonlocal run
+            self._trials_begun.pop(run_id, None)
             run = await session.get(WorkflowRun, run_id)
+            # Changes made during the run are written to it from elsewhere (run_edits.py).
+            await session.refresh(run, ["parameters"])
             if self.cancelled:
                 run.status = "cancelled"
             elif run.status != "error":
@@ -2042,9 +2417,12 @@ class WorkflowQueueManager:
                     continue
                 _, return_var, return_bindings, return_aliases = entries[index]
 
-                db_step.status = "running"
-                db_step.start_time = datetime.utcnow()
-                await session.commit()
+                async with self._plan_lock:
+                    # Read again: its arguments may have been changed while it waited (edit_step).
+                    await session.refresh(db_step)
+                    db_step.status = "running"
+                    db_step.start_time = datetime.utcnow()
+                    await session.commit()
                 await self.broadcast_updates(run_id)
 
                 try:
@@ -2131,7 +2509,7 @@ class WorkflowQueueManager:
         async def execute_template_block(template, suggestion_args=None, phase: str = "main"):
             nonlocal step_index, run
             iteration_steps = []
-            for tmpl_step in template:
+            for position, tmpl_step in enumerate(template):
                 args = {}
                 for k, v in tmpl_step.get("params", {}).items():
                     if isinstance(v, str) and v.startswith("#") and suggestion_args:
@@ -2139,7 +2517,9 @@ class WorkflowQueueManager:
                         args[k] = suggestion_args.get(var_name, v)
                     else:
                         args[k] = v
-                        
+                # Its place in the template, so a change to it can be told apart (run_edits.py).
+                args["_tmpl"] = position
+
                 db_step = WorkflowStep(
                     run_id=run_id,
                     sequence_index=step_index,
@@ -2225,7 +2605,18 @@ class WorkflowQueueManager:
                 stopped_early = trials_run < budget
                 break
 
-            n_this_round = min(batch_size, budget - completed)
+            # The budget can change while the run goes (set_budget): read for every round, and
+            # say how many trials this round begins, which a change may not go below.
+            async with self._plan_lock:
+                await session.refresh(run, ["parameters"])
+                try:
+                    budget = int((run.parameters or {}).get("budget") or budget)
+                except (TypeError, ValueError):
+                    pass
+                if completed >= budget:
+                    break
+                n_this_round = min(batch_size, budget - completed)
+                self._trials_begun[run_id] = completed + n_this_round
 
             # 1. Ask optimizer for this round's suggestions
             suggestions = None
@@ -2255,10 +2646,14 @@ class WorkflowQueueManager:
 
             for offset, suggestion in enumerate(suggestions):
                 global_iteration = completed + offset
+                # What someone changed for "this and every later trial" of a step (edit_step):
+                # read for each trial, since it can change while the run goes.
+                await session.refresh(run, ["parameters"])
+                overrides = (run.parameters or {}).get("_overrides")
 
                 # 2. Build steps from template for this one trial
                 iteration_steps = []
-                for tmpl_step in seq_template:
+                for position, tmpl_step in enumerate(seq_template):
                     args = {}
                     # Which arguments came from a #name, so Data History can mark them after the
                     # values are substituted. `_`-prefixed, so cast_arguments never forwards it.
@@ -2277,6 +2672,12 @@ class WorkflowQueueManager:
                             args[k] = v
                     if dynamic:
                         args["_vars"] = dynamic
+                    if overrides:
+                        changed = template_overrides(overrides, "main", position, tmpl_step["instrument"], tmpl_step["method"])
+                        if changed:
+                            args, _ = with_arguments(args, changed, keep_columns=True)
+                    # Its place in the template: the same step in every trial (run_edits.py).
+                    args["_tmpl"] = position
 
                     db_step = WorkflowStep(
                         run_id=run_id,

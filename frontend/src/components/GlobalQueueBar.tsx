@@ -23,7 +23,8 @@ export default function GlobalQueueBar() {
   // The Run pages show the live run themselves (LiveRun, at the top of the page), with the same
   // controls. A second card for the same run floated over that panel's buttons, so here the
   // card stands down while a run is showing; the idle chip stays, as the way into the queue.
-  const onRunPage = /^\/(once|execution|optimize)(\/|$)/.test(pathname);
+  // Stages too: it draws its own LiveRun, and missing it here showed two idle chips side by side.
+  const onRunPage = /^\/(once|execution|optimize|stages)(\/|$)/.test(pathname);
 
   useEffect(() => {
     if (onLauncher) return;

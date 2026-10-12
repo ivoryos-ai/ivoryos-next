@@ -12,7 +12,12 @@ import { API_BASE } from '@/config';
  * whole run again to PUT /api/queue/runs/<id>, which checks it like a new one and keeps its place.
  */
 
-export type QueuedEdit = { id: number; name: string };
+/**
+ * `live`: the run is under way, and only its samples still to come change (the edge's
+ * run_edits.py): rows before `lockedRows` have started and are shown locked, and the batch size,
+ * fixed values and stop conditions stay as they are.
+ */
+export type QueuedEdit = { id: number; name: string; live?: boolean; lockedRows?: number };
 
 /** The run being edited, from `?edit=<id>`, or null. */
 export function editRunIdFromUrl(): number | null {
@@ -26,6 +31,16 @@ export function editHref(run: any): string | null {
   const page = run?.parameters?._source?.page;
   const path = page === 'optimize' ? '/optimize' : page === 'once' ? '/once' : page === 'iterate' ? '/execution' : null;
   return path ? `${path}?edit=${run.id}` : null;
+}
+
+/**
+ * Where the samples still to come of a run under way are changed, or null when none can be:
+ * the edge says from which sample on a run can still change (`editable_from`), and the Iterate
+ * page needs the run's own settings (`_source`) to plan them again.
+ */
+export function liveEditHref(run: any): string | null {
+  if (!run || typeof run.editable_from !== 'number' || run.parameters?.type !== 'Spreadsheet') return null;
+  return run.parameters?._source ? `/execution?edit=${run.id}` : null;
 }
 
 /** A block as a run keeps it: what it does, without the schema (looked up again on load). */
@@ -52,25 +67,41 @@ export function hydrateBlocks(blocks: any[], instruments: Record<string, any>) {
   }));
 }
 
-/** The queued run and its source, or an error saying why it cannot be edited. */
-export async function loadQueuedRun(id: number): Promise<{ run: any; source: any; instruments: Record<string, any> }> {
+/** The run and its source, or an error saying why it cannot be edited: a queued run, or the samples still to come of one under way (`live`). */
+export async function loadQueuedRun(id: number): Promise<{ run: any; source: any; instruments: Record<string, any>; live: boolean; lockedRows: number }> {
   const [run, status] = await Promise.all([
     fetch(`${API_BASE}/api/queue/runs/${id}`).then(r => (r.ok ? r.json() : null)),
     fetch(`${API_BASE}/api/status`).then(r => r.json()).catch(() => ({})),
   ]);
   if (!run) throw new Error('That run is no longer in the queue.');
-  if (run.status !== 'pending') throw new Error(`"${run.name}" has already ${run.status === 'running' ? 'started' : 'finished'}, so it can no longer be changed.`);
+  const live = run.status !== 'pending' || typeof run.editable_from === 'number';
+  if (live && typeof run.editable_from !== 'number') {
+    throw new Error(`"${run.name}" has ${run.end_time ? 'finished' : 'no samples left that can change'}.`);
+  }
   const source = run.parameters?._source;
   if (!source) throw new Error(`"${run.name}" was queued before runs kept their settings, so it cannot be edited here.`);
-  return { run, source, instruments: status?.instruments || {} };
+  return { run, source, instruments: status?.instruments || {}, live, lockedRows: live ? run.editable_from : 0 };
 }
 
-/** Replace the queued run with the edited one (the same body a new run is posted with). */
-export async function saveQueuedRun(id: number, payload: any): Promise<void> {
+/**
+ * Replace the queued run with the edited one (the same body a new run is posted with). For a run
+ * under way the edge keeps the samples already started and replaces the rest; what it says back
+ * names what changed.
+ */
+export async function saveQueuedRun(id: number, payload: any): Promise<any> {
   const res = await fetch(`${API_BASE}/api/queue/runs/${id}`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+/** The agent proposal a run is opened to review (`?proposal=<id>`, runProposals.ts), or null. */
+export function proposalIdFromUrl(): number | null {
+  if (typeof window === 'undefined') return null;
+  const id = Number(new URLSearchParams(window.location.search).get('proposal'));
+  return Number.isInteger(id) && id > 0 ? id : null;
 }
 
 /** Leave edit mode: the page again, without `?edit`, back on the person's own workflow. */

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { Plus, Trash2, GripVertical, Layers, Grid3x3 } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Layers, Grid3x3, Lock } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 import { groupSizeFor, SpreadsheetRow } from './spreadsheetRun';
 import { guardHint, guardProblem, trayForGuards, type FieldGuard, type SafetyView } from './safety';
@@ -63,6 +63,14 @@ export interface SpreadsheetTableProps {
    * there, in visiting order, replace the column. Omit to leave the column typed by hand.
    */
   onFillColumn?: (varName: string, values: string[]) => void;
+  /**
+   * Rows before this index belong to samples a running run has already started: shown, not
+   * editable, not movable or removable. Changing a run while it runs (the edge's run_edits.py)
+   * refuses any change to them, and the table says so before anyone types.
+   */
+  lockedRows?: number;
+  /** Why the locked rows are locked, as their tooltip. */
+  lockedTitle?: string;
 }
 
 const isInvalidNumericCell = (type: string | undefined, val: any) => {
@@ -91,6 +99,8 @@ export function SpreadsheetTable({
   varGuards = {},
   safety,
   onFillColumn,
+  lockedRows = 0,
+  lockedTitle = 'This sample has started; its values can no longer change.',
 }: SpreadsheetTableProps) {
   // Which tray column's picker is open.
   const [picking, setPicking] = useState<string | null>(null);
@@ -108,6 +118,14 @@ export function SpreadsheetTable({
   const headPad = compact ? 'p-2' : 'p-3';
 
   const renderCell = (row: SpreadsheetRow, idx: number, v: string) => {
+    if (idx < lockedRows) {
+      const value = row[v];
+      return (
+        <span title={lockedTitle} className="block truncate px-2 py-1 text-sm text-gray-500 dark:text-gray-400">
+          {value === undefined || value === null || value === '' ? '\u2014' : String(value)}
+        </span>
+      );
+    }
     const isBatchVar = batchVariables.includes(v) && !rowListVariables.includes(v);
     // Rule 1 made visible: for a batch column only the group's first row is ever read.
     const isDesignatedRow = !isBatchVar || idx % groupSize === 0;
@@ -232,7 +250,7 @@ export function SpreadsheetTable({
         <>
           <td className={`${cellPad} border-l border-gray-100 dark:border-white/5`}>
             <div className="flex items-center justify-center space-x-2 text-gray-400">
-              {dragHandle}
+              {idx < lockedRows ? <span title={lockedTitle}><Lock className="h-3.5 w-3.5" /></span> : dragHandle}
               <div className="flex flex-col items-center leading-none">
                 <span className="text-sm font-medium">{idx + 1}</span>
                 {groupNumber && (
@@ -252,7 +270,7 @@ export function SpreadsheetTable({
             <td className={`${cellPad} border-l border-gray-100 text-center dark:border-white/5`}>
               <button
                 onClick={() => onRemoveRow(idx)}
-                disabled={rows.length === 1}
+                disabled={rows.length === 1 || idx < lockedRows}
                 aria-label={`Remove row ${idx + 1}`}
                 className="text-gray-400 hover:text-red-500 disabled:opacity-50"
               >
@@ -265,16 +283,16 @@ export function SpreadsheetTable({
     };
   };
 
-  const rowClass = (isGroupStart: boolean) =>
-    `border-b border-gray-100 bg-white hover:bg-gray-50 dark:border-white/5 dark:bg-transparent dark:hover:bg-white/[0.02] ${
-      isGroupStart ? 'border-t-2 border-t-purple-300 dark:border-t-purple-700/60' : ''
-    }`;
+  const rowClass = (isGroupStart: boolean, locked = false) =>
+    `border-b border-gray-100 dark:border-white/5 ${
+      locked ? 'bg-gray-50 dark:bg-white/[0.03]' : 'bg-white hover:bg-gray-50 dark:bg-transparent dark:hover:bg-white/[0.02]'
+    } ${isGroupStart ? 'border-t-2 border-t-purple-300 dark:border-t-purple-700/60' : ''}`;
 
   const staticBody = (
     <tbody>
       {rows.map((row, idx) => {
         const { isGroupStart, cells } = rowCells(row, idx);
-        return <tr key={`${idPrefix}-row-${idx}`} className={rowClass(isGroupStart)}>{cells}</tr>;
+        return <tr key={`${idPrefix}-row-${idx}`} className={rowClass(isGroupStart, idx < lockedRows)}>{cells}</tr>;
       })}
     </tbody>
   );
@@ -283,6 +301,8 @@ export function SpreadsheetTable({
     <DragDropContext
       onDragEnd={(result: DropResult) => {
         if (!result.destination || !onReorder) return;
+        // A started sample keeps its place: nothing moves into or out of the locked rows.
+        if (result.destination.index < lockedRows) return;
         onReorder(result.source.index, result.destination.index);
       }}
     >
@@ -290,7 +310,7 @@ export function SpreadsheetTable({
         {(provided) => (
           <tbody {...provided.droppableProps} ref={provided.innerRef}>
             {rows.map((row, idx) => (
-              <Draggable key={`${idPrefix}-row-${idx}`} draggableId={`${idPrefix}-row-${idx}`} index={idx}>
+              <Draggable key={`${idPrefix}-row-${idx}`} draggableId={`${idPrefix}-row-${idx}`} index={idx} isDragDisabled={idx < lockedRows}>
                 {(dragProvided) => {
                   const { isGroupStart, cells } = rowCells(
                     row,
@@ -303,7 +323,7 @@ export function SpreadsheetTable({
                     </span>,
                   );
                   return (
-                    <tr ref={dragProvided.innerRef} {...dragProvided.draggableProps} className={rowClass(isGroupStart)}>
+                    <tr ref={dragProvided.innerRef} {...dragProvided.draggableProps} className={rowClass(isGroupStart, idx < lockedRows)}>
                       {cells}
                     </tr>
                   );

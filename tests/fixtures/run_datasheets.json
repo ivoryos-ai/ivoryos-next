@@ -808,6 +808,206 @@
     "prep": [],
     "cleanup": []
    }
+  },
+  {
+   "name": "optimization whose arguments are not named like its #variables, read through _vars",
+   "record": {
+    "id": 7,
+    "name": "Dosing",
+    "status": "completed",
+    "start_time": "2026-10-04T09:00:00",
+    "parameters": {
+     "type": "Optimization",
+     "optimizer": "baybe",
+     "budget": 2,
+     "parameter_space": [
+      {
+       "name": "catalyst_ml",
+       "type": "range",
+       "bounds": [
+        0.1,
+        2
+       ]
+      },
+      {
+       "name": "temperature",
+       "type": "range",
+       "bounds": [
+        40,
+        90
+       ]
+      }
+     ],
+     "objective_config": [
+      {
+       "name": "yield",
+       "minimize": false
+      }
+     ],
+     "sequence_template": [
+      {
+       "instrument": "chiller",
+       "method": "hold",
+       "returnVar": null
+      },
+      {
+       "instrument": "pump",
+       "method": "dispense",
+       "returnVar": null
+      },
+      {
+       "instrument": "reactor",
+       "method": "heat",
+       "returnVar": null
+      },
+      {
+       "instrument": "hplc",
+       "method": "analyze",
+       "returnVar": "yield"
+      }
+     ]
+    },
+    "steps": [
+     {
+      "instrument": "chiller",
+      "method": "hold",
+      "parameters": {
+       "temperature": 4,
+       "_phase": "main"
+      },
+      "outputs": {
+       "result": null
+      },
+      "status": "completed"
+     },
+     {
+      "instrument": "pump",
+      "method": "dispense",
+      "parameters": {
+       "volume_ml": 0.5,
+       "_vars": {
+        "volume_ml": "catalyst_ml"
+       },
+       "_phase": "main"
+      },
+      "outputs": {
+       "result": null
+      },
+      "status": "completed"
+     },
+     {
+      "instrument": "reactor",
+      "method": "heat",
+      "parameters": {
+       "celsius": 65,
+       "_vars": {
+        "celsius": "temperature"
+       },
+       "_phase": "main"
+      },
+      "outputs": {
+       "result": null
+      },
+      "status": "completed"
+     },
+     {
+      "instrument": "hplc",
+      "method": "analyze",
+      "parameters": {
+       "_phase": "main"
+      },
+      "outputs": {
+       "result": 71.2
+      },
+      "status": "completed"
+     },
+     {
+      "instrument": "chiller",
+      "method": "hold",
+      "parameters": {
+       "temperature": 4,
+       "_phase": "main"
+      },
+      "outputs": {
+       "result": null
+      },
+      "status": "completed"
+     },
+     {
+      "instrument": "pump",
+      "method": "dispense",
+      "parameters": {
+       "volume_ml": 1.25,
+       "_vars": {
+        "volume_ml": "catalyst_ml"
+       },
+       "_phase": "main"
+      },
+      "outputs": {
+       "result": null
+      },
+      "status": "completed"
+     },
+     {
+      "instrument": "reactor",
+      "method": "heat",
+      "parameters": {
+       "celsius": 80,
+       "_vars": {
+        "celsius": "temperature"
+       },
+       "_phase": "main"
+      },
+      "outputs": {
+       "result": null
+      },
+      "status": "completed"
+     },
+     {
+      "instrument": "hplc",
+      "method": "analyze",
+      "parameters": {
+       "_phase": "main"
+      },
+      "outputs": {
+       "result": 64
+      },
+      "status": "completed"
+     }
+    ]
+   },
+   "expected": {
+    "type": "Optimization",
+    "variables": [
+     "catalyst_ml",
+     "temperature",
+     "yield (objective)"
+    ],
+    "rows": [
+     {
+      "row": 1,
+      "status": "completed",
+      "values": [
+       0.5,
+       65,
+       71.2
+      ]
+     },
+     {
+      "row": 2,
+      "status": "completed",
+      "values": [
+       1.25,
+       80,
+       64
+      ]
+     }
+    ],
+    "deck_version": null,
+    "batch_size": null,
+    "prep": [],
+    "cleanup": []
+   }
   }
  ]
 }

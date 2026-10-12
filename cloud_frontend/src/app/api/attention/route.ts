@@ -49,6 +49,10 @@ export async function GET() {
         step: pr.step || '',
         row: pr.row || null,
         pause: pr.pause || null,
+        // The failed step's values, to change before a retry, and the device's answer to the
+        // last change (see the edge's step_edit_summary and taskCommands.js).
+        edit: pr.edit || null,
+        editResult: pr.edit_result || null,
         // A decision already on its way: the card shows it rather than offering the choice again.
         sent: !!(t.command && t.command.pause === pr.pause) ? t.command.action : null,
         since: t.updated_at,
