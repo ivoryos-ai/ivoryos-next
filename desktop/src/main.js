@@ -1255,8 +1255,18 @@ function registerIpc() {
 
 // --- tray ----------------------------------------------------------------------------------------
 
-/** The icon at tray size; the 1024px app icon scaled down (a separate small asset is not needed). */
+/**
+ * The icon at tray size. macOS: the logo's outline as a template image (build/trayTemplate.png,
+ * with its @2x beside it), which the menu bar tints for light or dark like its other icons; the
+ * app icon there is a tile and shows as a box. Elsewhere: the 1024px app icon scaled down.
+ */
 function trayImage() {
+    const template = path.join(__dirname, '..', 'build', 'trayTemplate.png');
+    if (process.platform === 'darwin' && fs.existsSync(template)) {
+        const img = nativeImage.createFromPath(template);
+        img.setTemplateImage(true);
+        return img;
+    }
     if (!fs.existsSync(ICON)) return nativeImage.createEmpty();
     const size = process.platform === 'darwin' ? 18 : 16;
     const img = nativeImage.createFromPath(ICON);

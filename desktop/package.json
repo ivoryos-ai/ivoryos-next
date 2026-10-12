@@ -21,7 +21,9 @@
       "src/**/*",
       "package.json",
       "build/icon.png",
-      "build/icon-win.png"
+      "build/icon-win.png",
+      "build/trayTemplate.png",
+      "build/trayTemplate@2x.png"
     ],
     "extraResources": [
       {
