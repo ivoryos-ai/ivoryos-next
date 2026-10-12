@@ -41,6 +41,21 @@ def _params(step: Any) -> dict:
     return params if isinstance(params, dict) else {}
 
 
+def _suggested_value(name: str, steps: list) -> Any:
+    """The value a trial's steps were given for search-space parameter `name`. The argument is
+    rarely called what the #variable is (`#catalyst_ml` feeds `volume_ml`), which is what a step's
+    `_vars` {argument: name} records; an argument that happens to share the name is the fallback
+    for runs recorded before `_vars`."""
+    for step in steps:
+        params = _params(step)
+        vars_ = params.get("_vars") if isinstance(params.get("_vars"), dict) else {}
+        arg = next((a for a, n in vars_.items() if n == name), None)
+        if arg is not None and arg in params:
+            return params[arg]
+    step = next((s for s in steps if name in _params(s)), None)
+    return _params(step)[name] if step is not None else ""
+
+
 def _result(step: Any) -> Any:
     return _get(_get(step, "outputs"), "result")
 
@@ -253,8 +268,7 @@ def format_run(record: Dict[str, Any]) -> Dict[str, Any]:
             steps = main_steps[i * seq_length:(i + 1) * seq_length]
             param_values = []
             for name in param_names:
-                step = next((s for s in steps if name in _params(s)), None)
-                param_values.append(_params(step)[name] if step is not None else "")
+                param_values.append(_suggested_value(name, steps))
             rows.append({
                 "row": i + 1,
                 "status": _iteration_status(steps),
