@@ -2,13 +2,15 @@
 // Keeping the app itself up to date, from the GitHub releases CI publishes
 // (.github/workflows/desktop.yml, a `desktop-v*` tag).
 //
-// Windows and Linux use electron-updater: it reads latest.yml / latest-linux.yml from the newest
-// release, downloads in the background, and installs on restart. Unsigned builds are fine there.
+// Every system uses electron-updater: it reads latest.yml / latest-mac.yml / latest-linux.yml from
+// the newest release, downloads in the background, and installs on restart.
 //
-// macOS cannot: Squirrel.Mac refuses to install an update into an app that is not code-signed,
-// and these builds are not signed yet (desktop/README.md, "Not done yet"). So on macOS the app
-// only *checks*, against the GitHub API, and offers the download page. When a Developer ID is in
-// CI, macOS can switch to the same path as the others.
+// On macOS it hands the download to Squirrel.Mac, which installs only a code-signed app delivered
+// as a .zip: tagged builds are signed and notarized in CI, and package.json's mac targets put a
+// .zip beside the .dmg. Squirrel replaces the app where it stands, so it cannot while the app runs
+// from somewhere it cannot write: straight from the mounted .dmg, or from Downloads, which macOS
+// runs from a read-only copy. There (`canInstall` false) the app only *checks*, against the GitHub
+// API, offers the download page, and offers to move itself to Applications.
 //
 // A development run (`npm start`) is not an installed app and never updates.
 
@@ -48,13 +50,14 @@ class Updates extends EventEmitter {
      * @param {() => any} [opts.loadAutoUpdater]  returns electron-updater's autoUpdater (lazy: it
      *                                            reads app-update.yml, which only packaged builds have)
      * @param {() => boolean} [opts.autoDownload]
+     * @param {boolean} [opts.canInstall]  false on macOS when the app is outside Applications
      */
-    constructor({ currentVersion, packaged, platform, fetch, loadAutoUpdater, autoDownload = () => true }) {
+    constructor({ currentVersion, packaged, platform, fetch, loadAutoUpdater, autoDownload = () => true, canInstall = true }) {
         super();
         this.current = currentVersion;
         this.fetch = fetch;
         this.autoDownload = autoDownload;
-        this.manual = platform === 'darwin';
+        this.manual = platform === 'darwin' && !canInstall;
         this.state = packaged
             ? { state: 'idle', current: currentVersion, manual: this.manual }
             : { state: 'unsupported', current: currentVersion, message: 'Updates apply to installed builds, not a development run.' };
@@ -96,7 +99,7 @@ class Updates extends EventEmitter {
             }
             return this.state;
         }
-        // macOS: look, and point at the download.
+        // macOS outside Applications: look, and point at the download.
         this._set({ state: 'checking', message: null });
         try {
             const res = await this.fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: 'application/vnd.github+json' } });

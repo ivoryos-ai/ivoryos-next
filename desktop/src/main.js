@@ -1147,6 +1147,21 @@ function registerIpc() {
     handle('update:check', () => updates.check());
     handle('update:download', () => updates.download());
     handle('update:install', () => updates.install(async () => { exiting = true; quitting = true; await manager.stopAll(); }));
+    // macOS outside Applications, where the app cannot update itself: Electron moves it there
+    // (replacing an older copy that is not running) and starts it again from Applications.
+    handle('update:move-to-applications', async () => {
+        if (process.platform !== 'darwin' || !app.isPackaged) throw new Error('Only the installed macOS app can move itself.');
+        exiting = true;
+        quitting = true;
+        await manager.stopAll();
+        let moved = false;
+        try {
+            moved = app.moveToApplicationsFolder();
+        } finally {
+            if (!moved) { exiting = false; quitting = false; }
+        }
+        if (!moved) throw new Error('IvoryOS could not be moved. Quit it and drag it into Applications in Finder.');
+    });
     handle('update:open-page', () => {
         const u = updates.status();
         return shell.openExternal(u.downloadUrl || u.releaseUrl || 'https://github.com/ivoryzh/ivoryos-next/releases');
@@ -1445,6 +1460,8 @@ app.whenReady().then(async () => {
         fetch: (...a) => net.fetch(...a),
         loadAutoUpdater: () => require('electron-updater').autoUpdater,
         autoDownload: () => manager.autoUpdate,
+        // Squirrel.Mac cannot replace an app running from the .dmg or a read-only copy (updater.js).
+        canInstall: process.platform !== 'darwin' || !app.isPackaged || app.isInApplicationsFolder(),
     });
     updates.on('changed', () => broadcast('launcher:changed'));
 
