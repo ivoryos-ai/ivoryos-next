@@ -27,7 +27,7 @@ type Turn =
 type Target = { kind: 'all' | 'platform' | 'device'; id?: string };
 type Platform = { id: string; name: string; device_ids: string[] };
 type Settings = { provider?: string; base_url?: string; model?: string; api_key_set?: boolean };
-type ProviderSpec = { name: string; default_base_url: string; default_model: string; needs_api_key: boolean };
+type ProviderSpec = { name: string; default_base_url: string; default_model: string; needs_api_key: boolean; accepts_api_key?: boolean };
 
 const STORE_KEY = 'cloud_agent_chat';
 const TARGET_KEY = 'cloud_agent_target';
@@ -265,8 +265,8 @@ export default function CloudAgentPanel({ nodes, edges, workflowName, devices, o
             </select></label>
           <label className="block"><span className="text-gray-500">Endpoint</span>
             <input defaultValue={settings.base_url || providerSpec?.default_base_url || ''} onBlur={e => saveSettings({ base_url: e.target.value })} className="mt-0.5 w-full rounded-md border border-gray-200 dark:border-white/10 bg-white dark:bg-black/40 px-2 py-1 font-mono" /></label>
-          {providerSpec?.needs_api_key && (
-            <label className="block"><span className="text-gray-500">API key{settings.api_key_set ? ' · saved' : ''}</span>
+          {(providerSpec?.accepts_api_key ?? providerSpec?.needs_api_key) && (
+            <label className="block"><span className="text-gray-500">API key{providerSpec?.needs_api_key ? '' : ' · optional'}{settings.api_key_set ? ' · saved' : ''}</span>
               <input type="password" value={apiKeyDraft} onChange={e => setApiKeyDraft(e.target.value)} onBlur={() => { if (apiKeyDraft) { saveSettings({ api_key: apiKeyDraft }); setApiKeyDraft(''); } }} placeholder={settings.api_key_set ? '••••••••' : 'paste a key'} className="mt-0.5 w-full rounded-md border border-gray-200 dark:border-white/10 bg-white dark:bg-black/40 px-2 py-1" /></label>
           )}
           <label className="block"><span className="text-gray-500 flex items-center gap-1">Model <button type="button" onClick={refreshModels} title="Refresh the list" className="p-0.5 text-gray-400 hover:text-gray-700"><RefreshCw className="w-3 h-3" /></button></span>
