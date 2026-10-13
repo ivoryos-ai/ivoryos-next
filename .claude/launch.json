@@ -93,6 +93,37 @@
         "3111"
       ],
       "port": 3111
+    },
+    {
+      "name": "docs-deck",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "edge_server",
+        "--with",
+        "baybe==0.15.0",
+        "--with",
+        "plotly",
+        "python",
+        "docs-site/scripts/docs-deck.py"
+      ],
+      "port": 8090,
+      "autoPort": false
+    },
+    {
+      "name": "docs-site",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "docs-site",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "4321"
+      ],
+      "port": 4321
     }
   ]
 }

@@ -1,0 +1,146 @@
+---
+title: Start a deck
+description: "Three ways to put instruments on a deck: a Python script, a deck file, or the desktop app. Ports, data folders, environment variables."
+sidebar:
+  order: 4
+---
+
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
+A deck is one edge server process with a set of instrument objects. There are three ways to make
+one; they all run the same server.
+
+<Tabs>
+  <TabItem label="Python script">
+
+Create the instruments as module-level objects and hand the module to `run()`:
+
+```python
+# my_bench.py
+import os
+import ivoryos_edge
+from my_lab import SyringePump, Reactor
+
+pump_1 = SyringePump(port=os.environ.get("PUMP_PORT", "COM3"))
+reactor = Reactor(port="COM4")
+
+ivoryos_edge.run(__name__)
+```
+
+```bash
+python my_bench.py          # http://localhost:8080
+```
+
+Every module-level object becomes an instrument, by the rules in
+[What IvoryOS reads](/dev/instruments/what-ivoryos-reads/#which-objects-are-instruments). Objects
+that are yours but not instruments go in `exclude_names`:
+
+```python
+ivoryos_edge.run(__name__, port=8090, exclude_names=["CONFIG"], logger="my_lab")
+```
+
+`logger` names one or more loggers whose records go to the deck's output (the Log tab in the
+desktop app). `plugins` takes a list of [Python plugins](/dev/extend/plugins/).
+
+A script written for IvoryOS Classic (`import ivoryos`) stops at that import. The desktop app
+offers to convert it, or run `python -m ivoryos_edge.classic script.py --write`: it changes the
+import and the `run()` arguments, keeps every changed line above as a comment, and names anything
+it could not carry over.
+
+  </TabItem>
+  <TabItem label="Deck file">
+
+A deck file describes the same thing as data, which is what the desktop app and the Hub's
+"install this platform" flow write:
+
+```json
+{
+  "format": "ivoryos-deck/1",
+  "name": "Suzuki bench",
+  "packages": ["vendor-pumps==1.4.2"],
+  "paths": ["drivers"],
+  "instruments": [
+    {
+      "name": "pump_1",
+      "import": "vendor_pumps.syringe",
+      "class": "SyringePump",
+      "args": { "port": "COM3" },
+      "calls": [{ "method": "connect" }]
+    },
+    { "name": "reactor", "import": "my_lab", "class": "Reactor", "args": { "port": "COM4" } },
+    { "name": "old_pump", "import": "my_lab", "class": "Pump", "enabled": false }
+  ],
+  "plugins": ["my_lab.plugin:plugin"]
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `packages` | pip requirements. The file never installs them; the desktop app does, or you do, before starting. |
+| `paths` | folders relative to the file, added to `sys.path`, for drivers that are not packages. |
+| `import`, `class`, `args` | `cls = getattr(import_module(import), class); obj = cls(**args)`. A value `{"$object": {import, class, args}}` builds a nested object first. |
+| `calls` | methods run after construction, in order (`connect()`). |
+| `enabled: false` | kept in the file, not loaded (an unplugged device). |
+| `plugins` | `package.module:attribute` of `Plugin` objects. |
+
+```bash
+ivoryos-edge --deck deck.json --port 8090 --data-dir ~/decks/suzuki
+```
+
+**One instrument failing never stops the others**: an import error, a constructor that cannot open
+its port, or a failed `calls` entry is recorded, the deck starts with the rest, and the
+Instruments page lists it under *Not loaded* with the error.
+
+  </TabItem>
+  <TabItem label="Desktop app">
+
+**Add a deck** in the app creates a deck profile (a deck file the app edits for you, with its own
+data folder and port) or a script profile (your `.py` file, run with the interpreter, arguments and
+environment variables you set). Drivers are installed from the Hub or from a package you name,
+and **Add installed driver** writes an entry for any class the app's Python can import.
+
+The app starts the deck, waits until it answers, and opens its page in a tab. The Log tab shows
+everything the process prints. See [Decks and profiles](/desktop/decks-and-profiles/).
+
+  </TabItem>
+</Tabs>
+
+## Settings the deck reads
+
+| Variable | Default | What it does |
+|---|---|---|
+| `IVORYOS_PORT` | `8080` | the port, when the script does not pass one to `run()` |
+| `IVORYOS_HOST` | `0.0.0.0` | the interface to listen on |
+| `IVORYOS_DATA_DIR` | the legacy locations | where the database, saved workflows, safety config, Cloud pairing and the schema dump are kept. The desktop app always sets it, one folder per deck. |
+| `IVORYOS_ALLOWED_HOSTS` | this computer's names | extra host names the page may be opened by (a lab hostname, a reverse proxy); `*` disables the check |
+| `IVORYOS_SUPERVISED` | unset | set by the desktop app; a restart then exits with code 75 for the app to start it again |
+| `IVORYOS_CLOUD_URL` | the hosted Cloud | a lab's own Cloud to pair with |
+
+`--data-dir`, `--port` and `--host` on the command line set the first three.
+
+<Aside type="caution" title="Who can reach a deck">
+Anyone who can reach the port can drive the instruments. The deck answers only to its own host
+names, which stops a web page from redirecting a browser at it, and only pages on the same
+computer may send it commands cross-origin. To use it from another computer in the lab, open it by
+this machine's IP or name; behind a DNS name of your own, list that name in
+`IVORYOS_ALLOWED_HOSTS` or every page answers 403.
+</Aside>
+
+## What the data folder holds
+
+| File | What |
+|---|---|
+| `ivoryos_edge.db` | every run, step and result (SQLite) |
+| `workflows/` | saved workflows: `<name>.json` is the current version, `.versions/<name>/<n>.json` every save, `.meta.json` the tags |
+| `safety.json`, `safety_state.json` | the [safety guard](/dev/extend/safeguards/) and what it last knew of each deck state |
+| `.env`, `.certs/` | the Cloud pairing |
+| `ivoryos_schema.json` | the schema read at startup |
+| `optimizer_data/` | files an optimizer backend keeps on disk |
+
+## Restarting
+
+A restart is always a new process: Python cannot reliably let go of a serial port otherwise. The
+Instruments page's **Restart** (`POST /api/system/restart`) is refused while a run is going unless
+you confirm. Under the desktop app the process exits with code 75 and the app starts it again;
+from a terminal it replaces itself with the same command line (on Windows, `ivoryos-edge --deck`
+runs a small restart loop to make this work; a script cannot, and says so).
