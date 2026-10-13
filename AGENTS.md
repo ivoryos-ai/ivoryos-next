@@ -387,7 +387,7 @@ The accent is **Steel**, a muted bluish grey, defined once in `packages/shared-u
 
 ### The mark
 
-`desktop/build/logo.png` is the IvoryOS mark (the elephant), and `icon.png`/`icon-win.png` are the app icon made from it. The pages draw `BRAND_MARK` (`/ivoryos-mark.png`, in each app's `public/`) at its own aspect (`h-6 w-auto`, never a square box), and each app's `src/app/icon.png` plus a multi-size `favicon.ico` are the tab icon. They all used to draw the 32 px `favicon.ico` at 24 to 48 px, which made the elephant a blur. Regenerate all of them from `logo.png` if the mark changes.
+**`brand/ivoryos-logo.ai` is the source of every logo asset**, the mark and the IvoryOS wordmark as vectors (2026-10; before, a 218 px PNG of the mark was resized by hand into three folders and blurred past 2x). `desktop/scripts/make-icon.py` reads the PDF inside it (PyMuPDF) and writes everything: `desktop/build/logo.png` (the mark, 2000 px) and from it the app icons and the menu bar template; `ivoryos-mark.svg` in each app's `public/` and in `docs-site/src/assets/` (the pages draw `BRAND_MARK` at its own aspect, `h-6 w-auto`, never a square box; the docs use it as logo and hero); each app's `src/app/icon.png` and multi-size `favicon.ico`, and the docs' `favicon.ico`; and the lockup, `brand/ivoryos-logo.svg` plus a light and a dark PNG, which the README's `<picture>` picks by theme. Never edit an output by hand: change the `.ai` and run the script (`brand/README.md`).
 
 ## 10b. One theme for every page (`packages/shared-ui/src/theme.tsx`)
 
