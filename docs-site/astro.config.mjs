@@ -40,7 +40,7 @@ export default defineConfig({
     starlight({
       title: 'IvoryOS',
       description: 'Run your lab from one place: documentation for people who use IvoryOS and people who build on it.',
-      logo: { src: './src/assets/ivoryos-mark.png', alt: 'IvoryOS' },
+      logo: { src: './src/assets/ivoryos-mark.svg', alt: 'IvoryOS' },
       favicon: '/favicon.ico',
       customCss: ['./src/styles/custom.css'],
       social: [

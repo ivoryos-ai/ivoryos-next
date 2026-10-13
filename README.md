@@ -1,8 +1,9 @@
 <p align="center">
-  <img src="desktop/build/logo.png" alt="IvoryOS" width="120">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="brand/ivoryos-logo-dark.png">
+    <img src="brand/ivoryos-logo.png" alt="IvoryOS" width="220">
+  </picture>
 </p>
-
-<h1 align="center">IvoryOS</h1>
 
 <p align="center">
   <b>Run your lab's instruments from one place.</b><br>

@@ -5,7 +5,7 @@ template: splash
 hero:
   tagline: Build, run and optimize experiments on the Python drivers you already have.
   image:
-    file: ../../assets/ivoryos-mark.png
+    file: ../../assets/ivoryos-mark.svg
   actions:
     - text: Start here
       link: start/what-is-ivoryos/
@@ -15,15 +15,19 @@ hero:
       variant: minimal
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 
+{/* Links, not plain cards: each opens its guide's first page. Written relative, like the hero
+    buttons above, so they work both at a domain root and under the GitHub Pages sub-path. */}
 <CardGrid stagger>
-  <Card title="User guide" icon="open-book">
-    Every page of the app, with step-by-step instructions: design a workflow, run it once, over a
-    spreadsheet or with an optimizer, and read the results back.
-  </Card>
-  <Card title="Developer guide" icon="seti:python">
-    What IvoryOS reads from a Python class, how to decide what to expose, and how to add
-    safeguards, plugins and your own pages.
-  </Card>
+  <LinkCard
+    title="User guide"
+    href="guide/designer/"
+    description="Every page of the app, with step-by-step instructions: design a workflow, run it once, over a spreadsheet or with an optimizer, and read the results back."
+  />
+  <LinkCard
+    title="Developer guide"
+    href="dev/instruments/write-a-driver/"
+    description="What IvoryOS reads from a Python class, how to decide what to expose, and how to add safeguards, plugins and your own pages."
+  />
 </CardGrid>
