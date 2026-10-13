@@ -228,8 +228,8 @@ git tag desktop-v0.2.0
 git push origin desktop-v0.2.0
 ```
 
-- `desktop-v0.2.0` is a release. Installed apps on Windows and Linux update to it themselves;
-  on macOS the app links to it.
+- `desktop-v0.2.0` is a release. Installed apps update to it themselves, macOS included when
+  the app is in Applications (a copy run from the `.dmg` or from Downloads only links to it).
 - `desktop-v0.2.0-test.1` (anything after a hyphen) is a pre-release: downloadable, never offered
   as an update. Use it for internal test builds.
 
