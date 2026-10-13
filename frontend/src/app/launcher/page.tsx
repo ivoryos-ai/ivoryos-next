@@ -855,7 +855,7 @@ function ProfileView({ api, profile, hubUrl, pro, onUpgrade, link, sharedWith, t
         ? <DeckPanel api={api} profile={profile} hubUrl={hubUrl} pro={pro} onUpgrade={onUpgrade} onOpenProfile={onOpenProfile} browsing={hubOpen} setBrowsing={setHubOpen} hubKind={hubKind} hubLink={hubLink} seed={seed} onSeedTaken={onSeedTaken} />
         : <ScriptOverview api={api} profile={profile} openSettings={() => setTab('settings')} openCode={() => setTab('code')} />)}
       {tab === 'code' && profile.kind === 'script' && <CodePanel api={api} profile={profile} run={run} />}
-      {tab === 'log' && <LogPanel api={api} profile={profile} lines={log} onReport={failed ? report : undefined} />}
+      {tab === 'log' && <LogPanel api={api} profile={profile} lines={log} onReport={report} />}
       {tab === 'settings' && <ProfileSettings api={api} profile={profile} link={link} sharedWith={sharedWith} onRemoved={onRemoved} cloudOffered={!cloudComingSoon} />}
     </div>
   );
@@ -1084,7 +1084,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-/** `onReport` only after a failed start, a crash or a failed install: that is what reports are for. */
+/** `onReport` on every deck, whatever its state: a deck that starts and then misbehaves is as worth
+    reporting as one that would not start, and the Log tab is where its log is. */
 function LogPanel({ api, profile, lines, onReport }: { api: DesktopApi; profile: Profile; lines: string[]; onReport?: () => void }) {
   const ref = useRef<HTMLPreElement>(null);
   const [follow, setFollow] = useState(true);

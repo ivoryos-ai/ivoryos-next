@@ -13,10 +13,11 @@ type Phase =
   | { phase: 'failed'; error: string; issueUrl?: string };
 
 /**
- * "Send to IvoryOS" (desktop/src/problemReport.js), offered where something failed for reasons
- * the person may not be able to fix: a deck that would not start or stopped, and a Hub install.
- * They read exactly what will be sent and can edit or delete any of it; tokens, keys, emails and
- * their home folder are already masked. Nothing leaves the machine until Send.
+ * "Send to IvoryOS" (desktop/src/problemReport.js): where something failed for reasons the person
+ * may not be able to fix (a deck that would not start or stopped, a Hub install), on every deck's
+ * Log tab, and from Settings → Help at any time with no deck at all. They read exactly what will
+ * be sent and can edit or delete any of it; tokens, keys, emails and their home folder are
+ * already masked. Nothing leaves the machine until Send.
  */
 export function ReportProblem({ api, profileId, failure, onClose }: { api: DesktopApi; profileId: string | null; failure?: ReportFailure; onClose: () => void }) {
   const [details, setDetails] = useState<string | null>(null);

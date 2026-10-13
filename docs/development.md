@@ -233,7 +233,9 @@ git push origin desktop-v0.2.0
 - `desktop-v0.2.0-test.1` (anything after a hyphen) is a pre-release: downloadable, never offered
   as an update. Use it for internal test builds.
 
-Builds are unsigned for now, so Windows SmartScreen and macOS Gatekeeper warn on first open.
+Tagged builds are signed (the macOS app with a Developer ID and notarized, the Windows installer
+through Azure Trusted Signing; the AppImage is not signed). Branch builds are unsigned, so they
+warn on first open. `desktop/README.md` lists the secrets this needs.
 
 ## Further reading
 

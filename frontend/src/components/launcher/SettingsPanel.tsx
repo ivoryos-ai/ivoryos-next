@@ -1,10 +1,11 @@
 "use client";
 import React, { useState } from 'react';
-import { AlertTriangle, CheckCircle2, Download, ExternalLink, FolderOpen, Loader2, Monitor, Moon, RefreshCw, RotateCw, Sun } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, ExternalLink, FolderOpen, Loader2, MessageCircle, Monitor, Moon, RefreshCw, RotateCw, Send, Sun } from 'lucide-react';
 import { confirmDialog, notify } from '@ivoryos/shared-ui';
 import type { DesktopApi, Snapshot, UpdateStatus } from '@/desktop';
 import PythonEnvironment from './PythonEnvironment';
 import NotificationSettings from './NotificationSettings';
+import { openReport } from './ReportProblem';
 import { Button, cardClass } from './ui';
 
 /**
@@ -33,6 +34,20 @@ export default function SettingsPanel({ api, snap }: {
           ))}
         </div>
         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">Every deck&apos;s page and Cloud use it too. System follows your computer.</p>
+      </Section>
+
+      {/* Reporting used to be offered only where something had failed (a deck that would not start,
+          an install). A problem that shows while things run has no failure to click on, so the
+          report is here at any time; from a deck's own Log tab it also carries that deck's log. */}
+      <Section title="Help">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={() => openReport(api, null, { kind: 'other' })} title="Describe what went wrong and send it with this app's details to the IvoryOS team; you read it all first">
+            <Send className="w-3.5 h-3.5" /> Report a problem
+          </Button>
+          <Button onClick={() => window.open('https://discord.gg/3KdjhUmsYA', '_blank')}><MessageCircle className="w-3.5 h-3.5" /> Ask on Discord</Button>
+          <Button onClick={() => window.open('https://github.com/ivoryzh/ivoryos-next/issues', '_blank')}><ExternalLink className="w-3.5 h-3.5" /> GitHub issues</Button>
+        </div>
+        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">A report carries your description and this app&apos;s version and Python environment. To include a deck&apos;s log, use <b>Send to IvoryOS</b> on that deck&apos;s Log tab. Keys, tokens and your home folder are masked, and you see the whole text before it is sent.</p>
       </Section>
 
       {!snap.cloudOnly && <Section title="Notifications"><NotificationSettings api={api} snap={snap} /></Section>}
