@@ -41,8 +41,12 @@ jobs:
           enablement: true
       - run: npm ci
         working-directory: docs-site
-      - run: npx astro build --site "${{ steps.pages.outputs.origin || 'https://docs.ivoryos.ai' }}" --base "${{ steps.pages.outputs.base_path || '/' }}"
+      # Empty on a pull request, so the build uses the config's defaults (the custom domain, base /).
+      - run: npx astro build
         working-directory: docs-site
+        env:
+          DOCS_SITE: ${{ steps.pages.outputs.origin }}
+          DOCS_BASE: ${{ steps.pages.outputs.base_path }}
       - if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:

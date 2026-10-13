@@ -9,7 +9,10 @@ The site is [Astro Starlight](https://starlight.astro.build) in `docs-site/`: Ma
 pages under `src/content/docs/`, built to static HTML with search included, deployable to any
 static host.
 `.github/workflows/docs.yml` builds it on every pull request that touches `docs-site/`, so a
-broken page or link fails the check, and publishes `main` to GitHub Pages at docs.ivoryos.ai.
+broken page or link fails the check, and publishes `main` to GitHub Pages at docs.ivoryos.ai (at ivoryzh.github.io/ivoryos-next until
+the custom domain is set). Write links between pages root-absolute, `/guide/designer/`: the build
+prefixes the sub-path when there is one. The two hero buttons on the home page are the exception,
+written relative, since Starlight does not run frontmatter links through that step.
 
 ```bash
 cd docs-site
