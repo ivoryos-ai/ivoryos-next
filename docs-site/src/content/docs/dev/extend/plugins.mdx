@@ -1,0 +1,103 @@
+---
+title: Plugins
+description: Add your own page or live side panel to a deck, with an optional Python API that sees the deck's own instruments.
+sidebar:
+  order: 2
+---
+
+import { FileTree, Aside } from '@astrojs/starlight/components';
+
+A plugin is a page (a tab of its own, or a side panel over the pages) and, optionally, a small
+Python API behind it that runs inside the deck beside the instruments.
+
+<FileTree>
+- my_plugin/
+  - __init__.py
+  - plugin.py the Plugin object and its routes
+  - page/
+    - index.html
+    - app.js
+</FileTree>
+
+```python
+# my_plugin/plugin.py
+from ivoryos_edge.plugins import Plugin
+
+plugin = Plugin(
+    "Shaker view",            # shown in the sidebar
+    page="page",              # folder with index.html, relative to this file
+    placement="panel-right",  # "tab" (default), "panel-left" or "panel-right"
+    icon="activity",          # optional lucide icon name
+)
+
+@plugin.router.get("/api/state")
+def state():
+    shaker = plugin.instrument("shaker")
+    return {"rpm": shaker.rpm}
+```
+
+The deck serves the page at `/plugins/shaker_view/`, the route at `/plugins/shaker_view/api/state`
+and a websocket at `/plugins/shaker_view/events` carrying whatever the plugin `publish()`es. The
+page reaches its API with relative URLs (`fetch("api/state")`), so it never needs the host or
+port.
+
+<Aside type="danger" title="The one rule: never make a second copy of an instrument">
+A plugin receives the deck's **own** instrument objects (`plugin.instrument("shaker")`). It must
+never construct one or import a script that does: a second `Shaker(port="COM3")` reopens the
+hardware, and whichever copy the deck is using loses it.
+</Aside>
+
+## The API
+
+| | |
+|---|---|
+| `Plugin(name, *, id=None, page=None, placement="tab", icon=None)` | create one at module level; `id` defaults to the name in lower case with underscores, and is the plugin's address, so keep it stable |
+| `plugin.router` | a FastAPI `APIRouter`: `@plugin.router.get(...)`, `.post`, `.websocket` |
+| `plugin.instrument(name)` | the live instrument, or a clear error listing what *is* loaded |
+| `plugin.instruments` | the deck's whole `{name: object}` mapping |
+| `@plugin.on_start` | `fn(instruments)`, run once after the deck is built, before it serves anything |
+| `plugin.observe(name, callback, methods=None)` | call `callback(event)` after each call of that instrument's methods: `{"instrument", "method", "args", "result" or "error", "started", "finished"}`. Signatures are kept, async stays async, a callback that raises never fails the step. |
+| `plugin.publish(message)` | send JSON to every open page of this plugin, from any thread; the last message is replayed to a page as it connects |
+
+## Registering it
+
+A script deck passes it to `run`; a deck file lists it (a local folder in `paths`, a pip package in
+`packages`):
+
+```python
+ivoryos_edge.run(__name__, plugins=[plugin])
+```
+
+```json
+{ "format": "ivoryos-deck/1", "paths": ["plugins_src"], "plugins": ["my_plugin.plugin:plugin"], "instruments": [] }
+```
+
+A plugin that fails to import or whose `on_start` raises is listed under `errors` in
+`GET /api/plugins`, and the rest of the deck starts normally.
+
+**Page only, no Python:** a folder with an `index.html` inside a `plugins/` directory beside the
+script or deck file is served the same way, discovered at startup. A Vite or React build works as
+long as it uses relative asset paths (`base: './'`).
+
+## Writing the page
+
+- Relative URLs everywhere: `fetch("api/state")`, `<script src="app.js">`.
+- For anything watched during a run, **push, don't poll**: open the `events` websocket and have
+  the plugin `publish()` from an `observe` callback. A poll every second misses steps shorter than
+  that.
+- To follow runs with no Python at all, the deck's own `/api/ws/queue` websocket sends every live
+  run with its steps after each step.
+- To **move hardware from a page**, call the deck (`POST /api/execute` with `{module, method,
+  args}`, or queue a run), which goes through the same casting, busy checks and safety guard as
+  the Instruments page. A route of your own that calls the instrument object directly bypasses all
+  of that and can move hardware in the middle of someone's run.
+- The page runs in an iframe with scripts, forms, popups and downloads allowed. A side panel
+  starts 420 px wide and can be resized or floated: design for 300–600 px and any height.
+
+## In the app
+
+A plugin is an entry in the sidebar: a tab opens as a page; a panel opens as a window over the
+pages, or full size over the page area, and stays alive as you move between pages. Right-click
+the entry to choose. The full guide, including moving a plugin written for the original IvoryOS
+(a Flask blueprint) over, is `docs/plugins.md` in the repository; the `ivoryos-plugin` skill in the
+repository does the port for an AI agent.

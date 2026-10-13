@@ -1,0 +1,63 @@
+name: Docs
+
+# The documentation site (docs-site/, Astro Starlight). A pull request that touches it is built, so
+# a broken page or link fails the check; a push to main builds it again and publishes it to GitHub
+# Pages. configure-pages hands the build whichever address applies: the custom domain
+# (docs.ivoryos.ai, set under Settings → Pages once its DNS points at GitHub) or, until then, the
+# repository's github.io address. Screenshots are committed, not taken here: they need Chrome and
+# a running deck (docs-site/README.md).
+on:
+  push:
+    branches: [main]
+    paths: ['docs-site/**', '.github/workflows/docs.yml']
+  pull_request:
+    paths: ['docs-site/**', '.github/workflows/docs.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # "Last updated" on each page reads the git history
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+      - id: pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - run: npm ci
+        working-directory: docs-site
+      - run: npx astro build --site "${{ steps.pages.outputs.origin || 'https://docs.ivoryos.ai' }}" --base "${{ steps.pages.outputs.base_path || '/' }}"
+        working-directory: docs-site
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs-site/dist
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/ivoryzh/ivoryos-next/releases"><b>Download</b></a> ·
-  <a href="docs/desktop_launcher_guide.md">Guide</a> ·
+  <a href="https://docs.ivoryos.ai">Documentation</a> ·
   <a href="https://ivoryos.ai">Automation Hub</a> ·
   <a href="https://discord.gg/3KdjhUmsYA">Discord</a>
 </p>
@@ -115,9 +115,10 @@ elsewhere in the lab.
   sent, and keys, tokens and your home folder are masked.
 - **Questions and ideas**: [Discord](https://discord.gg/3KdjhUmsYA).
 - **Bugs and requests**: [GitHub issues](https://github.com/ivoryzh/ivoryos-next/issues).
-- **Guides**: the [desktop app guide](docs/desktop_launcher_guide.md) (decks, ports, logs, and
-  what to check when something goes wrong) and the [documentation site](docs-site/) (every page
-  of the app, bringing your instruments, safeguards, plugins and agents).
+- **Documentation**: [docs.ivoryos.ai](https://docs.ivoryos.ai) covers every page of the app,
+  bringing your instruments, safeguards, plugins and agents. The
+  [desktop app guide](docs/desktop_launcher_guide.md) is the short version for decks, ports, logs
+  and what to check when something goes wrong.
 
 ## For developers
 

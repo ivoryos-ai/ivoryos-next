@@ -1,0 +1,98 @@
+---
+title: Agents and MCP
+description: "Let a language model draft workflows for review: the in-app assistant, the MCP server for Claude Desktop or Claude Code, and the human gate."
+sidebar:
+  order: 4
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Prose in, reviewable workflow out. A deck exposes one set of agent tools (`/api/agent/*`) and
+two ways to use them: the **Assistant** panel in the Designer, which runs its own model loop, and
+an **MCP server**, which lets Claude Desktop, Claude Code or any MCP client be the agent.
+
+<Aside type="caution" title="Nothing an agent does takes effect on its own">
+Every write an agent makes is a **proposal** (a workflow, or a request to run one) that stops and
+waits. A person puts it on the canvas, saves it, or runs it. Accepting re-validates it, since the
+deck may have changed in between. There is no endpoint that lets an agent save or dispatch
+directly, and adding one would remove the whole safety argument for letting a model near a deck
+that moves liquid.
+</Aside>
+
+## The validator carries the weight
+
+What makes model output reviewable is not the prompt but the checker every draft goes through:
+unknown instrument or method (answered with the real list), missing or mistyped arguments,
+`"65 C"` where a float belongs, a value outside a dropdown's choices or a safety limit, a
+`#variable` nothing produces, unbalanced If/While, output bindings naming fields that do not
+exist. The errors go back to the model, which tries again up to three times. A small local model
+is usable here because of this loop.
+
+## The in-app panel
+
+Open **Assistant** in the Designer. With nothing configured it assumes Ollama on
+`localhost:11434`:
+
+```bash
+ollama serve
+ollama pull llama3.1
+```
+
+The gear picks the provider, endpoint and model (the list comes from the provider), among
+**Ollama**, any **OpenAI-compatible** endpoint (Groq, Together, OpenRouter, a local vLLM, OpenAI)
+and **Claude** through Anthropic's SDK (the edge's `claude` extra; the key may come from
+`ANTHROPIC_API_KEY`). Settings live in `agent_settings.json` beside the workflows folder; a
+key stored there is never sent back to the browser. No streaming and no tool-calling protocol on
+purpose: the model emits one JSON object, and the validate-and-retry loop supplies the
+reliability.
+
+## The MCP server
+
+The MCP server is a small process that talks to a running deck over HTTP, so it needs two things:
+a Python that can import the edge with its `mcp` extra, and the deck's address in `IVORYOS_URL`
+(the port each deck shows in the desktop app, `http://localhost:8080` for the example).
+
+Install the extra once: `pip install "ivoryos-edge[mcp]"`, or from a checkout
+`pip install -e "./edge_server[mcp]"` / `uv sync --extra mcp --project edge_server`. Without
+installing anything, `uv run --with "ivoryos-edge[mcp]" python -m ivoryos_edge.agent.mcp_server`
+works as the command below.
+
+**Claude Desktop**: add to `claude_desktop_config.json` and restart it.
+
+```json
+{
+  "mcpServers": {
+    "ivoryos": {
+      "command": "python",
+      "args": ["-m", "ivoryos_edge.agent.mcp_server"],
+      "env": { "IVORYOS_URL": "http://localhost:8080" }
+    }
+  }
+}
+```
+
+**Claude Code**: one command, from any folder.
+
+```bash
+claude mcp add ivoryos -e IVORYOS_URL=http://localhost:8080 -- python -m ivoryos_edge.agent.mcp_server
+```
+
+In a checkout of this repository nothing is needed: `.mcp.json` at its root starts the server
+with `uv`, and Claude Code asks once to approve it. Set `IVORYOS_URL` before starting Claude Code
+for a deck on another port.
+
+Tools: `list_deck`, `describe_instrument`, `describe_method`, `list_workflows`, `get_workflow`,
+`validate_workflow`, `propose_workflow`, `request_run`, `search_runs`, `get_run_data`,
+`compare_runs`, `get_safety`, `propose_safety`, `runs_under_way`, `get_run_steps`,
+`propose_step_fix`, `propose_sample_changes`, `list_proposals`.
+Ask Claude to read the deck and draft a protocol; the proposal appears in the Designer's Assistant
+panel under *waiting for you*. The server holds no logic of its own: it calls the same HTTP
+endpoints the panel does, so a tool never behaves two ways.
+
+## Cloud
+
+Cloud has the same assistant for the Orchestrator, drafting a multi-device graph for the devices
+you choose, with the same gate ("Put on canvas"). An outside agent files proposals there with an
+agent token minted in Cloud's Settings; `npm run mcp` in `cloud_frontend/` is its MCP server.
+
+The design notes, prompt-size decisions and known limits are in `docs/agent_in_the_loop.md`.

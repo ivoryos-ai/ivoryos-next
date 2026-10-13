@@ -1,0 +1,115 @@
+---
+title: Write a driver
+description: A driver is a plain Python class. What to write so IvoryOS builds a good interface from it.
+sidebar:
+  order: 1
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+A driver is a plain Python class, one instance per device. Nothing is imported from IvoryOS and
+nothing is registered: at startup the deck **introspects** each instrument object, and every
+public method becomes a step with a form built from its signature.
+
+```python
+class SyringePump:
+    """A syringe pump on a serial port."""
+
+    def __init__(self, port: str):
+        self._serial = open_port(port)      # private: not a step
+
+    def dispense(self, volume_ml: float, flow_rate_ml_min: float = 2.0) -> dict:
+        """Deliver a volume into the vial."""
+        ...
+        return {"volume_ml": volume_ml, "elapsed_s": elapsed}
+
+    def read_volume_remaining(self) -> float:
+        return self._serial.query("VOL?")
+```
+
+On the deck, `dispense` is a step with a required number field (`volume_ml`) and an optional one
+already filled in with `2.0`; the docstring is its description. `read_volume_remaining` is a step
+with no fields whose result can be saved and read by later steps.
+
+## The rules, in short
+
+| You write | IvoryOS shows |
+|---|---|
+| a public method (`def dispense`) | a step |
+| a method whose name starts with `_` | nothing; it is hidden |
+| a type hint (`volume_ml: float`) | the right field: number, text, True/False, dropdown, nested form |
+| a default (`= 2.0`) | the field pre-filled, and optional |
+| no default | a required field, marked with `*` |
+| a docstring | the step's description, shown in the Designer and to the assistant |
+| a return annotation (`-> dict`, `-> float`, `-> HPLCReport`) | what the step can save for later steps and for the optimizer |
+| a `@property` | a step that reads it, and one that sets it if it has a setter |
+| an `Enum` or `Literal[...]` parameter | a dropdown of its values |
+| a dataclass or Pydantic model parameter | a nested form, one field per attribute |
+| `async def` | a step like any other; the deck awaits it |
+
+The complete rules, including every corner case, are in
+[What IvoryOS reads from a class](/dev/instruments/what-ivoryos-reads/).
+
+## Write it so it runs well
+
+<Steps>
+
+1. **Raise on failure, never swallow it.** A raised exception is a *failed step*: the run pauses
+   and asks the operator to retry, skip or stop, with the exception message in the pop-up. A method
+   that catches the error and returns `None` instead turns a real failure into a silent one.
+
+   ```python
+   def set_temperature(self, setpoint_c: float) -> dict:
+       if setpoint_c > self.max_temperature_c:
+           raise ValueError(f"Setpoint {setpoint_c} C exceeds the block limit of {self.max_temperature_c} C")
+   ```
+
+2. **Return when the action is done.** The run moves to the next step when the call returns, so a
+   `hold(minutes)` should block until the hold is over, and `set_temperature` should either block
+   until the setpoint is reached or say in its docstring that it only starts the ramp. An
+   `async def` is awaited the same way.
+
+3. **Type every parameter.** An untyped parameter becomes a text box and reaches your code as a
+   string. `volume_ml: float` is cast to a float before the call; `cycles: int` to an int.
+
+4. **Use lab units in the names.** `volume_ml`, `flow_rate_ml_min`, `setpoint_c`. The name is what
+   the scientist sees in every form, column and result. Units can also be configured on the
+   Safety page or declared with `Annotated`; see [Safeguards](/dev/extend/safeguards/).
+
+5. **Return numbers, or an object with numbers in it.** The optimizer can only maximize or minimize a
+   number. A method that returns a dataclass with a `yield_percent: float` field gives the
+   Optimize page that field as an objective; a method that returns a formatted string gives it
+   nothing. See [Return values](/dev/instruments/return-values/).
+
+6. **Never ask for input inside a driver.** `input()` has no terminal to read from. A step that
+   needs a person is a **User input** step in the workflow, which pauses the run with a prompt on
+   every page.
+
+7. **Keep setup out of the steps.** Open the port in `__init__` (or in a `connect()` the deck file
+   calls once, see [Start a deck](/dev/instruments/start-a-deck/)) rather than in every method.
+   What a scientist should never call by hand goes behind an underscore.
+
+</Steps>
+
+<Aside type="tip" title="Hiding things">
+An underscore prefix hides a method, a property, or a module-level object in a script. A method
+starting with a capital letter is **not** hidden (`Measure` is a step like `measure`), and neither
+is a method inherited from a base class, a `@staticmethod`, a `@classmethod`, or a class nested
+inside the driver (a nested `Enum` shows up as a step, because a class is callable). Keep those at
+module level or prefix them.
+</Aside>
+
+## Check what the deck read
+
+- **Instruments page.** Every step is listed under its instrument with its form; run one by hand
+  to test the driver before it goes in a workflow.
+- **`ivoryos_schema.json`** in the deck's data folder is the complete schema the deck read at
+  startup, one entry per method, for diffing or for a bug report.
+- **Deck versions.** The deck records its shape whenever it changes (Instruments → the clock
+  icon), so you can see exactly what a driver update added, removed or retyped.
+
+## Share it
+
+Package the class (`pip`-installable, a `pyproject.toml` with the dependencies), and list it on
+the [Automation Hub](/dev/extend/publish-on-the-hub/) so other labs can install it from inside the
+app.

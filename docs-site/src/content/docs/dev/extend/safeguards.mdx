@@ -1,0 +1,128 @@
+---
+title: Add safeguards
+description: Where a limit belongs, the safety.json format, declaring effects for sequence methods, and what the guard cannot see.
+sidebar:
+  order: 1
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Three layers keep a deck from doing something it should not. Decide which one each rule belongs
+to.
+
+| Layer | Where | Examples | Survives a driver update |
+|---|---|---|---|
+| **The driver** | Python | the block cannot exceed 150 °C; a negative volume is an error; the gripper refuses to pick while holding a vial | no (it *is* the driver) |
+| **The safety guard** | `safety.json`, edited on the Safety page | these vials tolerate 120 °C; this pump never dispenses more than 5 mL; no dispensing while the reactor is hot; the balance door must be closed before weighing | yes |
+| **The workflow** | Designer | an `If` that skips the hold when the absorbance is already high; a User input before an irreversible step | yes |
+
+The driver holds what is true of the hardware everywhere. The guard holds what is true of **this
+bench**, so it is data, outside the drivers, and nothing is asked of a driver to make it work. The
+Safety page is the normal way to write it; this page is for what the page does not show.
+
+## The file
+
+`safety.json` in the deck's data folder:
+
+```json
+{
+  "format": "ivoryos-safety/1",
+  "enabled": true,
+  "trays": {
+    "vial_rack": { "label": "Vial rack", "rows": 4, "columns": 6, "naming": "A1", "order": "row", "blocked": ["D6"] }
+  },
+  "limits": [
+    { "target": "reactor", "method": "set_temperature", "param": "setpoint_c", "min": 0, "max": 120, "unit": "°C" },
+    { "target": "class:SyringePump", "method": "dispense", "param": "volume_ml", "min": 0, "max": 10, "unit": "mL" },
+    { "target": "reactor", "method": "load_vial", "param": "vial_id", "tray": "vial_rack" },
+    { "target": "handler", "method": "place_vial", "param": "station", "allowed": ["rack", "reactor"] }
+  ],
+  "states": {
+    "balance_door": {
+      "label": "Balance door", "values": ["open", "closed"],
+      "set_by": [
+        { "target": "balance", "method": "open_door", "value": "open" },
+        { "target": "balance", "method": "close_door", "value": "closed" }
+      ]
+    }
+  },
+  "rules": [
+    {
+      "id": "hot", "name": "No dispensing into a hot vial", "enabled": true,
+      "when": { "target": "class:SyringePump", "method": "dispense" },
+      "if": [{ "left": { "arg": "volume_ml" }, "op": ">", "right": { "value": 1 } }],
+      "require": [{ "left": { "read": "reactor.read_temperature" }, "op": "<=", "right": { "value": 60 } }],
+      "message": "Cool the reactor below 60 C before dispensing."
+    }
+  ]
+}
+```
+
+- **`target`** is an instrument's name, or `class:<DriverClass>` for every instrument built from
+  that class or a subclass. An instrument's own limit wins over its class's.
+- **`param`** is dotted for a field inside an object argument (`config.mode`). A property setter is
+  the method `<name>_(setter)` with the field `value`.
+- A **limit** is `min`/`max`, `allowed`, or `tray`, plus an optional `unit` (a label, never a
+  conversion). A limit may be a unit alone. An argument the step omits is checked at the driver's
+  default.
+- A **tray**'s `naming` is `A1`, `A01`, `1` or `0`; `order` says whether numbered positions count
+  along rows or columns.
+- A **rule** fires when a call matches `when` and every `if` clause holds; then every `require`
+  clause must hold or the call is refused with `message`. Operands: `{"arg": name}` (this call's
+  argument), `{"read": "inst.member"}` (a property or a no-argument method, read at that moment;
+  `path` picks a field of a structured result), `{"state": name}`, `{"last": "inst.method.param"}`
+  (the last value sent through this deck; `{"last": "inst"}` is the last method called on it), and
+  `{"value": x}`. Operators: `<`, `<=`, `>`, `>=`, `==`, `!=`, `in`, `not in`.
+- A **state** gets its value from `read` (asked of the instrument each time, with a `map` from the
+  raw reading) or from `set_by` (which calls change it and to what: a fixed value, `{"arg": name}`
+  or `{"result": path}`, optionally only `if` clauses hold). A value set that way is kept on disk
+  and survives a restart.
+
+<Aside type="caution" title="Unknown blocks">
+A reading that fails or times out, a state nothing has set yet, a value never sent since the deck
+started: anything the guard cannot determine **blocks** the call. A file that cannot be parsed
+blocks every call until it is fixed. A guard that passes what it cannot check is not a guard.
+</Aside>
+
+## Where it is enforced
+
+- `check_run` refuses a run **before anything moves** when a literal value is out of bounds, or
+  an optimization's range, choices or per-iteration values reach past a limit. Every door a run
+  comes through (the bench, Cloud, an edited queued run) goes through it.
+- `enforce` runs **immediately before each call**, after `#variables` are filled in and before
+  the arguments are cast, in a run, in an optimization trial, and on the Instruments page. A
+  refused step is a failed step: the run pauses for a decision.
+- A rule's reading is *called* every time the rule is checked, so point `read` at a property or a
+  method that only reads (`read_temperature`, `is_closed`, `get_status`). The Safety page warns
+  when a method does not look like a reading.
+
+## A method that runs a whole sequence
+
+A driver method that does ten things inside (`run_calibration()`) is one step to the guard. Say
+what must hold before it (a rule on that call) and what it leaves behind (a `set_by` on that
+call), and leave what it does on the way to the driver, which the guard cannot see anyway.
+
+## What the guard cannot see
+
+- **Python plugins** hold the deck's own instrument objects and can call them directly. A plugin
+  that moves hardware should go through the deck's API (`POST /api/execute`), which is guarded,
+  rather than the object.
+- **Rules are checked at call time only**, not against a whole run before it starts; a declared
+  `set_by` is what would make that possible later.
+- **Running totals** ("no more than 20 mL into one vial") and per-position state on a tray are not
+  tracked yet.
+
+## Units a driver may declare
+
+A unit is normally chosen on the Safety page. A driver *may* also state one when it describes what
+the code really does:
+
+```python
+from typing import Annotated
+from ivoryos_edge.units import Unit
+
+def set_temperature(self, setpoint_c: Annotated[float, Unit("°C")]) -> dict: ...
+```
+
+A declared unit wins over a configured one and shows as fixed on the Safety page. It is a label
+everywhere it appears; the number reaches the driver as typed.
