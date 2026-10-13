@@ -6,55 +6,53 @@
 
 <p align="center">
   <b>Run your lab's instruments from one place.</b><br>
-  Design workflows by drag and drop, run and optimize them, and keep every result,<br>
-  on top of the Python drivers you already have.
+  Design experiments by drag and drop, run and optimize them, and keep every result.
 </p>
 
 <p align="center">
   <a href="https://github.com/ivoryzh/ivoryos-next/releases"><b>Download</b></a> ·
-  <a href="https://ivoryos.ai">Automation Hub</a> ·
   <a href="docs/desktop_launcher_guide.md">Guide</a> ·
+  <a href="https://ivoryos.ai">Automation Hub</a> ·
   <a href="https://discord.gg/3KdjhUmsYA">Discord</a>
 </p>
 
 ---
 
-## What is IvoryOS?
+## What it is
 
-IvoryOS turns the Python code that controls your instruments into an app. It reads each
-instrument's methods, their arguments and their types, and builds the interface from them: no
-interface code, no configuration files. Scientists design and run experiments by pointing and
-clicking, and anyone who can write a Python class can bring a new instrument.
+IvoryOS is a desktop app for the computer next to your instruments. Point it at the Python code
+that drives them, whether you wrote it, a vendor did, or it came from the Automation Hub, and it
+builds the controls itself: every method becomes a step you can drag into a workflow, every
+argument a field of the right type. There is no interface to write and no configuration file to
+fill in, and it keeps working without an internet connection.
 
-It sits between point-and-click lab software and writing your own scripts: as easy to use as the
-first, as open as the second. It runs on the computer next to your instruments and keeps working
-without an internet connection.
+It is for scientists who want to run and automate experiments by pointing and clicking, and for
+whoever in the lab writes the drivers: anyone who can write a Python class can bring a new
+instrument.
 
-## Features
+## What you can do
 
-- **Designer**: build a workflow from your instruments' methods by drag and drop, with prep, main
-  and cleanup steps, If and While logic, waits, pauses for a person, and values passed from one
-  step to the next. Every workflow can also be read, and downloaded, as the Python it runs.
-- **Three ways to run**: **Once**, with the values filled in; **Iterate** over a spreadsheet of
-  samples, with steps that run once per sample or once per batch; or **Optimize** with Bayesian
-  optimization (Ax, BayBE or NIMO), from your own search space and objectives.
-- **A person stays in charge**: a failed step pauses the run and waits for you to retry, skip or
-  stop it. Stop holds the queue, a graceful stop finishes the current sample first, and the app
-  notifies you when a run needs you.
-- **Data History**: every run, step and value, searchable and exportable to CSV.
-- **Workflow library**: saved, versioned workflows, and one workflow reused inside another, as a
-  copy or as a link that follows its updates.
-- **Automation Hub**: drivers, whole platforms and workflow templates shared by the community,
-  installed from inside the app.
-- **Plugins**: add your own pages and panels next to the built-in ones.
-- **Works with AI agents**: an [MCP server](docs/agent_in_the_loop.md) lets Claude, or another
-  agent, read your deck and propose workflows. Nothing is saved or run until a person accepts it.
-- **IvoryOS Cloud** *(coming soon)*: watch and run the decks in every lab from one place. Sign up
-  for early access from the app.
+- **Design** a workflow by dragging in your instruments' steps: a prep that runs once, a main part
+  that runs for every sample, and a cleanup at the end, with ifs, loops, waits and pauses for a
+  person. Values flow from one step to the next. Any workflow can be read, or downloaded, as the
+  Python it runs.
+- **Run** it once, run it over a spreadsheet of samples, or let an optimizer search for the best
+  conditions.
+- **Stay in charge.** A failed step pauses and waits for you to retry, skip or stop. A stop holds
+  the queue, and the app tells you when a run needs you.
+- **Keep everything.** Every run, step and value is kept, searchable, and exportable as CSV.
+- **Reuse.** Save workflows to a versioned library, and use one inside another.
+- **Install from the Hub.** Drivers, whole platforms and workflow templates shared by the
+  community, installed from inside the app.
+- **Extend.** Add your own pages and panels as plugins, or let an AI assistant draft workflows
+  that you review before anything runs.
+
+IvoryOS Cloud, for watching and running the decks of several labs from one place, is in
+development.
 
 ## Get started
 
-### 1. Install the app
+### 1. Install
 
 Download the installer for your computer from the
 [Releases page](https://github.com/ivoryzh/ivoryos-next/releases):
@@ -63,25 +61,16 @@ Download the installer for your computer from the
 |---|---|---|
 | `IvoryOS-Setup-<version>.exe` | `IvoryOS-<version>-arm64.dmg` | `IvoryOS-<version>.AppImage` |
 
-The app is not code-signed yet, so your computer will warn the first time you open it:
-
-- **Windows**: SmartScreen says "Windows protected your PC". Choose **More info**, then **Run
-  anyway**.
-- **macOS**: open the `.dmg` and drag IvoryOS to Applications. If macOS says the app "is damaged"
-  or "can't be opened", run this once in Terminal:
-  ```bash
-  xattr -cr /Applications/IvoryOS.app
-  ```
-- **Linux**: make the file executable (`chmod +x IvoryOS-*.AppImage`) and run it.
-
-The first launch downloads Python, so it needs an internet connection and takes about a minute.
+On macOS, open the `.dmg` and drag IvoryOS to Applications. On Linux, make the file executable
+(`chmod +x IvoryOS-*.AppImage`) and run it. The first launch downloads Python, so it needs an
+internet connection and takes about a minute. The app updates itself after that.
 
 ### 2. Try the example
 
-Choose **Try the example** on the welcome page. It sets up a simulated Suzuki coupling screen,
-with three syringe pumps, a heated reactor, a balance, a UV-Vis probe and an HPLC, all sharing one
+Choose **Try the example** on the welcome page. It sets up a simulated Suzuki coupling screen:
+three syringe pumps, a heated reactor, a balance, a UV-Vis probe and an HPLC, all sharing one
 reaction model. There is nothing to plug in, and the chemistry responds the way a real screen
-would: build a workflow in the Designer, run it, then let the optimizer find the best temperature
+would. Build a workflow in the Designer, run it, then let the optimizer find the best temperature
 and catalyst loading (add an optimizer under the deck's **Settings** first).
 
 ### 3. Bring your own instruments
@@ -89,7 +78,8 @@ and catalyst loading (add an optimizer under the deck's **Settings** first).
 Choose **Add a deck**. A deck is one set of instruments, with its own workflows and data.
 
 - **From the Automation Hub**: pick drivers, or a whole platform, and the app installs them.
-- **A driver you wrote**: any Python class works, and its type hints become the form.
+- **A driver you wrote**: any Python class works. Its methods become steps, and their type hints
+  become the fields.
   ```python
   class SyringePump:
       def __init__(self, port: str):
@@ -99,12 +89,11 @@ Choose **Add a deck**. A deck is one set of instruments, with its own workflows 
           """Deliver a volume into the vial."""
           ...
   ```
-  `dispense` becomes a step with a required number field and an optional one already filled in
-  with its default, and the docstring becomes its description. Enums and `Literal`s become
-  drop-down lists, dataclasses become nested forms, and anything a method returns can be saved
-  and used by later steps.
-- **A Python script you already have**: choose **From a Python script**, or drop the `.py` file on
-  the window. Create your instruments as objects in the script and end it with
+  `dispense` becomes a step with a required number and an optional one already filled in with
+  its default, and the docstring becomes its description. Enums become drop-down lists,
+  dataclasses become forms, and whatever a method returns can be saved and used by later steps.
+- **A Python script you already have**: choose **From a Python script**, or drop the `.py` file
+  on the window. Create your instruments as objects in the script and end it with
   `ivoryos_edge.run(__name__)`:
   ```python
   import ivoryos_edge
@@ -119,32 +108,25 @@ Each running deck is also a web page, so you can open it in a browser on the sam
 on **Reachable from other computers on the network** in the deck's Settings to open it from
 elsewhere in the lab.
 
-## Documentation
+## Help
 
-| Guide | |
-|---|---|
-| [Desktop app guide](docs/desktop_launcher_guide.md) | How the app runs decks: profiles, ports, logs, and what to check when something goes wrong |
-| [Plugins](docs/plugins.md) | Adding your own pages and panels |
-| [AI agents and MCP](docs/agent_in_the_loop.md) | Letting Claude or another agent propose workflows for review |
-| [Workflow reuse and versioning](docs/workflow_reuse_and_versioning.md) | Copies, links, versions and tags in the library |
-| [How the optimizers behave](docs/optimizer_behavior.md) | Ax, BayBE and NIMO: rounds, the random start, failed experiments, existing data and plots |
-| [Developing IvoryOS](docs/development.md) | Running from source, the demo deck, Cloud, tests and releases |
+- **Something wrong?** In the app, **Settings → Help → Report a problem** at any time, or **Send
+  to IvoryOS** on a deck's Log tab to include that deck's log. You read everything before it is
+  sent, and keys, tokens and your home folder are masked.
+- **Questions and ideas**: [Discord](https://discord.gg/3KdjhUmsYA).
+- **Bugs and requests**: [GitHub issues](https://github.com/ivoryzh/ivoryos-next/issues).
+- **Guides**: the [desktop app guide](docs/desktop_launcher_guide.md) (decks, ports, logs, and
+  what to check when something goes wrong) and the [documentation site](docs-site/) (every page
+  of the app, bringing your instruments, safeguards, plugins and agents).
 
-## Community and help
+## For developers
 
-- **Automation Hub**: [ivoryos.ai](https://ivoryos.ai), to find drivers, platforms and workflow
-  templates, or share your own.
-- **Discord**: [join the community](https://discord.gg/3KdjhUmsYA) for questions, ideas and show
-  and tell.
-- **Problems**: when a deck will not start or an install fails, **Send to IvoryOS** in the app
-  lets you review the details and send them to the team. For bugs and requests, open a
-  [GitHub issue](https://github.com/ivoryzh/ivoryos-next/issues).
-
-## Contributing
-
-Contributions are welcome. [Developing IvoryOS](docs/development.md) covers running everything
-from source and the tests, and [AGENTS.md](AGENTS.md) explains how the pieces fit together and
-why.
+Everything runs from source: [Developing IvoryOS](docs/development.md) covers the edge server,
+the web interface, the desktop app, Cloud, the tests and releases, and [AGENTS.md](AGENTS.md)
+explains how the pieces fit together and why. More on specific parts:
+[plugins](docs/plugins.md), [AI agents and MCP](docs/agent_in_the_loop.md),
+[workflow reuse and versioning](docs/workflow_reuse_and_versioning.md), and
+[how the optimizers behave](docs/optimizer_behavior.md). Contributions are welcome.
 
 ## License
 

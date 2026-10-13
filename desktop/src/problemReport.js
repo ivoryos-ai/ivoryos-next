@@ -103,7 +103,7 @@ function buildDetails({ app = {}, profile = {}, status = {}, log = '', installOu
     const sections = [];
     const head = [
         `IvoryOS ${app.version || '?'} on ${app.platform || '?'}${app.arch ? ` (${app.arch})` : ''}${app.os ? `, ${app.os}` : ''}`,
-        `Profile: ${profile.kind || '?'}${status.state ? `, ${status.state}` : ''}`,
+        profile.kind ? `Profile: ${profile.kind}${status.state ? `, ${status.state}` : ''}` : 'No deck: reported from Settings',
     ];
     if (status.message) head.push(`Message: ${status.message}`);
     sections.push(head.join('\n'));

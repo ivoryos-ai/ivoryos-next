@@ -261,7 +261,7 @@ export interface ClassicScript {
 export interface OptimizerChoice { id: string; name: string; package: string; versions: string[]; extras?: Record<string, string> }
 
 /** What the page knows about a failure that the report should carry. */
-export interface ReportFailure { log?: string; message?: string; output?: string; kind?: 'install' | 'start' | 'crash' }
+export interface ReportFailure { log?: string; message?: string; output?: string; kind?: 'install' | 'start' | 'crash' | 'other' }
 
 export interface DesktopApi {
   isDesktop: true;

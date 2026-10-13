@@ -637,13 +637,19 @@ export default function AssistantPanel() {
             <input type="text" key={`url-${settings?.provider}`} defaultValue={settings?.base_url || providerInfo?.default_base_url || ''} onBlur={e => saveSettings({ base_url: e.target.value })}
               className="w-full mt-1 bg-gray-50 dark:bg-black/50 border border-gray-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs outline-none font-mono" />
           </div>
-          {providerInfo?.needs_api_key && (
+          {(providerInfo?.accepts_api_key ?? providerInfo?.needs_api_key) && (
             <div>
-              <label className="text-[10px] font-bold uppercase text-gray-400">API key {settings?.api_key_set && <span className="text-green-600 normal-case">· saved</span>}</label>
+              <label className="text-[10px] font-bold uppercase text-gray-400">
+                API key{!providerInfo?.needs_api_key && <span className="normal-case font-normal"> · optional</span>}
+                {settings?.api_key_set && <span className="text-green-600 normal-case"> · saved</span>}
+              </label>
               <input type="password" value={apiKeyDraft} placeholder={settings?.api_key_set ? '•••••••• (leave blank to keep)' : ''}
                 onChange={e => setApiKeyDraft(e.target.value)}
                 onBlur={() => { if (apiKeyDraft) { saveSettings({ api_key: apiKeyDraft }); setApiKeyDraft(''); } }}
                 className="w-full mt-1 bg-gray-50 dark:bg-black/50 border border-gray-200 dark:border-white/10 rounded-lg px-2 py-1.5 text-xs outline-none" />
+              {!providerInfo?.needs_api_key && !settings?.api_key_set && (
+                <p className="mt-1 text-[10px] text-gray-400">Leave empty to use the key from the deck's environment.</p>
+              )}
             </div>
           )}
           <div>

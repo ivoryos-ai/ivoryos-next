@@ -1,7 +1,9 @@
 export { default as WorkflowEditor } from './WorkflowEditor';
 export type { SequenceBlock, ReturnBinding, ReturnLeaf } from './WorkflowEditor';
 export { getReturnLeaves, getBoundVar } from './WorkflowEditor';
-export { PythonCodeView } from './PythonCodeView';
+export { PythonCodeView, downloadPython } from './PythonCodeView';
+export { WorkflowFileMenu } from './WorkflowFileMenu';
+export { PythonDrawer } from './PythonDrawer';
 export { generatePythonCode } from './generatePythonCode';
 export { ExtraArguments, coerceArgumentLiteral } from './ExtraArguments';
 export { buildRunName } from './runNaming';

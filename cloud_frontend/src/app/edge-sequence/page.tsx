@@ -2,13 +2,14 @@
 
 
 import { useState, useEffect, useRef } from 'react';
-import { Play, Settings2, Sun, Moon, Save, Code, Download, Upload, LayoutTemplate, X, Zap, AlertTriangle, Menu, FilePlus2 } from 'lucide-react';
+import { Play, Settings2, Save, Zap, AlertTriangle, FilePlus2 } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import { useDocumentTheme } from '@/lib/useDocumentTheme';
 import {
   WorkflowEditor,
   SequenceBlock,
-  PythonCodeView,
+  PythonDrawer,
+  WorkflowFileMenu,
   generatePythonCode,
   buildSavedBody,
   flattenSavedBody,
@@ -50,9 +51,16 @@ export default function DesignerPage() {
   
   // Read from the page, never set here: see useDocumentTheme for how owning a copy broke it.
   const theme = useDocumentTheme();
-  const [viewMode, setViewMode] = useState<'canvas' | 'code'>('canvas');
+  // The Python drawer beside the canvas (View as Python in the ⋯ menu).
+  const [isCodeOpen, setIsCodeOpen] = useState(false);
   const [hasPendingRuns, setHasPendingRuns] = useState(false);
   const [instrumentMeta, setInstrumentMeta] = useState<Record<string, any>>({});
+  // The workflow as the script it runs, for the Python drawer and its Download .py.
+  const pythonCode = () => generatePythonCode(prepSequence, sequence, cleanupSequence, instrumentMeta, {
+    // A linked step becomes a call to a function of the script's own, written from the saved body.
+    workflows: Object.fromEntries(Object.entries(statusData?.instruments?.['Library Workflows'] || {}).map(([n, e]: [string, any]) => [n, e?.body])),
+    instruments: statusData?.instruments,
+  });
   const [isOffline, setIsOffline] = useState(false);
   // Latest saved version per workflow name — drives the "vN available" badge on copies and links.
   const [workflowVersions, setWorkflowVersions] = useState<Record<string, number>>({});
@@ -552,6 +560,13 @@ export default function DesignerPage() {
                 )}
             </div>
         )}
+        <PythonDrawer
+          open={isCodeOpen}
+          code={isCodeOpen ? pythonCode() : ''}
+          theme={theme}
+          fileName={currentWorkflowName || 'sequence'}
+          onClose={() => setIsCodeOpen(false)}
+        />
         <WorkflowEditor
           statusData={statusData}
           prepSequence={prepSequence}
@@ -612,30 +627,6 @@ export default function DesignerPage() {
                   <Save className="w-4 h-4" />
                 </button>
 
-                <div className="relative group">
-                  <button className="flex items-center space-x-1 px-3 py-1.5 rounded text-sm font-medium transition-all bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 dark:bg-white/5 dark:border-white/10 dark:text-gray-300 dark:hover:bg-white/10">
-                    <Settings2 className="w-4 h-4" />
-                    <span className="hidden sm:inline">Manage</span>
-                  </button>
-                  <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-white/10 rounded-xl shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 overflow-hidden">
-                    <button 
-                      onClick={exportJSON}
-                      disabled={sequence.length === 0}
-                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>Export JSON</span>
-                    </button>
-                    <button 
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/5 flex items-center space-x-2 border-t border-gray-100 dark:border-white/5"
-                    >
-                      <Upload className="w-4 h-4" />
-                      <span>Import JSON</span>
-                    </button>
-                  </div>
-                </div>
-
                 <input
                   type="file"
                   accept=".json"
@@ -643,14 +634,13 @@ export default function DesignerPage() {
                   ref={fileInputRef}
                   onChange={handleFileUpload}
                 />
-
-                <button 
-                  onClick={() => setViewMode(viewMode === 'canvas' ? 'code' : 'canvas')}
-                  className="flex items-center space-x-1 px-3 py-1.5 rounded text-sm font-medium transition-all bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 dark:bg-white/5 dark:border-white/10 dark:text-gray-300 dark:hover:bg-white/10"
-                >
-                  {viewMode === 'canvas' ? <Code className="w-4 h-4 text-gray-700 dark:text-gray-200" /> : <LayoutTemplate className="w-4 h-4 text-gray-700 dark:text-gray-200" />}
-                  <span className="hidden sm:inline">{viewMode === 'canvas' ? 'Python' : 'Back'}</span>
-                </button>
+                {/* Python and JSON, behind one menu: the same WorkflowFileMenu as the edge Designer. */}
+                <WorkflowFileMenu
+          onViewPython={() => setIsCodeOpen(true)}
+                  onExportJSON={exportJSON}
+                  onImportJSON={() => fileInputRef.current?.click()}
+                  hasSteps={sequence.length > 0}
+                />
                 {(() => {
                   const allBlocks = [...prepSequence, ...sequence, ...cleanupSequence];
                   const hasDynamicParams = allBlocks.some(block => 
@@ -697,19 +687,6 @@ export default function DesignerPage() {
                 })()}
               </div>
             </header>
-          }
-          customView={
-            viewMode === 'code' ? (
-                <PythonCodeView
-                  code={generatePythonCode(prepSequence, sequence, cleanupSequence, instrumentMeta, {
-                    // A linked step becomes a call to a function of the script's own, written from the saved body.
-                    workflows: Object.fromEntries(Object.entries(statusData?.instruments?.['Library Workflows'] || {}).map(([n, e]: [string, any]) => [n, e?.body])),
-                    instruments: statusData?.instruments,
-                  })}
-                  theme={theme}
-                  fileName={currentWorkflowName || 'sequence'}
-                />
-            ) : null
           }
           workflowVersions={workflowVersions}
           currentWorkflowName={currentWorkflowName}

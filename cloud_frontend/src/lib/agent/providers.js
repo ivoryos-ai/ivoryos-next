@@ -22,12 +22,13 @@ async function fetchJson(url, init, timeoutMs, unreachable) {
 }
 
 const CATALOGUE = [
-  { name: 'ollama', default_base_url: process.env.OLLAMA_URL || 'http://localhost:11434', default_model: process.env.OLLAMA_MODEL || 'llama3.1', needs_api_key: false },
-  { name: 'openai-compatible', default_base_url: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1', default_model: process.env.OPENAI_MODEL || 'gpt-4o-mini', needs_api_key: true },
+  { name: 'ollama', default_base_url: process.env.OLLAMA_URL || 'http://localhost:11434', default_model: process.env.OLLAMA_MODEL || 'llama3.1', needs_api_key: false, accepts_api_key: false },
+  { name: 'openai-compatible', default_base_url: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1', default_model: process.env.OPENAI_MODEL || 'gpt-4o-mini', needs_api_key: true, accepts_api_key: true },
   // Claude through Anthropic's own SDK, not the OpenAI-compatible entry: the Messages API has its
   // own shape, and the SDK resolves credentials itself (ANTHROPIC_API_KEY or an `ant auth login`
-  // profile), so a key is optional here.
-  { name: 'anthropic', default_base_url: process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com', default_model: process.env.ANTHROPIC_MODEL || 'claude-opus-5-5', needs_api_key: false },
+  // profile), so a key is optional here; `accepts_api_key` is what makes the settings offer the
+  // field anyway, for a person with a key and no environment variable.
+  { name: 'anthropic', default_base_url: process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com', default_model: process.env.ANTHROPIC_MODEL || 'claude-opus-5-5', needs_api_key: false, accepts_api_key: true },
 ];
 
 function providerCatalogue() { return CATALOGUE.map((p) => ({ ...p })); }

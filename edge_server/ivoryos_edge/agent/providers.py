@@ -27,6 +27,11 @@ class Provider:
     name = "base"
     #: False for providers that cannot be reached without a key, so the UI can say so up front.
     needs_api_key = False
+    # Whether a saved key is used at all. The settings UI offers the field when it is, and marks
+    # it optional when it is not needed: Claude's SDK reads ANTHROPIC_API_KEY from the deck's
+    # environment, but a person with a key and no environment variable still needs somewhere to
+    # put it (before this, the field was hidden for every provider that did not *need* one).
+    accepts_api_key = False
 
     def __init__(self, base_url=None, api_key=None, model=None, timeout=DEFAULT_TIMEOUT):
         self.base_url = (base_url or self.default_base_url).rstrip("/")
@@ -104,6 +109,7 @@ class OpenAICompatibleProvider(Provider):
 
     name = "openai-compatible"
     needs_api_key = True
+    accepts_api_key = True
     default_base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
     default_model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
@@ -161,6 +167,7 @@ class AnthropicProvider(Provider):
 
     name = "anthropic"
     needs_api_key = False
+    accepts_api_key = True
     default_base_url = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
     default_model = os.environ.get("ANTHROPIC_MODEL", "claude-opus-5-5")
 
@@ -183,6 +190,10 @@ class AnthropicProvider(Provider):
     def _explain(anthropic, e):
         if isinstance(e, anthropic.AuthenticationError):
             return ProviderError("Anthropic rejected the API key. Save one in the assistant's settings, or set ANTHROPIC_API_KEY.")
+        # No key anywhere: the SDK raises a plain error naming its own option names, which says
+        # nothing about where a person puts the key.
+        if "Could not resolve authentication method" in str(e):
+            return ProviderError("No Anthropic API key. Paste one under API key in the assistant's settings, or set ANTHROPIC_API_KEY where the deck runs.")
         if isinstance(e, anthropic.NotFoundError):
             return ProviderError(f"Anthropic has no model called '{e.body.get('error', {}).get('message', '') if isinstance(e.body, dict) else ''}'.".replace("called ''", "with that id"))
         if isinstance(e, anthropic.RateLimitError):
@@ -249,6 +260,7 @@ def provider_catalogue():
             "default_base_url": cls.default_base_url,
             "default_model": cls.default_model,
             "needs_api_key": cls.needs_api_key,
+            "accepts_api_key": cls.accepts_api_key or cls.needs_api_key,
         }
         for cls in PROVIDERS.values()
     ]

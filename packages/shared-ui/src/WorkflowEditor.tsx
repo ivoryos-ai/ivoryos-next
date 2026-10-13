@@ -35,6 +35,14 @@ import { TrayPicker } from './TrayPicker';
 // ("metrics.purity", "0" for a tuple element, "" for the whole result).
 export type ReturnBinding = { path: string; var: string };
 
+export type PhaseId = 'prep' | 'canvas' | 'cleanup';
+/** The three phases as tabs over the canvas, in run order. `short` is what the tab says. */
+const PHASES: { id: PhaseId; name: string; short: string; when: string }[] = [
+  { id: 'prep', name: 'Prep', short: 'once, first', when: 'runs once, before the first sample' },
+  { id: 'canvas', name: 'Main', short: 'every sample', when: 'runs for every sample or trial' },
+  { id: 'cleanup', name: 'Cleanup', short: 'once, last', when: 'runs once, after the last sample' },
+];
+
 export type SequenceBlock = {
   id: string;
   instrument: string;
@@ -124,7 +132,6 @@ interface WorkflowEditorProps {
   cleanupSequence: SequenceBlock[];
   setCleanupSequence: (seq: SequenceBlock[]) => void;
   header?: React.ReactNode;
-  customView?: React.ReactNode;
   /** Pinned to the bottom of the module toolbox, below the instrument list. The Designer
    *  puts the assistant toggle here so the two ways of building a sequence — drag a module
    *  in, or describe what you want — sit in the same column. */
@@ -169,7 +176,6 @@ export default function WorkflowEditor({
   cleanupSequence,
   setCleanupSequence,
   header,
-  customView,
   toolboxFooter,
   hideToolbox,
   workflowVersions,
@@ -178,7 +184,86 @@ export default function WorkflowEditor({
   currentWorkflowName
 }: WorkflowEditorProps) {
   const [expandedToolbox, setExpandedToolbox] = useState<Record<string, boolean>>({});
-  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
+  // Prep, Main and Cleanup are tabs over one canvas, in run order, each with its step count.
+  // Prep and Cleanup used to sit in an overlay behind a 12px vertical rail on the right edge,
+  // where nobody looked, so a workflow could carry a prep its author had forgotten. One list is
+  // shown at a time; a step dropped on another phase's tab goes to the end of that phase. Nothing
+  // switches tabs while something is being dragged: a spring-loaded switch under the cursor made
+  // the canvas jump about.
+  const [activePhase, setActivePhase] = useState<PhaseId>('canvas');
+  const [isDragging, setIsDragging] = useState(false);
+  // The tab under the pointer while something is dragged, tracked here rather than with a
+  // Droppable per tab: the drag library decides what a drag is over from the *centre of the
+  // dragged box*, and a card is as wide as the list, so its centre sits far to the right of the
+  // cursor and a tab under the cursor was never hit. The pointer is what people aim with.
+  const [hoverTab, setHoverTab] = useState<PhaseId | null>(null);
+  const hoverTabRef = useRef<PhaseId | null>(null);
+  const stripRef = useRef<HTMLDivElement>(null);
+  // Holding a dragged step over another phase's tab switches the canvas to that phase, so the
+  // step can be put exactly where it belongs rather than at the end; the canvas then stays there.
+  // All three lists are mounted, stacked in one grid cell, only while a drag is on: the library
+  // measures every Droppable at lift and never again, so a list mounted or moved later is
+  // invisible to it. They mount in onBeforeCapture (which hello-pangea runs inside flushSync,
+  // before it measures), the inactive ones hide with `visibility` rather than `display`, all
+  // share the active list's origin, and only the visible one accepts drops (`isDropDisabled`,
+  // one of the few changes the library honours mid-drag).
+  const [allPhasesMounted, setAllPhasesMounted] = useState(false);
+  const activePhaseRef = useRef<PhaseId>('canvas');
+  activePhaseRef.current = activePhase;
+  const canvasScrollRef = useRef<HTMLDivElement>(null);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const HOLD_TO_SWITCH_MS = 500;
+  const switchPhase = (id: PhaseId) => {
+    setActivePhase(id);
+    // A list the pointer has not scrolled starts at its top; scrolling the container mid-drag is
+    // something the library follows.
+    canvasScrollRef.current?.scrollTo({ top: 0 });
+  };
+  // Listeners go on in the library's own drag-start callback, not from an effect: an effect runs
+  // after a render, and a quick drag (lift, one move, release) was over before it. The release
+  // is read too, since the pointer may wander during the drop animation, which is when the
+  // library reports the drop.
+  const pointerTracker = useRef<{ move: (e: PointerEvent) => void; up: (e: PointerEvent) => void } | null>(null);
+  const startTrackingPointer = () => {
+    stopTrackingPointer();
+    const tabAt = (x: number, y: number): PhaseId | null => {
+      for (const el of Array.from(stripRef.current?.querySelectorAll<HTMLElement>('[data-phase-tab]') ?? [])) {
+        const r = el.getBoundingClientRect();
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return el.dataset.phaseTab as PhaseId;
+      }
+      return null;
+    };
+    const move = (e: PointerEvent) => {
+      const t = tabAt(e.clientX, e.clientY);
+      if (t === hoverTabRef.current) return;
+      hoverTabRef.current = t;
+      setHoverTab(t);
+      if (holdTimer.current) clearTimeout(holdTimer.current);
+      holdTimer.current = t && t !== activePhaseRef.current ? setTimeout(() => switchPhase(t), HOLD_TO_SWITCH_MS) : null;
+    };
+    const up = (e: PointerEvent) => {
+      move(e);
+      if (holdTimer.current) clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+      window.removeEventListener('pointermove', move);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    pointerTracker.current = { move, up };
+  };
+  const stopTrackingPointer = () => {
+    const t = pointerTracker.current;
+    if (t) { window.removeEventListener('pointermove', t.move); window.removeEventListener('pointerup', t.up); }
+    pointerTracker.current = null;
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    hoverTabRef.current = null;
+    setHoverTab(null);
+  };
+  useEffect(() => stopTrackingPointer, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Where the pointer took hold of a card, from its left edge. The chip that stands in for the
+  // card while it is dragged is centred there, so it stays under the cursor whatever the card's width.
+  const grabX = useRef(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [emptyHashFields, setEmptyHashFields] = useState<Set<string>>(new Set());
   const [autoFillVariables, setAutoFillVariables] = useState(false);
@@ -361,7 +446,21 @@ export default function WorkflowEditor({
   };
 
   const onDragEnd = (result: DropResult) => {
-    const { source, destination } = result;
+    const tab = hoverTabRef.current; // before the tracker resets it
+    stopTrackingPointer();
+    setIsDragging(false);
+    setAllPhasesMounted(false);
+    // Escape, or anything else that cancels, moves nothing, whatever the pointer was over.
+    if (result.reason === 'CANCEL') return;
+    const { source } = result;
+    let { destination } = result;
+    // Released over a tab of a phase other than the one it came from: to the end of that phase,
+    // whatever the library made of the drop, and the canvas goes there. The index counts rendered
+    // rows (a collapsed group is one row), which is what realIndexFor maps back onto the list.
+    if (tab && tab !== source.droppableId) {
+      destination = { droppableId: tab, index: buildDragRows(getSequenceList(tab), tab).rows.length };
+      if (tab !== activePhaseRef.current) switchPhase(tab);
+    }
     if (!destination) return;
 
     const destId = destination.droppableId;
@@ -1240,16 +1339,7 @@ export default function WorkflowEditor({
   };
 
   const renderSequenceList = (listId: string, title: string, sequenceList: SequenceBlock[]) => (
-    <div className={listId === 'canvas' ? '' : 'mb-6'}>
-      {listId !== 'canvas' && (
-          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 px-2 uppercase tracking-wide flex items-center justify-between">
-            <span className="flex items-center gap-3">
-              <span>{title}</span>
-              {sequenceList.length > 0 && renderSelectToggle(listId)}
-            </span>
-            <span className="bg-gray-200 dark:bg-white/10 text-gray-500 dark:text-gray-400 text-xs px-2 py-0.5 rounded-full">{sequenceList.length}</span>
-          </h3>
-      )}
+    <div>
       {selection.listId === listId && (() => {
         const info = selectionInfo(listId);
         const count = selection.ids.length;
@@ -1295,7 +1385,7 @@ export default function WorkflowEditor({
         );
       })()}
 
-      <Droppable droppableId={listId}>
+      <Droppable droppableId={listId} isDropDisabled={listId !== activePhase}>
         {(provided, snapshot) => (
           <div 
             ref={provided.innerRef}
@@ -1303,8 +1393,10 @@ export default function WorkflowEditor({
             className={`min-h-[100px] border-2 border-dashed rounded-xl p-2 transition-colors ${snapshot.isDraggingOver ? 'bg-gray-100/50 dark:bg-white/10 border-gray-300 dark:border-white/20 dark:bg-white/[0.02] dark:border-white/30' : 'border-gray-200 dark:border-white/10'}`}
           >
             {sequenceList.length === 0 ? (
-              <div className="h-24 flex flex-col items-center justify-center text-gray-400 dark:text-gray-500">
-                <p className="text-xs font-medium">Drag blocks here</p>
+              <div className="h-24 flex flex-col items-center justify-center gap-1 text-gray-400 dark:text-gray-500">
+                <p className="text-xs font-medium">Drag steps here</p>
+                {/* Empty, the list says when its phase runs: the one place a newcomer reads it. */}
+                <p className="text-[11px] first-letter:uppercase">{PHASES.find(p => p.id === listId)?.when ?? title}</p>
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -1355,9 +1447,24 @@ export default function WorkflowEditor({
                             ref={provided.innerRef}
                             {...provided.draggableProps}
                             {...provided.dragHandleProps}
-                            style={provided.draggableProps.style}
-                            className={snapshot.isDragging ? 'opacity-90 shadow-xl rounded-lg' : ''}
+                            // Dragged, the bar hides and a chip stands in, as a step's card does.
+                            // Without the chip's explicit visibility the bar vanished the moment
+                            // the canvas switched phase mid-drag, because the list it came from
+                            // is hidden then and the bar inherited that.
+                            style={{ ...provided.draggableProps.style, ...(snapshot.isDragging ? { visibility: 'hidden' as const } : {}) }}
+                            onPointerDownCapture={(e) => { grabX.current = e.clientX - e.currentTarget.getBoundingClientRect().left; }}
+                            className={`relative ${snapshot.isDragging ? 'z-50' : ''}`}
                           >
+                            {snapshot.isDragging && (
+                              <div
+                                style={{ visibility: 'visible', position: 'absolute', left: grabX.current, top: 0, transform: 'translateX(-50%)' }}
+                                className="inline-flex items-center gap-2 h-9 px-2.5 rounded-lg border border-accent bg-white dark:bg-[#1a1a1a] shadow-xl whitespace-nowrap text-[12px] text-gray-700 dark:text-gray-200"
+                              >
+                                <Copy className="w-3 h-3 shrink-0 text-gray-400" />
+                                <span className="font-bold">{row.group.name}</span>
+                                <span className="text-gray-400 dark:text-gray-500">{row.group.size} step{row.group.size === 1 ? '' : 's'}</span>
+                              </div>
+                            )}
                             {renderGroupHeader(listId, row.group, false)}
                           </div>
                         )}
@@ -1574,7 +1681,29 @@ export default function WorkflowEditor({
                   else if (blockDepth > 0) bgClass = `bg-white dark:bg-black/40 ${nestBg}`;
 
                   const indent = blockDepth > 0 ? { marginLeft: `${blockDepth * 20}px` } : {};
-                  
+
+                  // The instrument tag and the method name: the first two things on the folded
+                  // row, and all that is shown of a card while it is dragged.
+                  const tagEl = isFlowBlock ? (
+                    // A built-in step has no instrument, so its own name is the tag.
+                    <span title={block.method === 'Sleep' ? 'Wait (Sleep)' : flowLook.label} className={`shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border text-[12px] font-semibold ${flowLook.pill}`}>
+                      <flowLook.icon className="w-3.5 h-3.5 shrink-0" />
+                      {flowLook.label}
+                    </span>
+                  ) : (
+                    <span title={block.instrument.replace(/_/g, ' ')} className="shrink-0 max-w-[10rem] truncate inline-flex items-center h-6 px-1.5 rounded-md bg-gray-100 text-[12px] font-medium text-gray-600 capitalize dark:bg-white/10 dark:text-gray-300">
+                      {isLibraryBlock ? 'Workflow' : block.instrument.replace(/_/g, ' ')}
+                    </span>
+                  );
+                  const methodEl = isFlowBlock ? null : (
+                    <span
+                      title={isLibraryBlock ? block.method : block.method.replace(/_/g, ' ')}
+                      className={`text-[13px] font-semibold text-gray-900 dark:text-gray-100 truncate max-w-full ${isLibraryBlock ? '' : 'capitalize'}`}
+                    >
+                      {isLibraryBlock ? block.method : block.method.replace(/_/g, ' ')}
+                    </span>
+                  );
+
                   return (
                     <React.Fragment key={block.id}>
                     <Draggable draggableId={block.id} index={row.dndIndex}>
@@ -1592,19 +1721,35 @@ export default function WorkflowEditor({
                                   ...(inExpandedGroup
                                     ? { marginLeft: `${(parseInt(String(indent.marginLeft || '0'), 10) || 0) + 10}px` }
                                     : {}),
+                                  // Dragged, the card keeps its box (the drag library measured it)
+                                  // but paints nothing; the chip below is what moves with the cursor.
+                                  ...(snapshot.isDragging ? { visibility: 'hidden' as const } : {}),
                                 }}
                                 data-step-key={`${listId}:${block.id}`}
+                                onPointerDownCapture={(e) => { grabX.current = e.clientX - e.currentTarget.getBoundingClientRect().left; }}
                                 className={`
                                   relative ${bgClass} rounded-lg shadow-sm border
                                   transition-all duration-200 group
                                   ${block.isHidden ? 'opacity-50 border-gray-200 dark:border-gray-800' :
-                                    snapshot.isDragging ? 'border-accent shadow-xl scale-[1.02] z-50' :
+                                    snapshot.isDragging ? 'z-50' :
                                     'border-gray-200 dark:border-white/10 hover:border-gray-300 dark:hover:border-white/20'
                                   }
                                   ${inExpandedGroup ? 'border-l-2 border-l-gray-300 dark:border-l-white/20 rounded-l-none' : ''}
                                   ${isSelected(listId, block.id) ? 'ring-2 ring-accent' : ''}
                                 `}
                               >
+                                  {/* While dragged: the instrument and the method only, centred on
+                                      the point that was grabbed. The arguments are back the moment
+                                      it lands, and a full-width card hanging off the cursor covered
+                                      the very list it was being dropped into. */}
+                                  {snapshot.isDragging && (
+                                    <div
+                                      style={{ visibility: 'visible', position: 'absolute', left: grabX.current, top: 0, transform: 'translateX(-50%)' }}
+                                      className="inline-flex items-center gap-2 h-9 px-2.5 rounded-lg border border-accent bg-white dark:bg-[#1a1a1a] shadow-xl whitespace-nowrap"
+                                    >
+                                      {tagEl}{methodEl}
+                                    </div>
+                                  )}
                                   {/* The handle wraps the provenance strip *and* the top row, so
                                       every card is dragged by its top bar regardless of whether it
                                       carries a strip. With the handle on the top row alone, a
@@ -1762,25 +1907,8 @@ export default function WorkflowEditor({
                                           />
                                         )}
                                         <div className="min-w-0 flex-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-                                          {isFlowBlock ? (
-                                            // A built-in step has no instrument, so its own name is the tag.
-                                            <span title={block.method === 'Sleep' ? 'Wait (Sleep)' : flowLook.label} className={`shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border text-[12px] font-semibold ${flowLook.pill}`}>
-                                              <flowLook.icon className="w-3.5 h-3.5 shrink-0" />
-                                              {flowLook.label}
-                                            </span>
-                                          ) : (
-                                            <span title={block.instrument.replace(/_/g, ' ')} className="shrink-0 max-w-[10rem] truncate inline-flex items-center h-6 px-1.5 rounded-md bg-gray-100 text-[12px] font-medium text-gray-600 capitalize dark:bg-white/10 dark:text-gray-300">
-                                              {isLibraryBlock ? 'Workflow' : block.instrument.replace(/_/g, ' ')}
-                                            </span>
-                                          )}
-                                          {!isFlowBlock && (
-                                            <span
-                                              title={isLibraryBlock ? block.method : block.method.replace(/_/g, ' ')}
-                                              className={`text-[13px] font-semibold text-gray-900 dark:text-gray-100 truncate max-w-full ${isLibraryBlock ? '' : 'capitalize'}`}
-                                            >
-                                              {isLibraryBlock ? block.method : block.method.replace(/_/g, ' ')}
-                                            </span>
-                                          )}
+                                          {tagEl}
+                                          {methodEl}
                                           {blockWarnings.length > 0 && (
                                             <span title={blockWarnings.join('\n')} className="inline-flex items-center cursor-help shrink-0">
                                               <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
@@ -2218,7 +2346,11 @@ export default function WorkflowEditor({
   );
 
   return (
-    <DragDropContext onDragEnd={onDragEnd}>
+    <DragDropContext
+      onBeforeCapture={() => setAllPhasesMounted(true)}
+      onDragStart={() => { setIsDragging(true); startTrackingPointer(); }}
+      onDragEnd={onDragEnd}
+    >
       {/* The header (the workflow's name and its actions) spans the editor, toolbox included, as
           on Cloud's Orchestrator: it is about the whole document, not the canvas column. */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -2318,13 +2450,17 @@ export default function WorkflowEditor({
                       </div>
                     )}
 
-                    {(LIBRARY_INSTRUMENT in instruments) && (!q || workflowNames.length > 0) && (
+                    {(LIBRARY_INSTRUMENT in instruments) && (!q || workflowNames.length > 0) && (() => {
+                      // With nothing saved yet the group starts folded to one line: open, it is a
+                      // copy/link switch and an empty note taking the room the instruments need.
+                      const workflowsFolded = !q && (foldedToolbox.workflows ?? workflowNames.length === 0);
+                      return (
                       <div>
-                        <ToolboxGroupHeader collapsed={isFolded('workflows')} onToggle={() => toggleFold('workflows')} title="Saved workflows, to reuse as one step">
+                        <ToolboxGroupHeader collapsed={workflowsFolded} onToggle={() => setFoldedToolbox(prev => ({ ...prev, workflows: !workflowsFolded }))} title="Saved workflows, to reuse as one step">
                           <ToolboxGroupTitle>Workflows</ToolboxGroupTitle>
                           <span className="ml-auto text-[10px] text-gray-400 shrink-0">{runnable.length}</span>
                         </ToolboxGroupHeader>
-                        {!isFolded('workflows') && (
+                        {!workflowsFolded && (
                           <div className="space-y-1 mt-1">
                             {/* How a dragged workflow is brought in. Link is the default: reuse
                                 should keep the saved workflow as one thing, so an edit to it
@@ -2353,10 +2489,9 @@ export default function WorkflowEditor({
                                   </button>
                                 ))}
                               </div>
+                              {/* One short line; the full explanation is each button's tooltip. */}
                               <p className="text-[10px] leading-tight text-gray-400 dark:text-gray-500 mt-1 px-0.5">
-                                {reuseMode === 'copy'
-                                  ? 'Steps are inlined and editable. The original is left alone.'
-                                  : 'Stays a reference — editing the original changes this workflow too.'}
+                                {reuseMode === 'copy' ? 'A copy, yours to edit.' : 'Follows edits to the original.'}
                               </p>
                             </div>
                             {runnable.map(name => chip(LIBRARY_INSTRUMENT, name,
@@ -2399,7 +2534,8 @@ export default function WorkflowEditor({
                           </div>
                         )}
                       </div>
-                    )}
+                      );
+                    })()}
 
                     {shownInstruments.length > 0 && (
                       <div>
@@ -2442,53 +2578,62 @@ export default function WorkflowEditor({
           )}
         </div>
 
-        {/* Sequence Canvas (Center) and Right Sidebar */}
-        <div className="flex-1 flex flex-col bg-gray-50 dark:bg-[#0a0a0a] relative min-w-0">
-          <div className="flex-1 flex overflow-hidden relative min-w-0">
-            {customView ? (
-              customView
-            ) : (
-              <div className="flex-1 overflow-y-auto p-4 md:p-8 relative">
-                <div className="max-w-5xl mx-auto w-full relative min-h-[85vh]">
-                  {/* Select sits hard left, lining up with the checkbox column it turns on. There is
-                      no expand/collapse-all: every step shows its whole call on one line, and one
-                      step at a time opens to be edited. The strip lets clicks through to the list. */}
-                  <div className="absolute -top-4 left-0 right-0 flex items-center space-x-3 z-10 pointer-events-none [&>*]:pointer-events-auto">
-                     {renderSelectToggle('canvas')}
-                  </div>
-                  {renderSequenceList('canvas', 'Main Workflow', sequence)}
-                </div>
+        {/* The canvas: the phase strip over one list. Prep → Main → Cleanup in run order, each a
+            tab with its count, the open one lit. While a drag is on, the other two tabs are drop
+            targets (dashed, lit under the pointer): hold a step over one and the canvas switches
+            to that phase so the step can be placed; let go on the tab and it goes to the end.
+            Either way the canvas stays on the phase the step went to. The three lists look the
+            same, because they are the same thing; the tab says when its list runs. */}
+        <div className="flex-1 flex flex-col bg-gray-50 dark:bg-[#0a0a0a] relative min-w-0 overflow-hidden">
+            <div className="shrink-0 px-4 md:px-8 pt-3">
+              {/* A container query: on a narrow canvas the tabs keep their name and count and
+                  drop the subtitle, rather than truncating it to "o…". */}
+              <div ref={stripRef} className="@container max-w-5xl mx-auto w-full flex items-center gap-1.5 min-w-0">
+                {PHASES.map((phase, i) => {
+                  const on = phase.id === activePhase;
+                  const over = isDragging && !on && hoverTab === phase.id;
+                  const n = getSequenceList(phase.id).length;
+                  return (
+                    <React.Fragment key={phase.id}>
+                      {i > 0 && <ArrowRight className="w-3.5 h-3.5 shrink-0 text-gray-300 dark:text-gray-600" />}
+                      <button
+                        type="button"
+                        data-phase-tab={phase.id}
+                        onClick={() => switchPhase(phase.id)}
+                        aria-pressed={on}
+                        title={`${phase.name} ${phase.when}${on ? '' : '. Hold a dragged step here to open this phase, or let go to put it at the end.'}`}
+                        className={`inline-flex items-center gap-2 h-8 px-3 rounded-lg border text-[12px] transition-colors shrink-0 ${
+                          over ? 'bg-accent-soft text-accent-fg border-accent ring-2 ring-accent/40'
+                          : on ? 'bg-accent-soft text-accent-fg border-accent-tint'
+                          : `bg-white dark:bg-[#1a1a1a] text-gray-600 dark:text-gray-300 ${isDragging ? 'border-dashed border-accent-tint' : 'border-gray-200 dark:border-white/10 hover:border-gray-300 dark:hover:border-white/20'}`
+                        }`}
+                      >
+                        <span className="font-bold uppercase tracking-wide text-[11px]">{phase.name}</span>
+                        <span className={`hidden @xl:inline text-[11px] whitespace-nowrap ${on ? 'opacity-70' : 'text-gray-400 dark:text-gray-500'}`}>{phase.short}</span>
+                        <span className={`inline-grid place-items-center min-w-[1.25rem] h-5 px-1.5 rounded-full text-[11px] font-bold tabular-nums ${on ? 'bg-white dark:bg-white/10' : 'bg-gray-100 text-gray-500 dark:bg-white/10 dark:text-gray-400'}`}>{n}</span>
+                      </button>
+                    </React.Fragment>
+                  );
+                })}
+                <div className="flex-1" />
+                {renderSelectToggle(activePhase)}
               </div>
-            )}
-
-            {/* Spacer to prevent scrollbar overlap when sidebar is collapsed */}
-            <div className="w-12 shrink-0 border-l border-transparent"></div>
-
-            {/* Prep/Cleanup Sidebar Overlay */}
-            <div className={`absolute top-0 right-0 h-full shrink-0 bg-white dark:bg-[#1a1a1a] border-l border-gray-200 dark:border-white/10 flex flex-col transition-all duration-300 shadow-2xl z-20 ${isRightSidebarOpen ? 'w-[28rem]' : 'w-12'}`}>
-               {isRightSidebarOpen ? (
-                 <div className="flex-1 flex h-full">
-                    <button 
-                      onClick={() => setIsRightSidebarOpen(false)}
-                      className="w-6 shrink-0 h-full flex flex-col items-center justify-center bg-gray-50 hover:bg-gray-100 dark:bg-white/5 dark:hover:bg-white/10 border-r border-gray-200 dark:border-white/10 transition-colors"
-                      title="Collapse Sidebar"
-                    >
-                      <ChevronRight className="w-4 h-4 text-gray-400" />
-                    </button>
-                    <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                       {renderSequenceList('prep', 'Prep Phase', prepSequence)}
-                       {renderSequenceList('cleanup', 'Cleanup Phase', cleanupSequence)}
-                    </div>
-                 </div>
-               ) : (
-                 <div className="flex-1 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50 dark:hover:bg-white/5 transition-colors" onClick={() => setIsRightSidebarOpen(true)}>
-                    <div className="text-xs font-bold tracking-[0.2em] text-gray-400 uppercase pointer-events-none" style={{ writingMode: 'vertical-rl' }}>
-                        PREP & CLEANUP
-                    </div>
-                 </div>
-               )}
             </div>
-          </div>
+            <div ref={canvasScrollRef} className="flex-1 overflow-y-auto px-4 md:px-8 pt-3 pb-4 md:pb-8 relative">
+              {/* One grid cell: during a drag every phase's list sits here, the inactive ones
+                  invisible, so switching the visible one moves nothing (see allPhasesMounted). */}
+              <div className="max-w-5xl mx-auto w-full relative min-h-[85vh] grid items-start">
+                {PHASES.map(phase => {
+                  const on = phase.id === activePhase;
+                  if (!on && !allPhasesMounted) return null;
+                  return (
+                    <div key={phase.id} style={{ gridArea: '1 / 1' }} className={on ? 'min-w-0' : 'min-w-0 invisible pointer-events-none'} aria-hidden={!on}>
+                      {renderSequenceList(phase.id, phase.name, getSequenceList(phase.id))}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
         </div>
       </div>
       </div>

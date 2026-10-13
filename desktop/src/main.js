@@ -1186,7 +1186,8 @@ function registerIpc() {
     handle('launcher:report:prepare', async (id, failure = {}) => {
         let profile = null;
         try { profile = id ? manager.get(id) : null; } catch { /* removed since */ }
-        const status = profile ? manager.statusOf(id) : { state: 'error', message: failure.message || '' };
+        // No profile and no failure: a report from Settings → Help, about nothing in particular.
+        const status = profile ? manager.statusOf(id) : { state: failure.message ? 'error' : '', message: failure.message || '' };
         const runtime = runtimeStatus.state === 'error' ? null : await getRuntime().catch(() => null);
         const python = profile && profile.kind === 'script' && profile.python ? profile.python : runtime && runtime.python;
         const [environment, check] = runtime && python
@@ -1199,7 +1200,7 @@ function registerIpc() {
         try { deck = profile && profile.kind === 'deck' ? manager.readDeck(id) : null; } catch { /* no deck file */ }
         const app = { version: app_version(), platform: process.platform, arch: process.arch, os: os.release() };
         return {
-            details: report.buildDetails({ app, profile: profile || { kind: 'deck' }, status, log, installOutput, deck, environment, check }, reportContext()),
+            details: report.buildDetails({ app, profile: profile || (failure.message ? { kind: 'deck' } : {}), status, log, installOutput, deck, environment, check }, reportContext()),
             kind: failure.kind || report.kindOf(status),
             email: (account.describe().user || {}).email || null,
         };
@@ -1256,9 +1257,10 @@ function registerIpc() {
 // --- tray ----------------------------------------------------------------------------------------
 
 /**
- * The icon at tray size. macOS: the logo's outline as a template image (build/trayTemplate.png,
- * with its @2x beside it), which the menu bar tints for light or dark like its other icons; the
- * app icon there is a tile and shows as a box. Elsewhere: the 1024px app icon scaled down.
+ * The icon at tray size. macOS: the logo's silhouette with its outline cut out, as a template
+ * image (build/trayTemplate.png, with its @2x beside it), which the menu bar tints for light or
+ * dark like its other icons; the app icon there is a tile and shows as a box. Elsewhere: the
+ * 1024px app icon scaled down.
  */
 function trayImage() {
     const template = path.join(__dirname, '..', 'build', 'trayTemplate.png');
