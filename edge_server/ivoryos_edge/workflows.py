@@ -671,11 +671,15 @@ def missing_links(workflows_dir, body):
 
 # --- expansion ----------------------------------------------------------------------------------
 
-def _substitute(params, caller_params):
+def _substitute(params, caller_params, set_variable=False):
     """Replace `#var` placeholders with the values the caller supplied for them.
 
     Whole-value only, matching `substitute_workflow_vars` in queue.py — an unmatched placeholder is
     left intact so it can still be resolved later from the live run context.
+
+    A Set_Variable step's `value` that the caller supplied is marked in `_vars`, as the Configure
+    page marks one it filled from the table: it is a value, and the edge must not read the
+    caller's `abc` as an expression naming a variable called abc (queue.set_variable_value).
     """
     out = {}
     for key, value in (params or {}).items():
@@ -683,6 +687,9 @@ def _substitute(params, caller_params):
             out[key] = caller_params.get(value[1:], value)
         else:
             out[key] = value
+    supplied = (params or {}).get("value")
+    if set_variable and isinstance(supplied, str) and supplied.startswith("#") and supplied[1:] in caller_params:
+        out["_vars"] = {**(out.get("_vars") or {}), "value": supplied[1:]}
     return out
 
 
@@ -831,7 +838,10 @@ def expand_workflow_blocks(
                 blocks = body.get("sequence")
             for inner_block in (blocks or []):
                 nb = _normalise(inner_block)
-                nb["params"] = _substitute(nb.get("params"), caller_params)
+                nb["params"] = _substitute(
+                    nb.get("params"), caller_params,
+                    set_variable=nb["instrument"] in ("Flow_Control", "Flow Control") and nb["method"] == "Set_Variable",
+                )
                 inner.append(nb)
 
         # Recurse so a link inside a linked workflow resolves too. The old expander copied inner

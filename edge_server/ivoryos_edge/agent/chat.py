@@ -53,6 +53,9 @@ Rules that matter:
 - To use a saved value later, write it as a string "#name" in an argument.
 - A value the protocol leaves to the operator should be "#name" and listed in `questions`,
   or read with a Flow_Control User_Input step.
+- To compute a value from earlier ones (a counter, a dilution), use a Flow_Control Set_Variable
+  step: "args": {"variable_name": "dilution", "value": "volume / 2"}, earlier variables by bare
+  name in "value", then "#dilution" in later arguments.
 - Every Flow_Control "If" needs a matching "End_If", and every "While" a matching "End_While".
 - Prefer fewer, correct steps. Do not invent safety, washing or calibration steps the protocol
   does not mention.

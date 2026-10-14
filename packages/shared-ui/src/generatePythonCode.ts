@@ -3,6 +3,7 @@ import {
   LIBRARY_INSTRUMENT, linkOutputBindings, scanDynamicParams, toSequenceBlocks, workflowOutputs,
   type SavedWorkflowBody,
 } from './workflowBody';
+import { wholeReference, withoutReferenceMarks } from './flowControl';
 
 const PY_KEYWORDS = new Set(['False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await', 'break', 'class', 'continue',
   'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'from', 'global', 'if', 'import', 'in', 'is', 'lambda',
@@ -166,6 +167,20 @@ export function generatePythonCode(
         } else if (block.method === 'Comment') {
           const message = String(block.params.message || '');
           body += `${pad}print(${pyTextLiteral(message)})\n`;
+        } else if (block.method === 'Set_Variable') {
+          // The assignment it stands for. Text (str) is a literal, an f-string when it fills in a
+          // #name; anything else is the expression as written; a type other than auto converts.
+          const name = String(block.params.variable_name || '').trim() || 'value';
+          const kind = String(block.params.type || 'auto');
+          const raw = block.params.value;
+          const ref = wholeReference(raw);
+          let expr: string;
+          if (ref) expr = ref;
+          else if (typeof raw !== 'string') expr = formatValue(raw);
+          else if (kind === 'str') expr = /^\s*(['"]).*\1\s*$/.test(raw) ? raw.trim() : pyTextLiteral(raw);
+          else expr = withoutReferenceMarks(raw).trim() || 'None';
+          const converts = kind !== 'auto' && !(kind === 'str' && typeof raw === 'string' && !ref);
+          body += `${pad}${name} = ${converts ? `${kind}(${expr})` : expr}\n`;
         }
         return;
       }
