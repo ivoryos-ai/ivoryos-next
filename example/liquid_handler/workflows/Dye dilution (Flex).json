@@ -1,0 +1,164 @@
+{
+ "name": "Dye dilution (Flex)",
+ "description": "One row per column of the assay plate: its tips (tips[A1:H1]), its wells (assay_plate[A1:H1]) and a dye volume. The Flex's 8-channel puts 100 \u00b5L of buffer and the dye in all eight wells at once, and the plate reader reads the column's mean absorbance.",
+ "prep": [],
+ "script": [
+  {
+   "id": 1,
+   "uuid": 710000001,
+   "instrument": "flex_left",
+   "action": "pick_up_tips",
+   "args": {
+    "target": "#tips"
+   },
+   "arg_types": {
+    "target": "wells"
+   },
+   "return": "",
+   "batch_action": false,
+   "consolidate_batch_args": false
+  },
+  {
+   "id": 2,
+   "uuid": 710000002,
+   "instrument": "flex_left",
+   "action": "aspirate_container",
+   "args": {
+    "container": "reservoir[A1]",
+    "volume": 100
+   },
+   "arg_types": {
+    "container": "wells",
+    "volume": "float"
+   },
+   "return": "",
+   "batch_action": false,
+   "consolidate_batch_args": false
+  },
+  {
+   "id": 3,
+   "uuid": 710000003,
+   "instrument": "flex_left",
+   "action": "dispense",
+   "args": {
+    "target": "#wells",
+    "volume": 100
+   },
+   "arg_types": {
+    "target": "wells",
+    "volume": "float"
+   },
+   "return": "",
+   "batch_action": false,
+   "consolidate_batch_args": false
+  },
+  {
+   "id": 4,
+   "uuid": 710000004,
+   "instrument": "flex_left",
+   "action": "aspirate_container",
+   "args": {
+    "container": "reservoir[A2]",
+    "volume": "#dye_ul"
+   },
+   "arg_types": {
+    "container": "wells",
+    "volume": "float"
+   },
+   "return": "",
+   "batch_action": false,
+   "consolidate_batch_args": false
+  },
+  {
+   "id": 5,
+   "uuid": 710000005,
+   "instrument": "flex_left",
+   "action": "dispense",
+   "args": {
+    "target": "#wells",
+    "volume": "#dye_ul"
+   },
+   "arg_types": {
+    "target": "wells",
+    "volume": "float"
+   },
+   "return": "",
+   "batch_action": false,
+   "consolidate_batch_args": false
+  },
+  {
+   "id": 6,
+   "uuid": 710000006,
+   "instrument": "flex_left",
+   "action": "discard_tips",
+   "args": {
+    "trash": "trash"
+   },
+   "arg_types": {
+    "trash": "str"
+   },
+   "return": "",
+   "batch_action": false,
+   "consolidate_batch_args": false
+  },
+  {
+   "id": 7,
+   "uuid": 710000007,
+   "instrument": "plate_reader",
+   "action": "read_mean_absorbance",
+   "args": {
+    "resources": "#wells",
+    "wavelength_nm": 520
+   },
+   "arg_types": {
+    "resources": "wells",
+    "wavelength_nm": "int"
+   },
+   "return": "absorbance",
+   "batch_action": false,
+   "consolidate_batch_args": false
+  },
+  {
+   "id": 8,
+   "uuid": 710000008,
+   "instrument": "Flow_Control",
+   "action": "If",
+   "args": {
+    "condition": "absorbance > 1.0"
+   },
+   "arg_types": {
+    "condition": "str"
+   },
+   "return": "",
+   "batch_action": false,
+   "consolidate_batch_args": false
+  },
+  {
+   "id": 9,
+   "uuid": 710000009,
+   "instrument": "Flow_Control",
+   "action": "Comment",
+   "args": {
+    "message": "Absorbance #absorbance is above the linear range: use less dye in #wells."
+   },
+   "arg_types": {
+    "message": "str"
+   },
+   "return": "",
+   "batch_action": false,
+   "consolidate_batch_args": false
+  },
+  {
+   "id": 10,
+   "uuid": 710000010,
+   "instrument": "Flow_Control",
+   "action": "End_If",
+   "args": {},
+   "arg_types": {},
+   "return": "",
+   "batch_action": false,
+   "consolidate_batch_args": false
+  }
+ ],
+ "cleanup": []
+}

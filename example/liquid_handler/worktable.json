@@ -1,45 +1,16 @@
 {
   "format": "plr-ivoryos-worktable/1",
-  "deck_type": "OTDeck",
+  "deck_type": "FlexDeck",
+  "equipment": {"left": "p1000_multi_flex", "right": "p1000_single_flex", "gripper": true, "trash": "A3"},
   "resources": [
-    {
-      "name": "tips",
-      "type": "opentrons_96_tiprack_300ul",
-      "slot": 1
-    },
-    {
-      "name": "tips_b",
-      "type": "opentrons_96_tiprack_300ul",
-      "slot": 4
-    },
-    {
-      "name": "reservoir",
-      "type": "nest_12_troughplate_15000uL_Vb",
-      "slot": 2
-    },
-    {
-      "name": "assay_plate",
-      "type": "cor_96_wellplate_360uL_Fb",
-      "slot": 5
-    },
-    {
-      "name": "sample_plate",
-      "type": "cor_96_wellplate_360uL_Fb",
-      "slot": 6
-    }
+    {"name": "tips", "type": "flex_96_tiprack_200ul", "slot": "C1"},
+    {"name": "tips_b", "type": "flex_96_tiprack_200ul", "slot": "B1"},
+    {"name": "reservoir", "type": "nest_12_troughplate_15000uL_Vb", "slot": "C2"},
+    {"name": "assay_plate", "type": "cor_96_wellplate_360uL_Fb", "slot": "D2"},
+    {"name": "sample_plate", "type": "cor_96_wellplate_360uL_Fb", "slot": "D3"}
   ],
   "liquids": [
-    {
-      "labware": "reservoir",
-      "wells": "A1",
-      "liquid": "buffer",
-      "volume_ul": 14000
-    },
-    {
-      "labware": "reservoir",
-      "wells": "A2",
-      "liquid": "dye",
-      "volume_ul": 9000
-    }
+    {"labware": "reservoir", "wells": "A1", "liquid": "buffer", "volume_ul": 14000},
+    {"labware": "reservoir", "wells": "A2", "liquid": "dye", "volume_ul": 9000}
   ]
 }

@@ -2653,7 +2653,15 @@ def run(module_name: str = None, port: int = None, plugins: list = None, *,
         _alias_main_script(module_name)
     else:
         print(f"Instruments from deck: {list(instruments.keys())}")
-    for err in instrument_errors or []:
+    # A driver that is several instruments (a Flex: each mounted pipette, the gripper) adds them.
+    from .parts import expand as expand_parts
+    instrument_errors = list(instrument_errors or [])
+    before = set(instruments)
+    instruments = expand_parts(instruments, instrument_errors)
+    added = [name for name in instruments if name not in before]
+    if added:
+        print(f"Parts of instruments, each an instrument: {added}")
+    for err in instrument_errors:
         print(f"Instrument '{err.get('name')}' did not load ({err.get('stage')}): {err.get('error')}")
 
     app.state.plugins = []

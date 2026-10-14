@@ -2,9 +2,9 @@
 every row of its group in one call (labware.py, queue.spread_over_rows).
 
 The first half uses a small driver with no robot library behind it, because none of the edge's
-side depends on one. The second half reads plr-ivoryos's PyLabRobot liquid handler on its
-simulator and is skipped where that package (0.2) is not installed. Its Labware view plugin is
-tested in the plr-ivoryos repository.
+side depends on one. The second half reads plr-ivoryos's Opentrons Flex (PyLabRobot 1.0) on its
+simulated robot and is skipped where that package (1.x) is not installed. Its Labware view plugin
+is tested in the plr-ivoryos repository.
 """
 
 import asyncio
@@ -249,52 +249,88 @@ async def test_a_batch_step_over_three_rows_is_one_call_and_each_row_reads_its_o
     assert [s["outputs"]["result"] for s in echoes[1:]] == ["3.0", "5.0"]
 
 
-# --- a PyLabRobot liquid handler (plr-ivoryos), as the edge reads it ----------------------------------
+# --- an Opentrons Flex through PyLabRobot 1.0 (plr-ivoryos), as the edge reads it ------------------
 # The adapter's own behaviour is tested in the plr-ivoryos repository. What is checked here is the
-# meeting point: the edge reads that package's markers and worktable by duck typing, with nothing
-# imported either way. Skipped where plr-ivoryos 0.2 is not installed:
-#     uv run --extra test --with-editable ../IvoryOS-PyLabRobot-Integration pytest ...
+# meeting point: the edge reads that package's markers, worktable and parts (parts.py) by duck
+# typing, with nothing imported either way, and runs its steps through the queue. Skipped where
+# plr-ivoryos 1.x is not installed:
+#     uv run --extra test --with-editable ../../IvoryOS-PyLabRobot-Integration pytest ...
 
-WORKTABLE = {"deck_type": "OTDeck", "resources": [
-    {"name": "tips_300", "type": "opentrons_96_tiprack_300ul", "slot": 1},
-    {"name": "reservoir", "type": "nest_12_troughplate_15000uL_Vb", "slot": 2},
-    {"name": "assay_plate", "type": "cor_96_wellplate_360uL_Fb", "slot": 5},
-], "liquids": [{"labware": "reservoir", "wells": "A2", "liquid": "dye", "volume_ul": 5000}]}
+WORKTABLE = {"deck_type": "FlexDeck",
+             "equipment": {"left": "p1000_multi_flex", "right": "p1000_single_flex", "gripper": True, "trash": "A3"},
+             "resources": [
+                 {"name": "tips", "type": "flex_96_tiprack_200ul", "slot": "C1"},
+                 {"name": "reservoir", "type": "nest_12_troughplate_15000uL_Vb", "slot": "C2"},
+                 {"name": "assay_plate", "type": "cor_96_wellplate_360uL_Fb", "slot": "D2"},
+             ],
+             "liquids": [{"labware": "reservoir", "wells": "A2", "liquid": "dye", "volume_ul": 5000}]}
 
 
 @pytest.fixture
-def handler(tmp_path, capsys):
-    plr_ivoryos = pytest.importorskip("plr_ivoryos")
-    if not hasattr(plr_ivoryos, "worktable"):
-        pytest.skip("plr-ivoryos older than 0.2")
+def flex(tmp_path, capsys):
+    opentrons = pytest.importorskip("plr_ivoryos.opentrons")
     import json
+    from ivoryos_edge.parts import expand
     path = tmp_path / "worktable.json"
     path.write_text(json.dumps(WORKTABLE))
-    return plr_ivoryos.LiquidHandler(simulated=True, deck_json=str(path))
+    deck = expand({"flex": opentrons.Flex(simulated=True, worktable=str(path))}, [])
+    for name, instrument in deck.items():
+        app.state.instruments[name] = instrument
+        app.state.instrument_schemas[name] = inspect_device_module(instrument)
+    guard.app = app
+    yield deck
+    deck["flex"].stop()
+    for name in deck:
+        app.state.instruments.pop(name)
+        app.state.instrument_schemas.pop(name)
 
 
-def test_the_edge_reads_a_plr_liquid_handler_with_nothing_shared_but_names(handler):
-    schema = inspect_device_module(handler)
-    transfer = schema["transfer"]["parameters"]
-    assert transfer["targets"]["wells"] == {"labware": ["plate", "reservoir", "tube_rack"]}
-    assert transfer["tip_rack"]["options"] == ["tips_300"]
-    assert transfer["target_vols"]["per_well"] == "targets"
-    assert schema["move_plate"]["parameters"]["to"]["options"][:3] == ["1", "2", "3"]
-    assert schema["transfer"]["is_coroutine"] is False, "synchronous, on the package's own loop"
-    assert not any(name.startswith("__ivoryos") for name in schema)
-    assert set(declared_trays({"lh": handler})) == {"lh:tips_300", "lh:reservoir", "lh:assay_plate"}
+def test_a_flex_is_an_instrument_and_so_is_each_thing_mounted_on_it(flex):
+    assert list(flex) == ["flex", "flex_left", "flex_right", "flex_gripper"]
+    left = app.state.instrument_schemas["flex_left"]
+    assert left["aspirate"]["parameters"]["target"]["wells"] == {"labware": ["plate", "reservoir", "tube_rack"]}
+    assert left["pick_up_tips"]["parameters"]["target"]["wells"] == {"labware": ["tip_rack"]}
+    assert left["discard_tips"]["parameters"]["trash"]["options"] == ["trash"]
+    assert left["aspirate"]["is_coroutine"] is False, "synchronous, on the package's own loop"
+    gripper = app.state.instrument_schemas["flex_gripper"]
+    assert sorted(gripper["move_labware"]["parameters"]["resource"]["options"]) == ["assay_plate", "reservoir", "tips"]
+    assert {"B2", "D4"} <= set(gripper["move_labware"]["parameters"]["to_slot"]["options"])
+    robot = app.state.instrument_schemas["flex"]
+    assert {"home", "set_rail_lights", "load_liquid", "read_volumes"} <= set(robot)
+    assert not any(name.startswith("__ivoryos") for name in robot)
+    trays = declared_trays(flex)
+    assert {"flex:assay_plate", "flex_left:assay_plate", "flex_left:trash"} <= set(trays)
 
 
-def test_a_plr_step_with_wells_off_the_plate_is_refused_by_the_guard(handler):
-    app.state.instruments["lh"] = handler
-    app.state.instrument_schemas["lh"] = inspect_device_module(handler)
-    try:
-        call = {"source": "reservoir[A1]", "target_vols": 10, "tip_rack": "tips_300"}
-        assert guard.check_params("lh", "transfer", {**call, "targets": "assay_plate[A1:H12]"}) == []
-        problems = guard.check_params("lh", "transfer", {**call, "targets": "assay_plate[A1:A13]"})
-        assert len(problems) == 1 and "'A13' is not a position" in problems[0]
-        assert "'plate_9' is not on this worktable" in guard.check_params("lh", "transfer", {**call, "targets": "plate_9[A1]"})[0]
-        assert "is a tip rack" in guard.check_params("lh", "transfer", {**call, "targets": "tips_300[A1]"})[0]
-    finally:
-        app.state.instruments.pop("lh")
-        app.state.instrument_schemas.pop("lh")
+def test_a_flex_step_with_wells_off_the_plate_is_refused_by_the_guard(flex):
+    def check(target):
+        return guard.check_params("flex_left", "dispense", {"target": target, "volume": 10})
+
+    assert check("assay_plate[A1:H1]") == [] and check(["assay_plate[A1]", "assay_plate[B1]"]) == []
+    problems = check("assay_plate[A1:A13]")
+    assert len(problems) == 1 and "'A13' is not a position" in problems[0]
+    assert "'plate_9' is not on this worktable" in check("plate_9[A1]")[0]
+    assert "is a tip rack" in check("tips[A1]")[0]
+
+
+@pytest.mark.asyncio
+async def test_a_column_of_eight_rows_is_one_call_of_the_eight_channel(flex):
+    column = [f"assay_plate[{row}1]" for row in "ABCDEFGH"]
+    sequence = [
+        {"instrument": "flex_left", "method": "pick_up_tips", "params": {"target": "tips", "column": 0}},
+        {"instrument": "flex_left", "method": "aspirate_container", "params": {"container": "reservoir[A2]", "volume": 30}},
+        # What a batch step gives the 8-channel: every row's well, in one call.
+        {"instrument": "flex_left", "method": "dispense", "params": {"target": column, "volume": 30}},
+        {"instrument": "flex_left", "method": "discard_tips", "params": {}},
+        {"instrument": "flex", "method": "read_volumes", "returnVar": "volumes",
+         "params": {"resources": "assay_plate[A1:H1]"}},
+    ]
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.post("/api/queue/runs", json={"name": "Flex column", "sequence": sequence})
+        assert resp.status_code == 200, resp.text
+        run = await _finish(ac, resp.json()["run_id"])
+    assert run["status"] == "completed", run
+    read = next(s for s in run["steps"] if s["method"] == "read_volumes")
+    assert read["outputs"]["result"] == {ref: 30 for ref in column}
+    state = flex["flex"].__ivoryos_labware_state__()["labware"]["assay_plate"]
+    assert state["H1"]["liquids"] == {"dye": 30.0}
