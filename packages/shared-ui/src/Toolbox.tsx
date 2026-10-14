@@ -1,6 +1,6 @@
 "use client";
 import React from 'react';
-import { ChevronDown, ChevronRight, GitBranch, GripVertical, Hourglass, MessageSquareText, Repeat, StickyNote } from 'lucide-react';
+import { ChevronDown, ChevronRight, GitBranch, GripVertical, Hourglass, MessageSquareText, Repeat, StickyNote, Variable } from 'lucide-react';
 
 /**
  * The pieces of a designer's toolbox, shared by the edge Designer (WorkflowEditor) and Cloud's
@@ -13,45 +13,53 @@ import { ChevronDown, ChevronRight, GitBranch, GripVertical, Hourglass, MessageS
  */
 
 /**
- * The colour family of each kind of built-in step, used by the toolbox chip, the step card's pill,
- * its tint and its inline fields. Purple is deliberately absent: on a step it means "runs once per
- * batch" (as in the original IvoryOS), and nothing else may borrow it.
+ * The colour family of each kind of built-in step, used by the toolbox chip, the step card's pill
+ * and its tint. Purple is deliberately absent: on a step it means "runs once per batch" (as in the
+ * original IvoryOS), and nothing else may borrow it.
  */
 const TONES = {
   sky: {
     accent: 'text-sky-500',
     pill: 'bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-500/15 dark:text-sky-300 dark:border-sky-500/25',
     card: 'bg-sky-50/50 dark:bg-sky-900/10',
-    input: 'bg-sky-500/10 dark:bg-sky-900/40 border-sky-200 dark:border-sky-800/50 focus:border-sky-400 dark:focus:border-sky-500 text-sky-900 dark:text-sky-100 placeholder-sky-300 dark:placeholder-sky-600/50',
   },
   orange: {
     accent: 'text-orange-500',
     pill: 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-500/15 dark:text-orange-300 dark:border-orange-500/25',
     card: 'bg-orange-50/50 dark:bg-orange-900/10',
-    input: 'bg-orange-500/10 dark:bg-orange-900/40 border-orange-200 dark:border-orange-800/50 focus:border-orange-400 dark:focus:border-orange-500 text-orange-900 dark:text-orange-100 placeholder-orange-300 dark:placeholder-orange-600/50',
   },
   teal: {
     accent: 'text-teal-500',
     pill: 'bg-teal-100 text-teal-700 border-teal-200 dark:bg-teal-500/15 dark:text-teal-300 dark:border-teal-500/25',
     card: 'bg-teal-50/50 dark:bg-teal-900/10',
-    input: 'bg-teal-500/10 dark:bg-teal-900/40 border-teal-200 dark:border-teal-800/50 focus:border-teal-400 dark:focus:border-teal-500 text-teal-900 dark:text-teal-100 placeholder-teal-300 dark:placeholder-teal-600/50',
   },
   pink: {
     accent: 'text-pink-500',
     pill: 'bg-pink-100 text-pink-700 border-pink-200 dark:bg-pink-500/15 dark:text-pink-300 dark:border-pink-500/25',
     card: 'bg-pink-50/50 dark:bg-pink-900/10',
-    input: 'bg-pink-500/10 dark:bg-pink-900/40 border-pink-200 dark:border-pink-800/50 focus:border-pink-400 dark:focus:border-pink-500 text-pink-900 dark:text-pink-100 placeholder-pink-300 dark:placeholder-pink-600/50',
+  },
+  lime: {
+    accent: 'text-lime-600',
+    pill: 'bg-lime-100 text-lime-800 border-lime-200 dark:bg-lime-500/15 dark:text-lime-300 dark:border-lime-500/25',
+    card: 'bg-lime-50/50 dark:bg-lime-900/10',
   },
   slate: {
     accent: 'text-slate-400',
     pill: 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-white/10 dark:text-slate-300 dark:border-white/10',
     card: 'bg-slate-50/60 dark:bg-slate-800/15',
-    input: 'bg-slate-500/10 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/50 focus:border-slate-400 dark:focus:border-slate-500 text-slate-900 dark:text-slate-100 placeholder-slate-300 dark:placeholder-slate-600/50',
   },
 } as const;
 
-type Look = { label: string; icon: React.ComponentType<{ className?: string }> } & (typeof TONES)[keyof typeof TONES];
-const look = (label: string, icon: Look['icon'], tone: keyof typeof TONES): Look => ({ label, icon, ...TONES[tone] });
+/**
+ * Every built-in step's fields, whatever its colour: white with dark text, as an instrument step's
+ * are. Tinted to match the step they were a saturated text on a pale fill, unreadable when empty
+ * and loud on lime; the colour is the tag's and the card's, never the text's.
+ */
+export const LOGIC_FIELD = 'bg-white border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-accent '
+  + 'dark:bg-white/5 dark:border-white/10 dark:text-gray-100 dark:placeholder:text-gray-500';
+
+type Look = { label: string; icon: React.ComponentType<{ className?: string }>; input: string } & (typeof TONES)[keyof typeof TONES];
+const look = (label: string, icon: Look['icon'], tone: keyof typeof TONES): Look => ({ label, icon, ...TONES[tone], input: LOGIC_FIELD });
 
 /**
  * Each built-in step as it is stored and run (If, End_While, Sleep...), for the step card: the
@@ -66,6 +74,7 @@ const LOGIC_STEPS: Record<string, Look> = {
   Sleep: look('Wait', Hourglass, 'teal'),
   Wait: look('Wait', Hourglass, 'teal'),
   User_Input: look('User input', MessageSquareText, 'pink'),
+  Set_Variable: look('Set variable', Variable, 'lime'),
   Comment: look('Comment', StickyNote, 'slate'),
 };
 
@@ -81,6 +90,7 @@ export const LOGIC_TOOLS: Record<string, { label: string; icon: React.ComponentT
   Wait: { label: 'Wait', icon: Hourglass, accent: TONES.teal.accent },
   Sleep: { label: 'Wait', icon: Hourglass, accent: TONES.teal.accent },
   User_Input: { label: 'User input', icon: MessageSquareText, accent: TONES.pink.accent },
+  Set_Variable: { label: 'Set variable', icon: Variable, accent: TONES.lime.accent },
   // Cloud drops `If`; the edge drops `If_Else_Block`, which expands into If / Else / End_If.
   If: { label: 'If / else', icon: GitBranch, accent: TONES.sky.accent },
   If_Else_Block: { label: 'If / else', icon: GitBranch, accent: TONES.sky.accent },

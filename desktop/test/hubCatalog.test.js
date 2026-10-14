@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { HubCatalog, moduleToDeckEntry, pluginToDeckEntry, toEdgeWorkflow, requirementFor } = require('../src/hubCatalog');
+const { HubCatalog, moduleToDeckEntry, pluginToDeckEntry, toEdgeWorkflow, requirementFor, builtInStep } = require('../src/hubCatalog');
 
 /** A fake PostgREST: answers from `tables`, and refuses `visibility` when `legacy`. */
 function fakeHub(tables, { legacy = false } = {}) {
@@ -71,6 +71,21 @@ test('deck entries, plugin entries and templates convert as the Hub converts the
     // A pause is a User input with nothing to save: it shows the message and waits for Continue.
     assert.deepEqual(wf.prep.map((b) => [b.instrument, b.action, b.args]), [['Flow_Control', 'User_Input', { prompt: 'Load vials' }]]);
     assert.deepEqual(wf.script.map((b) => [b.instrument, b.action, b.args]), [['pump', 'prime', {}], ['Flow_Control', 'Sleep', { duration_seconds: 2 }]]);
+});
+
+// The same cases the Designer's JSON import is held to (shared-ui fromLegacyBuiltIn).
+const legacySteps = require('../../tests/fixtures/legacy_steps.json');
+for (const c of legacySteps.cases) {
+    test(`legacy step: ${c.name}`, () => assert.deepEqual(builtInStep(c.legacy), c.expected));
+}
+
+test('a template with legacy variable and math steps installs as Set variable steps', () => {
+    const wf = toEdgeWorkflow({ name: 't', script_dict: { prep: [], cleanup: [], script: [
+        { instrument: 'variable', action: 'n', args: { statement: 4 }, arg_types: { statement: 'int' }, return: '' },
+        { instrument: 'math_variable', action: 'half', args: { statement: '#n / 2' }, arg_types: { statement: 'float' }, return: '', batch_action: true },
+    ] } }, 'x');
+    assert.deepEqual(wf.script.map((b) => [b.instrument, b.action, b.args.value, b.batch_action]),
+        [['Flow_Control', 'Set_Variable', '4', false], ['Flow_Control', 'Set_Variable', 'n / 2', true]]);
 });
 
 test('an unknown or unshared row says so', async () => {

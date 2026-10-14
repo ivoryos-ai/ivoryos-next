@@ -36,6 +36,20 @@ FLOW_CONTROL_METHODS = {
             "input_type": {"type": "str", "required": False, "options": ["str", "int", "float", "bool"]},
         },
     },
+    "Set_Variable": {
+        "description": (
+            "Save a value under `variable_name` for later steps to read as #variable_name (or by "
+            "bare name in a condition). `value` is a number, True/False, \"text\", or a Python "
+            "expression over earlier variables by bare name: `volume * 2`, `i + 1`, "
+            "`round(mass / 3, 2)`. A lone #name copies that variable. `type` converts the result "
+            "(auto keeps it as is; with str, `value` is text as written)."
+        ),
+        "parameters": {
+            "variable_name": {"type": "str", "required": True},
+            "value": {"type": "str", "required": True},
+            "type": {"type": "str", "required": False, "options": ["auto", "str", "int", "float", "bool"]},
+        },
+    },
     "If": {
         "description": "Start a conditional. `condition` is a Python expression over #variables.",
         "parameters": {"condition": {"type": "str", "required": True}},

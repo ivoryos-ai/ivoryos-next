@@ -14,11 +14,13 @@ silently do the wrong thing, on real hardware.
 
 import re
 
+from ivoryos_edge import expressions
 from ivoryos_edge.agent.deck import (
     FLOW_CONTROL_INSTRUMENT,
     FLOW_CONTROL_METHODS,
     LIBRARY_INSTRUMENT,
 )
+from ivoryos_edge.queue import set_variable_reads
 
 PHASES = ("prep", "script", "cleanup")
 
@@ -29,6 +31,39 @@ _CONDITION_WORDS = {
     "and", "or", "not", "in", "is", "if", "else", "True", "False", "None",
     "abs", "min", "max", "round", "len", "int", "float", "str", "bool",
 }
+
+
+def _check_set_variable(where, params, issues, known_vars):
+    """A Set_Variable step: a name Python accepts, a value it can compute from what exists by
+    then. Runs the step's own rule (queue.set_variable_reads, expressions.py), so what is said
+    here is what the run would say."""
+    name = str(params.get("variable_name") or "").strip()
+    if name and not name.isidentifier():
+        issues.append(_issue(
+            "error", where, f"'{name}' cannot be a variable name.",
+            hint="Letters, digits and _, not starting with a digit (e.g. `sample_count`).",
+        ))
+    kind = str(params.get("type") or "auto").strip().lower()
+    value = params.get("value")
+    if isinstance(value, str) and value.strip() and kind != "str" \
+            and not expressions.REFERENCE.fullmatch(value) and "value" not in (params.get("_vars") or {}):
+        if value.strip().startswith("#"):
+            issues.append(_issue(
+                "error", where, f"The value '{value}' starts with '#' but is not one variable name.",
+                hint="Write variables by bare name in an expression, e.g. `volume * 2`, not `#volume * 2`.",
+            ))
+        try:
+            expressions.check(value)
+        except expressions.ExpressionError as e:
+            issues.append(_issue("error", where, str(e)))
+    for ref in set_variable_reads(params):
+        if ref not in known_vars:
+            issues.append(_issue(
+                "warning", where, f"The value reads '{ref}', which no earlier step produces.",
+                hint="Set it in an earlier step, or read a spreadsheet/optimizer input as a lone #name.",
+            ))
+    if name:
+        known_vars.add(name)
 
 
 def _issue(severity, where, message, hint=None, **extra):
@@ -266,6 +301,8 @@ def validate_body(body, schema, known_workflows=(), resolve_workflow=None, check
                     var_name = str(params.get("variable_name") or "").strip()
                     if var_name:
                         known_vars.add(var_name)
+                if method == "Set_Variable":
+                    _check_set_variable(where, params, issues, known_vars)
                 if method in ("If", "While"):
                     for ref in _VAR_RE.findall(str(params.get("condition") or "")):
                         if ref not in known_vars:
@@ -410,7 +447,11 @@ def unbound_variables(body, schema=None):
             instrument = _block_instrument(block)
             method = _block_method(block)
 
-            if instrument in (FLOW_CONTROL_INSTRUMENT, "Flow Control") and method in ("If", "While"):
+            if instrument in (FLOW_CONTROL_INSTRUMENT, "Flow Control") and method == "Set_Variable":
+                # An expression reads bare names, as a condition does; a lone '#name' is a reference.
+                for ref in set_variable_reads(params):
+                    note(ref)
+            elif instrument in (FLOW_CONTROL_INSTRUMENT, "Flow Control") and method in ("If", "While"):
                 # A condition reads bare names rather than '#name', so those are checked too.
                 condition = str(params.get("condition") or "")
                 for ref in _VAR_RE.findall(condition):
@@ -421,7 +462,7 @@ def unbound_variables(body, schema=None):
             else:
                 walk(params)
 
-            if instrument in (FLOW_CONTROL_INSTRUMENT, "Flow Control") and method == "User_Input":
+            if instrument in (FLOW_CONTROL_INSTRUMENT, "Flow Control") and method in ("User_Input", "Set_Variable"):
                 var_name = str(params.get("variable_name") or "").strip()
                 if var_name:
                     known.add(var_name)
