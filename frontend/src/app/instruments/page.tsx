@@ -52,7 +52,8 @@ export default function InstrumentsPage() {
       .then(res => res.json())
       .then(data => {
         setStatusData(data);
-        setBusyState({ running: !!data.active_workflow_id, paused: !!data.queue_paused });
+        const active = !!data.active_workflow_id;
+        setBusyState({ running: active && !data.queue_paused, paused: active && !!data.queue_paused });
         if (data.instruments && Object.keys(data.instruments).length > 0) {
           setActiveTab(Object.keys(data.instruments)[0]);
         } else if (data.instrument_errors?.length) {
@@ -65,9 +66,12 @@ export default function InstrumentsPage() {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        // `active_run` is only sent while a run is under way. The queue on its own being paused
+        // is not a paused workflow: Stop, or a run ending in error, holds the queue with nothing
+        // running (_hold_queue_after), and that used to keep this page warning until Resume queue.
         const run = data.active_run;
         const busy = !!(run && ['running', 'pausing', 'waiting_input', 'cancelling'].includes(run.status));
-        const paused = !!(run && run.status === 'paused') || !!data.status?.queue_paused;
+        const paused = !!run && (run.status === 'paused' || !!data.status?.queue_paused);
         setBusyState({ running: busy, paused });
       } catch (e) { }
     };
