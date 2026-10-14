@@ -166,6 +166,51 @@ export function expandReferences(value: unknown, choices: TrayChoice[]): { labwa
 export const formatReference = (choice: TrayChoice, positions: string[]) =>
   `${choice.label}[${compactWells(positions, choice.tray.grid)}]`;
 
+/**
+ * What each row of a spreadsheet column gets when wells are picked for it: one well, or a whole
+ * column or row of the plate. A step on an 8-channel head takes a column at a time, so its table
+ * has one row per column (`tips[A1:H1]`); filled a well per row, it handed the head one tip.
+ */
+export type RowUnit = 'well' | 'column' | 'row';
+
+/** Picked positions as one group per table row. A column runs top to bottom (the order of an
+ *  8-channel head's channels) and a row left to right, the groups in plate order. */
+export function groupPositions(ordered: string[], grid: string[][], unit: RowUnit): string[][] {
+  if (unit === 'well') return ordered.map((p) => [p]);
+  const index = indexOf(grid);
+  const [along, across] = unit === 'column' ? [1, 0] : [0, 1];
+  const groups = new Map<number, string[]>();
+  for (const p of ordered) {
+    const at = index.get(p);
+    if (!at) continue;
+    if (!groups.has(at[along])) groups.set(at[along], []);
+    groups.get(at[along])!.push(p);
+  }
+  return Array.from(groups.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([, group]) => group.sort((p, q) => index.get(p)![across] - index.get(q)![across]));
+}
+
+/** The unit a column's values were picked in, so the picker reopens the same way: every value
+ *  a whole column (row) of several wells is 'column' ('row'); anything else, 'well'. */
+export function rowUnitOf(values: unknown[], choices: TrayChoice[]): RowUnit {
+  const filled = values.filter((v) => v !== undefined && v !== null && String(v).trim() !== '');
+  if (!filled.length) return 'well';
+  const shapes = new Set<RowUnit>();
+  for (const value of filled) {
+    let wells: { labware: string; well: string }[];
+    try { wells = expandReferences(value, choices); } catch { return 'well'; }
+    const grid = choices.find((c) => c.label === wells[0]?.labware)?.tray.grid;
+    if (!grid || wells.length < 2 || wells.some((w) => w.labware !== wells[0].labware)) return 'well';
+    const index = indexOf(grid);
+    const at = wells.map((w) => index.get(w.well)!);
+    if (at.every(([, c]) => c === at[0][1])) shapes.add('column');
+    else if (at.every(([r]) => r === at[0][0])) shapes.add('row');
+    else return 'well';
+  }
+  return shapes.size === 1 ? Array.from(shapes)[0] : 'well';
+}
+
 /** Why a wells value would be refused, or null. Empty values and '#references' are not judged. */
 export function referencesProblem(value: unknown, choices: TrayChoice[]): string | null {
   if (value === undefined || value === null || value === '') return null;

@@ -6,7 +6,7 @@ import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea
 import { groupSizeFor, SpreadsheetRow } from './spreadsheetRun';
 import { guardHint, guardProblem, trayForGuards, type FieldGuard, type SafetyView } from './safety';
 import { TrayPicker } from './TrayPicker';
-import { referenceStart } from './labware';
+import { formatReference, referenceStart, rowUnitOf } from './labware';
 
 /**
  * The iteration table: one column per `#variable`, one row per sample.
@@ -223,7 +223,7 @@ export function SpreadsheetTable({
                     <button
                       type="button"
                       onClick={() => setPicking(v)}
-                      title={trays[v]!.choices ? 'Pick a plate and its wells: one row per well' : `Pick positions on ${trays[v]!.tray.label}: one row per position`}
+                      title={trays[v]!.choices ? 'Pick a plate and its wells: one row per well, or per column or row of wells' : `Pick positions on ${trays[v]!.tray.label}: one row per position`}
                       className="inline-flex items-center gap-1 rounded border border-accent-tint bg-accent-soft px-1.5 py-0.5 font-semibold text-accent-fg hover:bg-accent hover:text-on-accent"
                     >
                       <Grid3x3 className="h-3 w-3" /> Pick
@@ -352,15 +352,19 @@ export function SpreadsheetTable({
         const cells = rows.map((r) => String(r?.[picking] ?? '').trim()).filter(Boolean);
         // A wells column holds `plate[A1]` per row (labware.ts): the picker chooses the plate too.
         const start = found.choices ? referenceStart(cells, found.choices) : null;
+        // Each row may get a well, or a whole column of them for an 8-channel head (`tips[A1:H1]`),
+        // and the picker reopens the way the column was filled.
         return (
           <TrayPicker
             tray={start?.choice?.tray ?? found.tray}
             choices={found.choices}
-            title={`${picking}: one row per ${found.choices ? 'well' : 'position'}`}
+            title={found.choices ? picking : `${picking}: one row per position`}
             multiple
+            groupRows={!!found.choices}
+            initialUnit={found.choices ? rowUnitOf(cells, found.choices) : 'well'}
             initial={start ? start.positions : cells}
-            onPick={(positions, choice) => onFillColumn(picking, choice && found.choices
-              ? positions.map((position) => `${choice.label}[${position}]`)
+            onPick={(positions, choice, groups) => onFillColumn(picking, choice && found.choices
+              ? (groups ?? positions.map((position) => [position])).map((group) => formatReference(choice, group))
               : positions)}
             onClose={() => setPicking(null)}
           />
