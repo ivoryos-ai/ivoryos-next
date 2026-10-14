@@ -104,6 +104,14 @@ html[data-ivoryos-nav="top"] [data-ivoryos-page-title] { display: none; }
     outline: none;
     border-color: var(--accent-color);
   }
+
+  /* An open <select> draws its list with the select's own background, a see-through tint here,
+     which Chrome on Windows lays over white: light text on white. The options get a solid one. */
+  .dark option,
+  .dark optgroup {
+    background-color: var(--panel-bg-solid);
+    color: var(--text-primary);
+  }
 }
 
 @layer components {

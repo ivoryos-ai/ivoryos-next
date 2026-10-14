@@ -41,6 +41,14 @@ html[data-ivoryos-nav="top"] [data-ivoryos-page-title] { display: none; }
 .dark {
   color-scheme: dark;
 }
+/* An open <select> draws its list with the select's own background, and the selects here use a
+   see-through tint (`dark:bg-white/5`), which Chrome on Windows lays over white: light text on
+   white. The options get a solid dark background of their own. */
+.dark option,
+.dark optgroup {
+  background-color: #1a1a1a;
+  color: #f3f4f6;
+}
 
 html, body {
   overflow: hidden;
