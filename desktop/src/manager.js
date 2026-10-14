@@ -165,14 +165,17 @@ class ProfileManager extends EventEmitter {
         this._save();
     }
 
-    /** Window preferences: 'minimizeToTray' and 'closeToTray' (default on), 'trayHintShown'. */
+    /** Window preferences: 'minimizeToTray' (default off, stored as `trayOnMinimize`: profiles.js
+     *  says why), 'closeToTray' (default on), 'trayHintShown'. */
     windowPref(key) {
-        return key === 'trayHintShown' ? !!this.store.trayHintShown : this.store[key] !== false;
+        if (key === 'trayHintShown') return !!this.store.trayHintShown;
+        if (key === 'minimizeToTray') return this.store.trayOnMinimize === true;
+        return this.store[key] !== false;
     }
 
     setWindowPref(key, on) {
         if (!['minimizeToTray', 'closeToTray', 'trayHintShown'].includes(key)) throw new Error(`Unknown setting: ${key}`);
-        this.store[key] = !!on;
+        this.store[key === 'minimizeToTray' ? 'trayOnMinimize' : key] = !!on;
         this._save();
     }
 

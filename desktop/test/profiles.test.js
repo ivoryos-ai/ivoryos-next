@@ -143,20 +143,35 @@ test('a profiles.json saved with a byte-order mark is read, not replaced by defa
     assert.equal(again.port, 8095);
 });
 
-test('tray preferences default to on, persist, and refuse unknown keys', () => {
+test('close goes to the tray and minimize to the taskbar by default; both persist; unknown keys are refused', () => {
     const { ProfileManager } = require('../src/manager');
     const home = tmp();
     const mgr = new ProfileManager({ home, getRuntime: async () => ({}) });
-    assert.equal(mgr.windowPref('minimizeToTray'), true);
+    assert.equal(mgr.windowPref('minimizeToTray'), false);
     assert.equal(mgr.windowPref('closeToTray'), true);
     assert.equal(mgr.windowPref('trayHintShown'), false);
     mgr.setWindowPref('closeToTray', false);
+    mgr.setWindowPref('minimizeToTray', true);
     mgr.setWindowPref('trayHintShown', true);
     const again = new ProfileManager({ home, getRuntime: async () => ({}) });
     assert.equal(again.windowPref('closeToTray'), false, 'kept across launches');
-    assert.equal(again.windowPref('minimizeToTray'), true);
+    assert.equal(again.windowPref('minimizeToTray'), true, 'a chosen tray is kept');
     assert.equal(again.windowPref('trayHintShown'), true, 'the hint is shown once, not every launch');
     assert.throws(() => mgr.setWindowPref('launchMissiles', true), /Unknown setting/);
+});
+
+test('the old minimizeToTray: true, written for everyone, does not keep minimize in the tray', () => {
+    const { ProfileManager } = require('../src/manager');
+    const home = tmp();
+    new ProfileManager({ home, getRuntime: async () => ({}) });  // writes profiles.json
+    const file = path.join(home, 'profiles.json');
+    const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+    fs.writeFileSync(file, JSON.stringify({ ...stored, minimizeToTray: true, closeToTray: true }));
+    const mgr = new ProfileManager({ home, getRuntime: async () => ({}) });
+    assert.equal(mgr.windowPref('minimizeToTray'), false);
+    assert.equal(mgr.windowPref('closeToTray'), true);
+    mgr.setWindowPref('closeToTray', true);
+    assert.equal('minimizeToTray' in JSON.parse(fs.readFileSync(file, 'utf8')), false, 'the old key is dropped on the next save');
 });
 
 test('a release without Cloud tells the decks it starts, so their own pages do not offer it', () => {

@@ -109,8 +109,12 @@ function loadProfiles(home) {
             cloudUrl: stored.cloudUrl || null,
             // Missing means on: only an explicit "no" turns automatic update downloads off.
             autoUpdate: stored.autoUpdate !== false,
-            // The tray (Windows/Linux): minimizing and closing hide the window, decks keep running.
-            minimizeToTray: stored.minimizeToTray !== false,
+            // The tray (Windows/Linux): closing hides the window, so decks keep running. Minimizing
+            // goes to the taskbar unless the person chose the tray (`trayOnMinimize`): it went to
+            // the tray by default until 2026-10, looking to people as if the app had gone, and
+            // this file was written with `minimizeToTray: true` for everyone, chosen or not, so
+            // that key is no longer read.
+            trayOnMinimize: stored.trayOnMinimize === true,
             closeToTray: stored.closeToTray !== false,
             trayHintShown: !!stored.trayHintShown,
             // One theme for the launcher, every deck's page and Cloud (see main.js, nativeTheme).
