@@ -8,8 +8,12 @@ import { restartEdge } from '@/restartEdge';
 import Sidebar from '@/components/Sidebar';
 import DeckHistory from '@/components/DeckHistory';
 import FieldGuardDialog, { type GuardedField } from '@/components/safety/FieldGuardDialog';
-import { ExtraArguments, ResultView, SuggestInput, TrayPicker, confirmDialog, fieldGuard, guardHint, guardProblem, guardSuggestions, trayOf, unitOf, useDocumentTheme, type TrayView } from '@ivoryos/shared-ui';
+import { ExtraArguments, ResultView, SuggestInput, TrayPicker, confirmDialog, fieldGuard, guardHint, guardProblem, guardSuggestions, isOptionalObject, objectGiven, trayOf, unitOf, useDocumentTheme, type TrayView } from '@ivoryos/shared-ui';
 import { WS_BASE } from '@/config';
+
+/** Whether anything was typed into a form value, at any depth. */
+const anyTyped = (v: unknown): boolean =>
+  objectGiven(v) ? Object.values(v).some(anyTyped) : v !== undefined && v !== '';
 
 type LogEntry = {
   time: string;
@@ -135,6 +139,9 @@ export default function InstrumentsPage() {
         let val: unknown = values?.[paramName];
 
         if (pData?.is_object && pData?.fields) {
+          // An optional object nothing was typed into is left out, so the driver's default applies
+          // and its fields are not demanded (shared-ui objectArgs.ts).
+          if (isOptionalObject(pData) && !anyTyped(val)) continue;
           const nested: Record<string, unknown> = {};
           walk(pData.fields, val as Record<string, unknown> | undefined, path, nested);
           sink[paramName] = nested;

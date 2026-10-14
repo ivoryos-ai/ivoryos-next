@@ -50,6 +50,7 @@ export {
   mainOnlyLinks,
 } from './workflowBody';
 export type { ReuseMode, SavedBlock, SavedWorkflowBody, DiffRow, DiffStep, StepChange } from './workflowBody';
+export { isOptionalObject, objectGiven, defaultParams, addedObject } from './objectArgs';
 export { RunConfigError, resolveBlockParams, resolveFixedBlock, toWireBlock, rowListArgumentsOf } from './runConfig';
 export type { ResolveOptions, ResolvedStep } from './runConfig';
 export {

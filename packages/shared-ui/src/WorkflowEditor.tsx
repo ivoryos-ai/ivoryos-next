@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
-import { ArrowRight, Trash2, Settings2, ChevronDown, AlertTriangle, Eye, EyeOff, PanelRightOpen, ChevronRight, Search, Layers, Link2, Copy, CopyPlus, Scissors, ListChecks, MoreHorizontal, Wrench, ShieldCheck, Grid3x3, Workflow as WorkflowIcon } from 'lucide-react';
+import { ArrowRight, Trash2, Settings2, ChevronDown, AlertTriangle, Eye, EyeOff, PanelRightOpen, ChevronRight, Search, Layers, Link2, Copy, CopyPlus, Scissors, ListChecks, MoreHorizontal, Wrench, ShieldCheck, Grid3x3, Plus, X, Workflow as WorkflowIcon } from 'lucide-react';
 import {
   LIBRARY_INSTRUMENT,
   collectReturnVars,
@@ -29,6 +29,7 @@ import { FLOW_CONTROL_INSTRUMENTS } from './flowControl';
 import { fieldGuard, guardHint, guardProblem, guardSuggestions, unitOf } from './safety';
 import { formatReference, referenceCount, referenceStart, referencesProblem, wellChoices, type TrayChoice } from './labware';
 import { TrayPicker } from './TrayPicker';
+import { addedObject, defaultParams, isOptionalObject, objectGiven } from './objectArgs';
 
 // One named variable bound to one addressable leaf of a step's return value. `path` is the
 // dotted pointer the backend's introspection published in `schema.return_paths`
@@ -332,23 +333,27 @@ export default function WorkflowEditor({
     });
   };
 
-  // Builds a new block's initial params. In auto-fill mode, every leaf parameter (recursing into
-  // nested object params) defaults to '#paramName' instead of its schema default, so a block dragged
-  // in for optimization is immediately wired up as a variable — just delete the '#' on any param
-  // that should stay fixed.
-  const buildDefaultParams = (schemaParams: any, useVariables: boolean): Record<string, any> => {
-    const result: Record<string, any> = {};
-    if (!schemaParams) return result;
-    Object.entries(schemaParams).forEach(([key, param]: [string, any]) => {
-      if (param?.is_object && param?.fields) {
-        result[key] = buildDefaultParams(param.fields, useVariables);
-      } else if (useVariables) {
-        result[key] = `#${key}`;
-      } else if (param?.default !== undefined) {
-        result[key] = param.default;
+  // A new block's initial params (objectArgs.ts). In auto-fill mode every leaf parameter defaults
+  // to '#paramName' instead of its schema default, so a block dragged in for optimization is
+  // immediately wired up as a variable — just delete the '#' on any param that should stay fixed.
+  const buildDefaultParams = defaultParams;
+
+  // Adds an optional object argument to a step (its fields' defaults, ready to fill in), or takes
+  // it out again so the driver's own default applies. `path` is dotted for one inside another.
+  const setObjectArgument = (blockId: string, listId: string, path: string, info: any | null) => {
+    updateBlock(listId, blockId, block => {
+      const params = JSON.parse(JSON.stringify(block.params || {}));
+      const keys = path.split('.');
+      let curr = params;
+      for (const k of keys.slice(0, -1)) {
+        if (!objectGiven(curr[k])) curr[k] = {};
+        curr = curr[k];
       }
+      const last = keys[keys.length - 1];
+      if (info) curr[last] = addedObject(info);
+      else delete curr[last];
+      return { ...block, params };
     });
-    return result;
   };
 
   const hashFieldKey = (listId: string, blockId: string, paramKey: string) => `${listId}::${blockId}::${paramKey}`;
@@ -1613,10 +1618,10 @@ export default function WorkflowEditor({
                           const fullKey = prefix ? `${prefix}.${p}` : p;
 
                           if (pData?.is_object && pData?.fields) {
-                              // If object is not required and no params for it exist at all, we can skip enforcing its inner fields.
-                              // But if it is required or partially filled, we enforce.
+                              // An optional object left out is the driver's default; its fields are
+                              // asked for only once it has been added (objectArgs.ts).
                               const objVal = fullKey.split('.').reduce((acc: any, part: string) => acc && acc[part] !== undefined ? acc[part] : undefined, block.params);
-                              if (pData.required || (objVal !== undefined && Object.keys(objVal).length > 0)) {
+                              if (!isOptionalObject(pData) || objectGiven(objVal)) {
                                   checkRequiredParams(pData.fields, fullKey);
                               }
                               continue;
@@ -1839,7 +1844,8 @@ export default function WorkflowEditor({
                                       const unit = isFlowBlock ? undefined
                                         : unitOf(fieldGuard(statusData?.safety, block.instrument, block.method, key), pData?.unit);
                                       if (typeof v === 'string' && v.trim() === '#') args.push({ key, name, text: '#?', tone: 'missing' });
-                                      else if (v !== undefined && v !== '') args.push({ key, name, text: shown(v), tone: typeof v === 'string' && v.startsWith('#') ? 'var' : 'set', unit });
+                                      // null is how a dropped step holds a None default: shown as None, not "null".
+                                      else if (v !== undefined && v !== '' && v !== null) args.push({ key, name, text: shown(v), tone: typeof v === 'string' && v.startsWith('#') ? 'var' : 'set', unit });
                                       else if (pData?.default !== undefined && pData.default !== '' && pData.default !== null) args.push({ key, name, text: shown(pData.default), tone: 'default', unit });
                                       else args.push({ key, name, text: pData?.required ? '?' : 'None', tone: pData?.required ? 'missing' : 'empty' });
                                     };
@@ -1847,7 +1853,9 @@ export default function WorkflowEditor({
                                       for (const k of Object.keys(schemaObj || {})) {
                                         const pData = schemaObj[k];
                                         const key = prefix ? `${prefix}.${k}` : k;
-                                        if (pData?.is_object && pData?.fields) walk(pData.fields, key);
+                                        // An optional object not added reads as what it is: None.
+                                        if (pData?.is_object && pData?.fields && isOptionalObject(pData) && !objectGiven(valueAt(key))) add(key, key, { default: null });
+                                        else if (pData?.is_object && pData?.fields) walk(pData.fields, key);
                                         else add(key, key, pData);
                                       }
                                     };
@@ -2154,14 +2162,52 @@ export default function WorkflowEditor({
                                           {visibleParams.map((param) => {
                                             const renderParam = (pData: any, paramKey: string, paramName: string, bId: string, lId: string, paramsObj: any): React.ReactNode => {
                                                 if (pData.is_object && pData.fields) {
+                                                    // An optional object stays None until added: its fields
+                                                    // are not something to fill in unless it is wanted.
+                                                    const optional = isOptionalObject(pData);
+                                                    const objVal = paramKey.split('.').reduce((acc: any, part: string) => acc && acc[part] !== undefined ? acc[part] : undefined, paramsObj);
+                                                    if (optional && !objectGiven(objVal)) {
+                                                        const firstField = Object.keys(pData.fields)[0];
+                                                        return (
+                                                            <div key={paramKey} className="inline-flex items-center gap-1 font-mono text-[12px]">
+                                                              <span className="whitespace-nowrap text-gray-600 dark:text-gray-300" title={pData.type || undefined}>{paramName}</span>
+                                                              <span className="text-gray-400 dark:text-gray-500">=</span>
+                                                              <span className="text-gray-300 dark:text-gray-600">None</span>
+                                                              <button
+                                                                id={paramFieldId(lId, bId, paramKey)}
+                                                                type="button"
+                                                                onClick={(e) => {
+                                                                  e.stopPropagation();
+                                                                  setObjectArgument(bId, lId, paramKey, pData);
+                                                                  if (firstField) setTimeout(() => document.getElementById(paramFieldId(lId, bId, `${paramKey}.${firstField}`))?.focus(), 30);
+                                                                }}
+                                                                title={`Give ${paramName} a value${pData.type ? ` (${pData.type})` : ''}. Left as None, the driver's default applies.`}
+                                                                className="inline-flex h-6 shrink-0 items-center gap-0.5 rounded-md border border-dashed border-gray-300 px-1.5 font-sans text-[11px] text-gray-500 hover:border-accent hover:text-accent-fg dark:border-white/15 dark:text-gray-400 dark:hover:border-accent"
+                                                              >
+                                                                <Plus className="h-3 w-3" />
+                                                                Add
+                                                              </button>
+                                                            </div>
+                                                        );
+                                                    }
                                                     return (
                                                         <div key={paramKey} className="inline-flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-dashed border-gray-200 px-2 py-1 dark:border-white/10">
                                                             <span className="font-mono text-[12px] text-gray-500 dark:text-gray-400">{paramName}:</span>
                                                             <div className="contents">
-                                                                {Object.keys(pData.fields).map(subKey => 
+                                                                {Object.keys(pData.fields).map(subKey =>
                                                                     renderParam(pData.fields[subKey], `${paramKey}.${subKey}`, subKey, bId, lId, paramsObj)
                                                                 )}
                                                             </div>
+                                                            {optional && (
+                                                              <button
+                                                                type="button"
+                                                                onClick={(e) => { e.stopPropagation(); setObjectArgument(bId, lId, paramKey, null); }}
+                                                                title={`Take ${paramName} out: back to None, the driver's default`}
+                                                                className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-white/10 dark:hover:text-gray-200"
+                                                              >
+                                                                <X className="h-3 w-3" />
+                                                              </button>
+                                                            )}
                                                         </div>
                                                     );
                                                 }
