@@ -106,3 +106,7 @@ desktop/dist/
 # and .env -- which holds its Cloud pairing token -- live here at runtime (IVORYOS_EDGE_HOME).
 example/flow_lab/.edges/
 example/liquid_handler/.edge/
+# The simulated real decks, kept local: their drivers, workflows, and the database, experiment
+# folders and HPLC files each simulation writes as it runs.
+example/cryspy/
+example/automated_lle/
