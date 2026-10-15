@@ -1,3 +1,4 @@
+import ast
 import asyncio
 import json
 import re
@@ -10,6 +11,7 @@ import inspect
 
 from sqlalchemy import update, select, or_, and_, func, String, cast
 from sqlalchemy.orm import selectinload
+from ivoryos_edge import expressions
 from ivoryos_edge.introspection import serialize_result
 from ivoryos_edge.models import async_session, WorkflowRun, WorkflowStep
 from ivoryos_edge.safety import SafetyViolation, guard as safety_guard
@@ -136,16 +138,31 @@ def step_saved_names(step: dict) -> set:
     """The names a run step binds when it finishes: what the queue below puts in the context.
 
     Its outputs (`_return_var`, `_return_bindings`, and a linked workflow's renames in
-    `_return_aliases`), or a User_Input step's `variable_name`.
+    `_return_aliases`), or the `variable_name` of a User_Input or Set_Variable step.
     """
     params = step.get("params") or step.get("parameters") or {}
     names = {n.strip() for n in str(params.get("_return_var") or "").split(",") if n.strip()}
     names.update(str(b.get("var")).strip() for b in params.get("_return_bindings") or [] if isinstance(b, dict) and b.get("var"))
     names.update(str(p[1]) for p in params.get("_return_aliases") or [] if isinstance(p, (list, tuple)) and len(p) == 2 and p[1])
-    if step.get("instrument") in FLOW_CONTROL_INSTRUMENTS and step.get("method") == "User_Input":
+    if step.get("instrument") in FLOW_CONTROL_INSTRUMENTS and step.get("method") in ("User_Input", "Set_Variable"):
         if str(params.get("variable_name") or "").strip():
             names.add(str(params["variable_name"]).strip())
     return names
+
+
+def set_variable_reads(params: dict) -> List[str]:
+    """The names a Set_Variable step reads: the one in a `#name` value, the ones its expression
+    uses, none for text (a `#name` in text is filled in when known and left as written if not,
+    as in a Comment) or for a value the table, the optimizer or a caller supplied (`_vars`)."""
+    value = params.get("value")
+    if not isinstance(value, str):
+        return []
+    whole = expressions.REFERENCE.fullmatch(value)
+    if whole:
+        return [whole.group(1)]
+    if "value" in (params.get("_vars") or {}) or str(params.get("type") or "auto").strip().lower() == "str":
+        return []
+    return expressions.expression_names(value)
 
 
 def attention_items(run: Optional[Dict[str, Any]], awaiting_decision: Optional[int],
@@ -382,9 +399,10 @@ def unproduced_references(steps: list) -> list:
     Such a run cannot succeed: the step raises when it is reached. It used to be found out
     there, after every step before it had already run (two pumps dispensed, then "'#test' is
     not available yet"), so start_run refuses it before anything moves. Only what the queue
-    substitutes is checked: an instrument step's whole-value '#name' arguments. Free text
-    (a Comment, a User_Input prompt) is interpolated and leaves an unknown name as it is, and a
-    condition is an expression of its own.
+    substitutes is checked: an instrument step's whole-value '#name' arguments, and what a
+    Set_Variable step reads (a variable it is set from must exist by then). Free text (a Comment,
+    a User_Input prompt) is interpolated and leaves an unknown name as it is, and a condition is
+    an expression of its own.
     """
     produced: set = set()
     problems = []
@@ -403,15 +421,18 @@ def unproduced_references(steps: list) -> list:
                 reads(item, out)
 
     for number, step in enumerate(steps, start=1):
+        params = step.get("params") or step.get("parameters") or {}
+        names: list = []
         if step.get("instrument") not in FLOW_CONTROL_INSTRUMENTS:
-            names: list = []
-            reads(step.get("params") or step.get("parameters") or {}, names)
-            for name in dict.fromkeys(names):
-                if name not in produced:
-                    problems.append(
-                        f"Step {number} ({step.get('instrument')}.{step.get('method')}) reads #{name}, "
-                        f"but no step before it saves '{name}'."
-                    )
+            reads(params, names)
+        elif step.get("method") == "Set_Variable":
+            names = set_variable_reads(params)
+        for name in dict.fromkeys(names):
+            if name not in produced:
+                problems.append(
+                    f"Step {number} ({step.get('instrument')}.{step.get('method')}) reads #{name}, "
+                    f"but no step before it saves '{name}'."
+                )
         produced |= step_saved_names(step)
     return problems
 
@@ -790,6 +811,69 @@ def coerce_input_value(value: Any, input_type: str) -> Any:
     except (TypeError, ValueError):
         return value
     return value
+
+
+def set_variable_value(params: dict, names: Dict[str, Any]) -> Any:
+    """What a Set_Variable step saves: its `value`, as its `type` says.
+
+    The value is one of three things. A `#name` on its own is that variable's value. A value the
+    table, the optimizer or a linked workflow's caller supplied for a `#name` (`_vars` names the
+    argument) is a value, never code: a column holding `abc` must not be read as a variable called
+    abc. Anything else the person wrote is an expression (expressions.py): `1`, `2.5`, `"text"`,
+    `a * 2 + 1`, unless the type is `str`, where it is text as written, with `#name` filled in as in
+    a Comment (and a quoted literal unquoted, since a coder writes "text" either way).
+
+    Then the type: `auto` keeps what the value is, `int`/`float`/`bool`/`str` convert it (an int
+    from 2.7 is 2, as Python's int() does). Raises with a sentence a person can act on.
+    """
+    value = params.get("value")
+    kind = str(params.get("type") or "auto").strip().lower()
+    if kind not in expressions.TYPES:
+        raise Exception(f"'{kind}' is not a type a variable can have: use one of {', '.join(expressions.TYPES)}.")
+    if value is None or (isinstance(value, str) and not value.strip()):
+        raise Exception("Set variable has no value to set.")
+
+    if isinstance(value, str) and expressions.REFERENCE.fullmatch(value):
+        ref = expressions.REFERENCE.fullmatch(value).group(1)
+        if ref not in names:
+            raise Exception(f"Variable '#{ref}' is not available yet — no earlier step has set it.")
+        result = names[ref]
+    elif not isinstance(value, str):
+        result = value
+    elif "value" in (params.get("_vars") or {}):
+        result = value
+        if kind == "auto":
+            try:
+                result = ast.literal_eval(value.strip())
+            except (ValueError, SyntaxError, MemoryError, RecursionError):
+                result = value
+    elif kind == "str":
+        text = value.strip()
+        try:
+            literal = ast.literal_eval(text)
+            result = literal if isinstance(literal, str) else interpolate_message(value, names)
+        except (ValueError, SyntaxError, MemoryError, RecursionError):
+            result = interpolate_message(value, names)
+    else:
+        try:
+            result = expressions.evaluate(value, names)
+        except expressions.ExpressionError as e:
+            raise Exception(str(e))
+
+    if kind == "auto":
+        return result
+    try:
+        if kind == "str":
+            return result if isinstance(result, str) else str(result)
+        if kind == "bool":
+            if isinstance(result, str):
+                return result.strip().lower() in ("true", "1", "yes", "y", "on")
+            return bool(result)
+        if kind == "int":
+            return int(float(result)) if isinstance(result, str) else int(result)
+        return float(result)
+    except (TypeError, ValueError, OverflowError):
+        raise Exception(f"{result!r} cannot be made a {kind}.")
 
 
 def queue_position_of(run) -> float:
@@ -2214,6 +2298,24 @@ class WorkflowQueueManager:
             value = coerce_input_value(value, input_type)
             bind(step, {var_name: value})
             await done({"result": value, "input_type": input_type})
+            return index + 1
+
+        if method == "Set_Variable":
+            name = str(args.get("variable_name") or "").strip()
+            if not name.isidentifier():
+                raise Exception(f"'{name}' cannot be a variable name: use letters, digits and _, not starting with a digit."
+                                if name else "Set variable needs a name to save the value under.")
+            values = scope(step)
+            value = set_variable_value(args, values)
+            # What it read, before binding: `i = i + 1` records the i it started from.
+            reads = {n: values[n] for n in set_variable_reads(args) if n in values}
+            bind(step, {name: value})
+            await done({
+                "result": value if isinstance(value, (int, float, str, bool, type(None))) else serialize_result(value),
+                "type": str(args.get("type") or "auto"),
+                **({"variables": {n: v if isinstance(v, (int, float, str, bool, type(None))) else repr(v)
+                                  for n, v in reads.items()}} if reads else {}),
+            })
             return index + 1
 
         if method in ("If", "While"):

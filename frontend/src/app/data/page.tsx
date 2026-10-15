@@ -162,6 +162,15 @@ const summarizeFlowStep = (step: any): { label: string; args: string; outcome: s
         args: String(params.variable_name || ''),
         outcome: outputs.result === undefined ? '' : cellText(outputs.result),
       };
+    case 'Set_Variable': {
+      // `b = a * 2`, the values it read, and what it came to (queue.py records both).
+      const read = Object.entries(outputs.variables || {}).map(([k, v]) => `${k}=${cellText(v)}`).join(', ');
+      return {
+        label: `Set ${params.variable_name ?? ''} = ${cellText(params.value ?? '')}`.trim(),
+        args: read,
+        outcome: outputs.result === undefined ? '' : cellText(outputs.result),
+      };
+    }
     default:
       return { label: String(step.method).replace(/_/g, ' '), args: '', outcome: '' };
   }

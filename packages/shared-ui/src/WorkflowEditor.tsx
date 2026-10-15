@@ -25,7 +25,7 @@ import { WorkflowPeek, type WorkflowPeekTarget } from './WorkflowPeek';
 import { WorkflowDiff } from './WorkflowDiff';
 import { SuggestInput } from './SuggestInput';
 import { AutoFillToggle, LOGIC_TOOLS, ToolChip, ToolboxGroupHeader, ToolboxGroupTitle, ToolboxInstrumentHeader, logicStepLook } from './Toolbox';
-import { FLOW_CONTROL_INSTRUMENTS } from './flowControl';
+import { FLOW_CONTROL_INSTRUMENTS, SET_VARIABLE_TYPES, isSetVariable, setVariableReads, wholeReference, withoutReferenceMarks } from './flowControl';
 import { fieldGuard, guardHint, guardProblem, guardSuggestions, unitOf } from './safety';
 import { formatReference, referenceCount, referenceStart, referencesProblem, wellChoices, type TrayChoice } from './labware';
 import { TrayPicker } from './TrayPicker';
@@ -1321,7 +1321,7 @@ export default function WorkflowEditor({
     const out: string[] = [];
     blocks.slice(0, upTo).forEach(b => {
       const isUserInput = (b.instrument === 'Flow_Control' || b.instrument === 'Flow Control') && b.method === 'User_Input';
-      if (isUserInput && b.params?.variable_name) out.push(String(b.params.variable_name).trim());
+      if ((isUserInput || isSetVariable(b)) && b.params?.variable_name) out.push(String(b.params.variable_name).trim());
       returnVarNames(b).forEach(v => out.push(v));
     });
     return out;
@@ -1505,6 +1505,8 @@ export default function WorkflowEditor({
                   // blocks: what it produces (the variable) sits where a step's Save sits, it can be
                   // per-sample or batch like any step, and its prompt and type are the body.
                   const isUserInputBlock = isFlowBlock && block.method === 'User_Input';
+                  // Set variable reads like the assignment it is: `name = value`, inline, with its type.
+                  const isSetVariableBlock = isSetVariable(block);
                   const availableVars = getVariablesBefore(listId, index);
                   // On a Library Workflows block the "method" is a saved workflow's name, which the
                   // user typed — it must not be prettified the way a Python identifier is.
@@ -1672,6 +1674,24 @@ export default function WorkflowEditor({
                       }
                   };
                   checkRequiredParams(effectiveSchema);
+
+                  if (isSetVariableBlock) {
+                      const name = String(block.params?.variable_name ?? '').trim();
+                      if (name && !/^[A-Za-z_]\w*$/.test(name)) {
+                          blockWarnings.push(`'${name}' cannot be a variable name: use letters, digits and _, not starting with a digit`);
+                      }
+                      const value = block.params?.value;
+                      const asText = String(block.params?.type || 'auto') === 'str';
+                      if (!asText && typeof value === 'string' && value.trim().startsWith('#') && !wholeReference(value)) {
+                          blockWarnings.push(`In a calculation, write variables by name (${withoutReferenceMarks(value).trim()}), not with #`);
+                      }
+                      // A lone #name is an input like any step's (a column, the optimizer); an
+                      // expression can only read what an earlier step has saved by then.
+                      const unknown = wholeReference(value) ? [] : setVariableReads(block.params).filter(n => !availableVars.includes(n));
+                      if (unknown.length) {
+                          blockWarnings.push(`Reads ${unknown.map(n => `'${n}'`).join(', ')}, which no earlier step saves. Set ${unknown.length > 1 ? 'them' : 'it'} in an earlier step, or use #name alone to take a value from the table`);
+                      }
+                  }
 
                   if (blockWarnings.length > 0) {
                       borderClass = `border-amber-400 dark:border-amber-500/50 shadow-[0_0_0_1px_rgba(251,191,36,0.5)] ${blockDepth > 0 ? 'border-l-4 ' + nestColor : ''}`;
@@ -1844,7 +1864,7 @@ export default function WorkflowEditor({
                                       const unit = isFlowBlock ? undefined
                                         : unitOf(fieldGuard(statusData?.safety, block.instrument, block.method, key), pData?.unit);
                                       if (typeof v === 'string' && v.trim() === '#') args.push({ key, name, text: '#?', tone: 'missing' });
-                                      // null is how a dropped step holds a None default: shown as None, not "null".
+                                      // null is how a step dropped before None defaults were left out holds one: shown as None, not "null".
                                       else if (v !== undefined && v !== '' && v !== null) args.push({ key, name, text: shown(v), tone: typeof v === 'string' && v.startsWith('#') ? 'var' : 'set', unit });
                                       else if (pData?.default !== undefined && pData.default !== '' && pData.default !== null) args.push({ key, name, text: shown(pData.default), tone: 'default', unit });
                                       else args.push({ key, name, text: pData?.required ? '?' : 'None', tone: pData?.required ? 'missing' : 'empty' });
@@ -1940,7 +1960,62 @@ export default function WorkflowEditor({
                                           ))}
 
                                           {/* Built-in steps keep their one or two fields inline, always. */}
-                                          {isFlowBlock && !isUserInputBlock && block.schema?.parameters && Object.keys(block.schema.parameters).map(paramKey => {
+                                          {isSetVariableBlock && (() => {
+                                            const kind = String(block.params?.type || 'auto');
+                                            const value = block.params?.value;
+                                            const shownValue = value === undefined || value === null ? '' : String(value);
+                                            const valueInvalid = emptyHashFields.has(hashFieldKey(listId, block.id, 'value'));
+                                            const field = `h-6 border rounded-md px-1.5 font-mono text-[12px] focus:outline-none ${flowInputClass}`;
+                                            return (
+                                              <span className="inline-flex flex-wrap items-center gap-1 min-w-0" onClick={(e) => e.stopPropagation()}>
+                                                <input
+                                                  id={paramFieldId(listId, block.id, 'variable_name')}
+                                                  autoComplete="off"
+                                                  type="text"
+                                                  value={block.params?.variable_name ?? ''}
+                                                  placeholder="name"
+                                                  title="The variable to set. Later steps read it as #name, and an If or another calculation by its name alone."
+                                                  onChange={(e) => handleParamChange(block.id, 'variable_name', e.target.value, 'str', listId)}
+                                                  className={`w-24 max-w-full ${field}`}
+                                                />
+                                                <span className="font-mono text-[12px] text-gray-400 dark:text-gray-500">=</span>
+                                                <SuggestInput
+                                                  id={paramFieldId(listId, block.id, 'value')}
+                                                  type="text"
+                                                  suggestions={kind === 'str' ? [] : availableVars}
+                                                  mode="word"
+                                                  value={shownValue}
+                                                  placeholder={kind === 'str' ? 'text, #name fills in' : '1, 2.5, "text", a * 2'}
+                                                  title={valueInvalid ? "Add a variable name after '#'" : kind === 'str'
+                                                    ? 'Text, kept as written; #name inside it is filled in with that variable.'
+                                                    : 'A number, True/False, "text", or a calculation using earlier variables by name, e.g. a * 2 + 1 or round(mass / 3, 2). #name alone takes a value from the table or the optimizer.'}
+                                                  onChange={(e) => {
+                                                    handleParamChange(block.id, 'value', e.target.value, 'str', listId);
+                                                    clearHashWarning(listId, block.id, 'value');
+                                                  }}
+                                                  onBlur={(e) => {
+                                                    // An expression names variables without '#': a value starting with '#'
+                                                    // is a reference everywhere else (withoutReferenceMarks).
+                                                    const typed = e.target.value;
+                                                    const tidy = kind === 'str' ? typed : withoutReferenceMarks(typed);
+                                                    if (tidy !== typed) handleParamChange(block.id, 'value', tidy, 'str', listId);
+                                                    handleHashBlur(listId, block.id, 'value', tidy);
+                                                  }}
+                                                  className={`w-48 max-w-full ${field} ${valueInvalid ? '!border-red-400 dark:!border-red-500' : ''}`}
+                                                />
+                                                <select
+                                                  id={paramFieldId(listId, block.id, 'type')}
+                                                  value={SET_VARIABLE_TYPES.includes(kind) ? kind : 'auto'}
+                                                  onChange={(e) => handleParamChange(block.id, 'type', e.target.value, 'str', listId)}
+                                                  title={'auto keeps the value as it is (1 a whole number, 2.5 a decimal, "a" text); str, int, float and bool convert it. With str the value is text, written without quotes.'}
+                                                  className={`${field} px-1`}
+                                                >
+                                                  {SET_VARIABLE_TYPES.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                                </select>
+                                              </span>
+                                            );
+                                          })()}
+                                          {isFlowBlock && !isUserInputBlock && !isSetVariableBlock && block.schema?.parameters && Object.keys(block.schema.parameters).map(paramKey => {
                                             const pData = block.schema!.parameters[paramKey];
                                             const val = block.params[paramKey];
                                             const actualVal = val !== undefined ? val : (pData.default !== undefined && pData.default !== null ? String(pData.default) : '');
@@ -2002,7 +2077,7 @@ export default function WorkflowEditor({
                                                   placeholder="optional"
                                                   title="Optional. The answer is stored under this name, for later steps to use as #name. Leave empty to only pause until someone continues."
                                                   onChange={(e) => handleParamChange(block.id, 'variable_name', e.target.value, 'str', listId)}
-                                                  className={saveInput}
+                                                  className={`w-24 h-6 rounded-md border px-1.5 font-mono text-[12px] focus:outline-none ${flowInputClass}`}
                                                 />
                                               ) : usesOutputPanel ? (
                                                 <span className="font-mono text-[12px] text-gray-900 dark:text-white" title="Name the fields to keep in Outputs below">
@@ -2032,7 +2107,7 @@ export default function WorkflowEditor({
                                         {/* Controls: only as wide as their icons. Once-per-batch is the
                                             exception worth a word, and it is purple wherever it shows. */}
                                         <div className="flex items-center gap-0.5 shrink-0 self-start">
-                                          {(!isFlowBlock || isUserInputBlock) && listId === 'canvas' && (
+                                          {(!isFlowBlock || isUserInputBlock || isSetVariableBlock) && listId === 'canvas' && (
                                             <button
                                               type="button"
                                               onClick={(e) => { e.stopPropagation(); toggleBatchAction(block.id, listId); }}
@@ -2101,7 +2176,7 @@ export default function WorkflowEditor({
                                       that matters most) the message had nowhere to appear at all,
                                       leaving a warning triangle whose explanation existed only in
                                       a hover tooltip. */}
-                                  {!isFlowBlock && blockWarnings.length > 0 && (
+                                  {(!isFlowBlock || isSetVariableBlock) && blockWarnings.length > 0 && (
                                     <div className="px-2.5 pb-2 pt-0">
                                       <div className="bg-amber-50/50 dark:bg-amber-900/10 border border-amber-200/50 dark:border-amber-500/20 rounded text-amber-700 dark:text-amber-400 text-[10px] px-2 py-1.5 font-medium">
                                           <ul className="list-disc pl-4 space-y-0.5">
@@ -2129,7 +2204,7 @@ export default function WorkflowEditor({
                                             value={block.params?.prompt ?? ''}
                                             placeholder="What to ask"
                                             onChange={(e) => handleParamChange(block.id, 'prompt', e.target.value, 'str', listId)}
-                                            className="w-64 max-w-full h-6 rounded-md border border-gray-200 bg-white px-1.5 font-mono text-[12px] text-gray-900 focus:outline-none focus:border-accent placeholder:text-gray-300 dark:border-white/10 dark:bg-white/5 dark:text-gray-100 dark:placeholder:text-gray-600"
+                                            className={`w-64 max-w-full h-6 rounded-md border px-1.5 font-mono text-[12px] focus:outline-none ${flowInputClass}`}
                                           />
                                         </span>
                                         {asks ? <span className="inline-flex items-center gap-1">
@@ -2141,7 +2216,7 @@ export default function WorkflowEditor({
                                             id={paramFieldId(listId, block.id, 'input_type')}
                                             value={typeOptions.includes(currentType) ? currentType : 'str'}
                                             onChange={(e) => handleParamChange(block.id, 'input_type', e.target.value, 'str', listId)}
-                                            className="h-6 rounded-md border border-gray-200 bg-white px-1 font-mono text-[12px] text-gray-900 focus:outline-none focus:border-accent dark:border-white/10 dark:bg-white/5 dark:text-gray-100"
+                                            className={`h-6 rounded-md border px-1 font-mono text-[12px] focus:outline-none ${flowInputClass}`}
                                           >
                                             {typeOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                                           </select>

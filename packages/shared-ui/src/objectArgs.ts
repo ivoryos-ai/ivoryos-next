@@ -32,7 +32,9 @@ export function defaultParams(schemaParams: Record<string, any> | undefined, use
       if (!isOptionalObject(param)) result[key] = defaultParams(param.fields, useVariables);
     } else if (useVariables) {
       result[key] = `#${key}`;
-    } else if (param?.default !== undefined) {
+    } else if (param?.default !== undefined && param.default !== null) {
+      // A default of None is left out, so the driver uses it: written in, the field held null
+      // (the Hub's copy showed it as the text "null" and failed it as not a number).
       result[key] = param.default;
     }
   }

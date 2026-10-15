@@ -30,8 +30,9 @@ const DISPENSE = {
   post_mix: MIX,
 };
 
-test('a new step leaves its optional object arguments out', () => {
-  assert.deepEqual(defaultParams(DISPENSE, false), { flow_rate: null });
+test('a new step leaves its optional object arguments out, and a None default too', () => {
+  assert.deepEqual(defaultParams(DISPENSE, false), {});
+  assert.deepEqual(defaultParams({ ...DISPENSE, flow_rate: { type: 'float', default: 2.5 } }, false), { flow_rate: 2.5 });
 });
 
 test('#auto leaves them out too, so it asks for no fields of theirs', () => {

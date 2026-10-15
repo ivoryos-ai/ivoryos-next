@@ -175,7 +175,39 @@ function uuidOf(b) {
     return Number.isFinite(Number(b && b.uuid)) ? Number(b.uuid) : Math.floor(Math.random() * 1e9);
 }
 
-/** The original IvoryOS's `wait` / `pause` pseudo-instruments, as Core's Flow Control steps. */
+const SET_VARIABLE_TYPES = ['auto', 'str', 'int', 'float', 'bool'];
+
+/** A value that is one `#name` and nothing else (shared-ui flowControl.ts `wholeReference`). */
+const isWholeReference = (value) => /^\s*#\s*[A-Za-z_]\w*\s*$/.test(value);
+
+/** `#x + 5` -> `x + 5`, quoted text left alone (shared-ui flowControl.ts `withoutReferenceMarks`). */
+function withoutReferenceMarks(expression) {
+    let out = '';
+    let quote = null;
+    for (let i = 0; i < expression.length; i++) {
+        const ch = expression[i];
+        if (quote) {
+            out += ch;
+            if (ch === '\\' && i + 1 < expression.length) out += expression[++i];
+            else if (ch === quote) quote = null;
+        } else if (ch === '"' || ch === "'") {
+            quote = ch;
+            out += ch;
+        } else if (!(ch === '#' && /^\s*[A-Za-z_]/.test(expression.slice(i + 1)))) {
+            out += ch;
+        }
+    }
+    return out;
+}
+
+const pythonText = (value) => (typeof value === 'boolean' ? (value ? 'True' : 'False') : value == null ? 'None' : String(value));
+
+/**
+ * The original IvoryOS's `wait`, `pause`, `variable` and `math_variable` pseudo-instruments, as
+ * Core's Flow Control steps. The same conversion as `fromLegacyBuiltIn` in shared-ui's
+ * flowControl.ts (the Designer's JSON import), which this app cannot import; both are checked
+ * against tests/fixtures/legacy_steps.json. The Hub converts none of these itself.
+ */
 function builtInStep(b) {
     const instrument = String((b && b.instrument) || '');
     const statement = b && b.args ? b.args.statement : undefined;
@@ -191,7 +223,22 @@ function builtInStep(b) {
             arg_types: { prompt: 'str' },
         };
     }
-    return null;
+    if (instrument !== 'variable' && instrument !== 'math_variable') return null;
+    // One Set variable. The old runner evaluated a quoted or f-string `str` statement and every
+    // math one, never converting a `str` math result: those become `auto` expressions.
+    const isMath = instrument === 'math_variable';
+    const declared = String((b.arg_types && b.arg_types.statement) || (isMath ? 'float' : 'str'));
+    let type = SET_VARIABLE_TYPES.includes(declared) ? declared : 'auto';
+    let value = pythonText(statement);
+    if (!isWholeReference(value)) {
+        if (type === 'str' && (isMath || /^\s*[fF]?["']/.test(value))) type = 'auto';
+        if (type !== 'str') value = withoutReferenceMarks(value).trim();
+    }
+    return {
+        instrument: FLOW_CONTROL, action: 'Set_Variable',
+        args: { variable_name: String(b.action || ''), value, type },
+        arg_types: { variable_name: 'str', value: 'str', type: 'str' },
+    };
 }
 
 function toEdgeBlocks(blocks) {
@@ -509,4 +556,5 @@ function PLUGIN_FIELDS_WITH_API(catalog) {
 module.exports = {
     HubCatalog, HubError, DECK_FORMAT,
     requirementFor, argValue, parsePythonCommand, moduleToDeckEntry, pluginToDeckEntry, toEdgeWorkflow, instrumentsUsed, templateSummary,
+    builtInStep,
 };

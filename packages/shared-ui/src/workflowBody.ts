@@ -11,7 +11,7 @@
  */
 
 import type { SequenceBlock } from './WorkflowEditor';
-import { flowControlSchema } from './flowControl';
+import { flowControlSchema, fromLegacyBuiltIn, isSetVariable, setVariableReads } from './flowControl';
 
 export const LIBRARY_INSTRUMENT = 'Library Workflows';
 
@@ -53,6 +53,9 @@ function lookupSchema(instruments: any, instrument: string, method: string): any
 
 /** Saved JSON block -> editor block. Tolerates both the `action`/`args` and `method`/`params` shapes. */
 export function toSequenceBlock(saved: SavedBlock, instruments: any = {}): SequenceBlock {
+  // The original IvoryOS's `wait`, `pause`, `variable` and `math_variable` are built-in steps here.
+  const legacy = fromLegacyBuiltIn(saved);
+  if (legacy) saved = { ...saved, ...legacy, return: '' };
   const instrument = (saved.instrument || saved.module || 'unknown').replace('deck.', '');
   const method = saved.action || saved.method || 'unknown';
   return {
@@ -201,7 +204,8 @@ export function scanDynamicParams(body: SavedWorkflowBody | undefined): Record<s
 }
 
 /**
- * The `#names` a saved workflow fills in for itself, by asking at run time (`User_Input`).
+ * The `#names` a saved workflow fills in for itself, by asking at run time (`User_Input`) or by
+ * setting them (`Set_Variable`).
  *
  * `scanDynamicParams` reports every `#name` in a body, including these, so on its own it cannot
  * tell "the caller must supply this" from "the workflow prompts for this". Anything deciding
@@ -215,7 +219,7 @@ export function scanLiveInputVars(body: SavedWorkflowBody | undefined): Set<stri
     const method = b.action || b.method || '';
     const isUserInput = (instrument === 'Flow_Control' || instrument === 'Flow Control') && method === 'User_Input';
     const name = String((b.args || b.params || {}).variable_name || '').trim();
-    if (isUserInput && name) names.add(name);
+    if ((isUserInput || isSetVariable(b)) && name) names.add(name);
   });
   return names;
 }
@@ -448,15 +452,15 @@ function savedNames(b: any): string[] {
   String(p._return_var || b?.return || '').split(',').map((n: string) => n.trim()).filter(Boolean).forEach((n: string) => out.add(n));
   (Array.isArray(p._return_bindings) ? p._return_bindings : []).forEach((x: any) => { if (x?.var) out.add(String(x.var).trim()); });
   (Array.isArray(p._return_aliases) ? p._return_aliases : []).forEach((x: any) => { if (Array.isArray(x) && x[1]) out.add(String(x[1])); });
-  if ((b?.instrument === 'Flow_Control' || b?.instrument === 'Flow Control') && b?.method === 'User_Input' && p.variable_name) {
+  if ((b?.instrument === 'Flow_Control' || b?.instrument === 'Flow Control') && (b?.method === 'User_Input' || b?.method === 'Set_Variable') && p.variable_name) {
     out.add(String(p.variable_name).trim());
   }
   return [...out];
 }
 
 /**
- * The `#names` a run fills in itself: a User input step's answer, or what an earlier step saved
- * (a linked workflow's outputs included). A `#name` used only after a step that saves it reads
+ * The `#names` a run fills in itself: a User input step's answer, a Set variable step's value, or
+ * what an earlier step saved (a linked workflow's outputs included). A `#name` used only after a step that saves it reads
  * that value when the run gets there, the way the generated Python reads a variable, and the edge
  * substitutes it then (substitute_workflow_vars). So the Designer's Run/Configure choice,
  * Configure's columns and Optimize's search space must not ask for it.
@@ -478,7 +482,9 @@ export function runtimeVarNames(prep: any[], main: any[], cleanup: any[]): Set<s
   };
   for (const b of [...(prep || []), ...(main || []), ...(cleanup || [])]) {
     const names: string[] = [];
-    reads(b?.params, names);
+    // A Set variable's expression reads names without the '#' (`i + 1`), which count too.
+    if (isSetVariable(b)) names.push(...setVariableReads(b?.params));
+    else reads(b?.params, names);
     names.forEach(n => { if (!produced.has(n)) readFirst.add(n); });
     savedNames(b).forEach(n => produced.add(n));
   }

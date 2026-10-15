@@ -10,7 +10,7 @@ export { buildRunName } from './runNaming';
 export { workflowSignature } from './workflowSignature';
 export { readNamedOutput, resolveResultPath } from './returnValues';
 export { ResultView } from './ResultView';
-export { FLOW_CONTROL_SCHEMAS, FLOW_CONTROL_PALETTE, FLOW_CONTROL_INSTRUMENTS, flowControlSchema, isFlowControlInstrument } from './flowControl';
+export { FLOW_CONTROL_SCHEMAS, FLOW_CONTROL_PALETTE, FLOW_CONTROL_INSTRUMENTS, flowControlSchema, isFlowControlInstrument, isSetVariable, SET_VARIABLE_TYPES, expressionNames, setVariableReads, wholeReference, withoutReferenceMarks } from './flowControl';
 export type { ReturnBindingRef, OutputTemplateStep } from './returnValues';
 export { WorkflowMap } from './WorkflowMap';
 export { WorkflowPeek } from './WorkflowPeek';

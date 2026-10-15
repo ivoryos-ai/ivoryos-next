@@ -1,11 +1,12 @@
 // One deck's edge, in the page: the HTTP API the deck pages call (edge_server/ivoryos_edge/server.py)
 // and the queue that runs workflows (queue.py), over the simulated instruments in sim.ts. It mirrors
 // what the pages read -- run and step shapes (models.py as_dict), the queue broadcast, #name
-// substitution, return bindings, If/While/User input/Sleep, failed-step decisions, pause, stop and
+// substitution, return bindings, If/While/User input/Set variable/Sleep, failed-step decisions, pause, stop and
 // graceful stop -- so the pages behave as they do against a real edge. What the tour cannot do
 // (optimizers, Cloud, plugins, the agent) answers with an error that says so.
 //
 // When queue.py or server.py change what a page reads, change this too.
+import { setVariableReads, wholeReference, withoutReferenceMarks } from '@ivoryos/shared-ui';
 import type { LabDeck } from './lab';
 import { SimulatedDeck } from './sim';
 
@@ -131,6 +132,99 @@ function evaluate(condition: string, scope: Record<string, Json>): Json {
   return new Function(...names, `"use strict"; return (${expr});`)(...names.map(n => scope[n]));
 }
 
+/** Python's text for a value: what str() gives, so `"run_" + str(n)` reads as it does on the edge. */
+const pyStr = (v: Json): string =>
+  typeof v === 'boolean' ? (v ? 'True' : 'False') : v === null || v === undefined ? 'None' : typeof v === 'object' ? JSON.stringify(v) : String(v);
+
+/** Python's format(value, spec) for the specs a lab label uses: `03d`, `.2f`, `8.3f`, `.1%`, a width. */
+function pyFormat(value: Json, spec: string): string {
+  const m = /^(0?)(\d*)(?:\.(\d+))?([dfs%]?)$/.exec(spec || '');
+  if (!spec || !m) return pyStr(value);
+  const [, zero, width, precision, kind] = m;
+  let text: string;
+  if (kind === 'd') text = String(Math.trunc(Number(value)));
+  else if (kind === 'f') text = Number(value).toFixed(precision ? Number(precision) : 6);
+  else if (kind === '%') text = (Number(value) * 100).toFixed(precision ? Number(precision) : 6) + '%';
+  else text = typeof value === 'number' && precision ? Number(value).toPrecision(Number(precision)) : pyStr(value);
+  const numeric = kind === 'd' || kind === 'f' || kind === '%' || typeof value === 'number';
+  const w = Number(width || 0);
+  if (text.length >= w) return text;
+  if (zero && numeric) return (text.startsWith('-') ? '-' + text.slice(1).padStart(w - 1, '0') : text.padStart(w, '0'));
+  return numeric ? text.padStart(w) : text.padEnd(w);
+}
+
+/** What a Set variable's expression may call (expressions.py FUNCTIONS), in JavaScript. */
+const EXPRESSION_FUNCTIONS: Record<string, Json> = {
+  abs: Math.abs,
+  round: (x: number, n = 0) => Number(Number(x).toFixed(n)),
+  min: (...a: Json[]) => Math.min(...(a.length === 1 && Array.isArray(a[0]) ? a[0] : a)),
+  max: (...a: Json[]) => Math.max(...(a.length === 1 && Array.isArray(a[0]) ? a[0] : a)),
+  sum: (a: Json[]) => a.reduce((t: number, v: number) => t + v, 0),
+  len: (a: Json) => (isObject(a) ? Object.keys(a).length : a.length),
+  int: (v: Json) => Math.trunc(Number(v)), float: (v: Json) => Number(v), str: pyStr, bool: (v: Json) => !!v,
+  sqrt: Math.sqrt, exp: Math.exp, log: (x: number, b?: number) => (b ? Math.log(x) / Math.log(b) : Math.log(x)),
+  log10: Math.log10, sin: Math.sin, cos: Math.cos, tan: Math.tan, floor: Math.floor, ceil: Math.ceil, pi: Math.PI,
+};
+
+/**
+ * A Set variable's expression, as the edge computes it (expressions.py), for what a tour shows:
+ * arithmetic, comparisons, and/or/not, the functions above, text and f-strings, over the run's
+ * values. Python is rewritten as JavaScript outside quoted text; `//` takes simple operands only,
+ * and Python's `x if c else y` and `in` are not read here.
+ */
+function evaluateExpression(text: string, scope: Record<string, Json>): Json {
+  const source = withoutReferenceMarks(String(text)).trim();
+  let js = '';
+  for (const part of source.split(/([fF]?"(?:\\.|[^"\\])*"|[fF]?'(?:\\.|[^'\\])*')/)) {
+    if (/^[fF]["']/.test(part)) {
+      js += '`' + part.slice(2, -1).replace(/`/g, '\\`')
+        .replace(/\{([^{}:!]+)(?:![rsa])?(?::([^{}]*))?\}/g, (_m, expr: string, spec?: string) => '${pyFormat(' + expr + ', ' + JSON.stringify(spec || '') + ')}') + '`';
+    } else if (/^["']/.test(part)) {
+      js += part;
+    } else {
+      js += part
+        .replace(/\band\b/g, '&&').replace(/\bor\b/g, '||').replace(/\bnot\b/g, '!')
+        .replace(/\bTrue\b/g, 'true').replace(/\bFalse\b/g, 'false').replace(/\bNone\b/g, 'null')
+        .replace(/([\w.]+|\([^()]*\))\s*\/\/\s*([\w.]+|\([^()]*\))/g, 'floor($1 / $2)');
+    }
+  }
+  const values: Record<string, Json> = { ...EXPRESSION_FUNCTIONS, pyStr, pyFormat, ...scope };
+  const names = Object.keys(values).filter(n => /^[A-Za-z_$][\w$]*$/.test(n));
+  return new Function(...names, `"use strict"; return (${js});`)(...names.map(n => values[n]));
+}
+
+/** queue.py set_variable_value: a lone #name, a value supplied for one (`_vars`), text, or an expression; then its type. */
+function setVariableValue(args: Record<string, Json>, scope: Record<string, Json>): Json {
+  const value = args.value;
+  const kind = String(args.type || 'auto').trim().toLowerCase();
+  if (!['auto', 'str', 'int', 'float', 'bool'].includes(kind)) throw new Error(`'${kind}' is not a type a variable can have.`);
+  if (value === null || value === undefined || (typeof value === 'string' && !value.trim())) throw new Error('Set variable has no value to set.');
+  let result: Json;
+  const ref = wholeReference(value);
+  if (ref) {
+    if (!(ref in scope)) throw new Error(`Variable '#${ref}' is not available yet — no earlier step has set it.`);
+    result = scope[ref];
+  } else if (typeof value !== 'string') {
+    result = value;
+  } else if (isObject(args._vars) && 'value' in args._vars) {
+    result = value;
+    if (kind === 'auto') { const n = Number(value); result = value.trim() && !Number.isNaN(n) ? n : value; }
+  } else if (kind === 'str') {
+    const quoted = /^\s*(["'])([\s\S]*)\1\s*$/.exec(value);
+    result = quoted ? quoted[2] : interpolate(value, scope);
+  } else {
+    try { result = evaluateExpression(value, scope); } catch (e) { throw new Error(`Could not compute '${value}': ${(e as Error).message}`); }
+  }
+  if (kind === 'str') return typeof result === 'string' ? result : pyStr(result);
+  if (kind === 'bool') return typeof result === 'string' ? ['true', '1', 'yes', 'y', 'on'].includes(result.trim().toLowerCase()) : !!result;
+  if (kind === 'int' || kind === 'float') {
+    const n = Number(result);
+    if (Number.isNaN(n)) throw new Error(`${JSON.stringify(result)} cannot be made a ${kind}.`);
+    return kind === 'int' ? Math.trunc(n) : n;
+  }
+  return result;
+}
+
 function conditionRecord(condition: string, result: Json, scope: Record<string, Json>, previous: Json) {
   const variables: Record<string, Json> = {};
   for (const name of [...new Set(String(condition).match(/[A-Za-z_][A-Za-z0-9_]*/g) || [])].sort()) {
@@ -149,7 +243,7 @@ function savedNames(params: Json, instrument: string, method: string): string[] 
   if (p._return_var) names.push(...String(p._return_var).split(',').map((s: string) => s.trim()).filter(Boolean));
   if (Array.isArray(p._return_bindings)) names.push(...p._return_bindings.filter(isObject).map((b: Json) => b.var).filter(Boolean));
   if (Array.isArray(p._return_aliases)) names.push(...p._return_aliases.map((a: Json) => a?.[1]).filter(Boolean));
-  if (FLOW_CONTROL.has(instrument) && method === 'User_Input' && p.variable_name) names.push(String(p.variable_name).trim());
+  if (FLOW_CONTROL.has(instrument) && (method === 'User_Input' || method === 'Set_Variable') && p.variable_name) names.push(String(p.variable_name).trim());
   return names;
 }
 
@@ -163,12 +257,11 @@ function unproducedReferences(steps: Json[]): string[] {
     else if (isObject(value)) Object.entries(value).forEach(([k, v]) => { if (!k.startsWith('_')) reads(v, out); });
   };
   steps.forEach((step, i) => {
-    if (!FLOW_CONTROL.has(step.instrument)) {
-      const names: string[] = [];
-      reads(step.params || {}, names);
-      for (const name of [...new Set(names)]) {
-        if (!produced.has(name)) problems.push(`Step ${i + 1} (${step.instrument}.${step.method}) reads #${name}, but no step before it saves '${name}'.`);
-      }
+    const names: string[] = [];
+    if (!FLOW_CONTROL.has(step.instrument)) reads(step.params || {}, names);
+    else if (step.method === 'Set_Variable') names.push(...setVariableReads(step.params || {}));
+    for (const name of [...new Set(names)]) {
+      if (!produced.has(name)) problems.push(`Step ${i + 1} (${step.instrument}.${step.method}) reads #${name}, but no step before it saves '${name}'.`);
     }
     savedNames(step.params, step.instrument, step.method).forEach(n => produced.add(n));
   });
@@ -533,6 +626,19 @@ export class TourEdge {
         done({ result: coerced, input_type: type });
         return index + 1;
       }
+      case 'Set_Variable': {
+        const name = String(args.variable_name || '').trim();
+        if (!/^[A-Za-z_]\w*$/.test(name)) {
+          throw new Error(name ? `'${name}' cannot be a variable name: use letters, digits and _, not starting with a digit.` : 'Set variable needs a name to save the value under.');
+        }
+        const values = scope(step);
+        const value = setVariableValue(args, values);
+        const reads: Record<string, Json> = {};
+        for (const n of setVariableReads(args)) if (n in values) reads[n] = values[n];
+        bind(step, { [name]: value });
+        done({ result: value, type: String(args.type || 'auto'), ...(Object.keys(reads).length ? { variables: reads } : {}) });
+        return index + 1;
+      }
       case 'If':
       case 'While': {
         const condition = String(args.condition ?? 'False');
@@ -692,7 +798,13 @@ export class TourEdge {
       return ok({ workflows: names.map(n => this.summary(n)), tags: [...new Set(names.flatMap(n => this.workflows.get(n)!.tags))].sort() });
     }
     if (parts[1] === 'expand' && method === 'POST') {
-      const prep = body?.prep || [], sequence = body?.sequence || [], cleanup = body?.cleanup || [];
+      // workflows.py _normalise: the Designer posts the saved shape (action/args), a run the
+      // run shape (method/params); the preview reads the second. Links are not expanded here.
+      const normalise = (blocks: Json): Json[] => (Array.isArray(blocks) ? blocks : []).map((b: Json) => {
+        const { action, args, ...rest } = b || {};
+        return { ...rest, method: rest.method ?? action, params: rest.params ?? args ?? {} };
+      });
+      const prep = normalise(body?.prep), sequence = normalise(body?.sequence), cleanup = normalise(body?.cleanup);
       return ok({ prep, sequence, cleanup, resolved_links: [], counts: { prep: prep.length, sequence: sequence.length, cleanup: cleanup.length, total: prep.length + sequence.length + cleanup.length } });
     }
     const name = parts[1];

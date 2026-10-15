@@ -90,12 +90,15 @@ quickest way to check what a workflow means; Download .py in the drawer's header
 |---|---|---|
 | **Wait** | Pauses for a number of seconds. Stop ends it at once. | `duration_seconds` |
 | **User input** | Pauses the run and shows a message on every page. With a *variable name* it also asks for a value (text, integer, decimal or yes/no) and saves it under that name; without one it is a plain pause with a **Continue** button. | `prompt`, `variable_name` (optional), `input_type` |
+| **Set variable** | Saves a value under a name, read as `name = value`: a number, `True`/`False`, `"text"`, or a calculation over the names saved so far (`volume * 2`, `i + 1`, `round(mass / 3, 2)`). Later steps use it as `#name`. The type converts the result; *auto* keeps it as it is, and with *str* the value is text, where `#name` is filled in. | `variable_name`, `value`, `type` |
 | **If / else** | Runs the steps between **If** and **Else** when the condition holds, the ones between **Else** and **End_If** otherwise. Dropping it adds all three; drag steps between them. | `condition` |
 | **While loop** | Repeats the steps between **While** and **End_While** as long as the condition holds. | `condition` |
 | **Comment** | Writes a note into the run log, like `print()`. | `message` |
 
-A **condition** is a Python expression over the names saved so far, written without the `#`:
-`absorbance_312 > 1.5`, `yield_percent < 40 and attempt < 3`. A message or prompt may contain
+A **condition**, and a Set variable's calculation, is a Python expression over the names saved so
+far, written without the `#`: `absorbance_312 > 1.5`, `yield_percent < 40 and attempt < 3`. A Set
+variable whose value is a lone `#name` instead takes that value from the spreadsheet or the
+optimizer, like any step's argument. A message or prompt may contain
 `#name` anywhere in its text (`"flow rate is #flow_rate"`), and the value is filled in when the
 step runs.
 

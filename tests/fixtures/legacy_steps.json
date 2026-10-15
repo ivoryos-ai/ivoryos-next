@@ -1,0 +1,75 @@
+{
+  "about": "The original IvoryOS's built-in steps and the Flow Control step each becomes. Read by packages/shared-ui/test/legacySteps.test.mjs (fromLegacyBuiltIn, the Designer's JSON import) and desktop/test/hubCatalog.test.js (builtInStep, Hub templates), so the two conversions cannot come to disagree.",
+  "cases": [
+    {
+      "name": "wait is a Sleep",
+      "legacy": { "instrument": "wait", "action": "wait", "args": { "statement": 2 } },
+      "expected": { "instrument": "Flow_Control", "action": "Sleep", "args": { "duration_seconds": 2 }, "arg_types": { "duration_seconds": "float" } }
+    },
+    {
+      "name": "a wait read from a variable keeps its reference",
+      "legacy": { "instrument": "wait", "action": "wait", "args": { "statement": "#incubation" } },
+      "expected": { "instrument": "Flow_Control", "action": "Sleep", "args": { "duration_seconds": "#incubation" }, "arg_types": { "duration_seconds": "float" } }
+    },
+    {
+      "name": "pause is a User input with nothing to save",
+      "legacy": { "instrument": "pause", "action": "pause", "args": { "statement": "Load vials" } },
+      "expected": { "instrument": "Flow_Control", "action": "User_Input", "args": { "prompt": "Load vials" }, "arg_types": { "prompt": "str" } }
+    },
+    {
+      "name": "an int variable",
+      "legacy": { "instrument": "variable", "action": "count", "args": { "statement": 3 }, "arg_types": { "statement": "int" } },
+      "expected": { "instrument": "Flow_Control", "action": "Set_Variable", "args": { "variable_name": "count", "value": "3", "type": "int" }, "arg_types": { "variable_name": "str", "value": "str", "type": "str" } }
+    },
+    {
+      "name": "a float variable",
+      "legacy": { "instrument": "variable", "action": "volume", "args": { "statement": 2.5 }, "arg_types": { "statement": "float" } },
+      "expected": { "instrument": "Flow_Control", "action": "Set_Variable", "args": { "variable_name": "volume", "value": "2.5", "type": "float" }, "arg_types": { "variable_name": "str", "value": "str", "type": "str" } }
+    },
+    {
+      "name": "a bool variable is written as Python",
+      "legacy": { "instrument": "variable", "action": "done", "args": { "statement": true }, "arg_types": { "statement": "bool" } },
+      "expected": { "instrument": "Flow_Control", "action": "Set_Variable", "args": { "variable_name": "done", "value": "True", "type": "bool" }, "arg_types": { "variable_name": "str", "value": "str", "type": "str" } }
+    },
+    {
+      "name": "a text variable stays text, #names and all",
+      "legacy": { "instrument": "variable", "action": "label", "args": { "statement": "sample #i - A" }, "arg_types": { "statement": "str" } },
+      "expected": { "instrument": "Flow_Control", "action": "Set_Variable", "args": { "variable_name": "label", "value": "sample #i - A", "type": "str" }, "arg_types": { "variable_name": "str", "value": "str", "type": "str" } }
+    },
+    {
+      "name": "a quoted or f-string text variable was evaluated, so it is an expression",
+      "legacy": { "instrument": "variable", "action": "label", "args": { "statement": "f\"vial_{i}\"" }, "arg_types": { "statement": "str" } },
+      "expected": { "instrument": "Flow_Control", "action": "Set_Variable", "args": { "variable_name": "label", "value": "f\"vial_{i}\"", "type": "auto" }, "arg_types": { "variable_name": "str", "value": "str", "type": "str" } }
+    },
+    {
+      "name": "a variable copied from another stays a reference",
+      "legacy": { "instrument": "variable", "action": "copy", "args": { "statement": "#volume" }, "arg_types": { "statement": "float" } },
+      "expected": { "instrument": "Flow_Control", "action": "Set_Variable", "args": { "variable_name": "copy", "value": "#volume", "type": "float" }, "arg_types": { "variable_name": "str", "value": "str", "type": "str" } }
+    },
+    {
+      "name": "a math step names its variables without #",
+      "legacy": { "instrument": "math_variable", "action": "total", "args": { "statement": "#x + 5 * (#y - 2)" }, "arg_types": { "statement": "float" } },
+      "expected": { "instrument": "Flow_Control", "action": "Set_Variable", "args": { "variable_name": "total", "value": "x + 5 * (y - 2)", "type": "float" }, "arg_types": { "variable_name": "str", "value": "str", "type": "str" } }
+    },
+    {
+      "name": "a math step with no type was a float",
+      "legacy": { "instrument": "math_variable", "action": "half", "args": { "statement": "#volume / 2" } },
+      "expected": { "instrument": "Flow_Control", "action": "Set_Variable", "args": { "variable_name": "half", "value": "volume / 2", "type": "float" }, "arg_types": { "variable_name": "str", "value": "str", "type": "str" } }
+    },
+    {
+      "name": "a str math step was evaluated and never converted",
+      "legacy": { "instrument": "math_variable", "action": "tag", "args": { "statement": "\"run_\" + str(#n)" }, "arg_types": { "statement": "str" } },
+      "expected": { "instrument": "Flow_Control", "action": "Set_Variable", "args": { "variable_name": "tag", "value": "\"run_\" + str(n)", "type": "auto" }, "arg_types": { "variable_name": "str", "value": "str", "type": "str" } }
+    },
+    {
+      "name": "a type this step does not have keeps the value as it is",
+      "legacy": { "instrument": "variable", "action": "wells", "args": { "statement": "[1, 2]" }, "arg_types": { "statement": "list" } },
+      "expected": { "instrument": "Flow_Control", "action": "Set_Variable", "args": { "variable_name": "wells", "value": "[1, 2]", "type": "auto" }, "arg_types": { "variable_name": "str", "value": "str", "type": "str" } }
+    },
+    {
+      "name": "an instrument step is not a built-in",
+      "legacy": { "instrument": "deck.pump", "action": "prime", "args": {} },
+      "expected": null
+    }
+  ]
+}
