@@ -1,6 +1,7 @@
 "use client";
 import { unmodifiedSavedWorkflowName } from '@/savedWorkflow';
-import { API_BASE, WS_BASE } from '@/config';
+import { API_BASE } from '@/config';
+import { useEdgeTopic } from '@/edgeSocket';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Play, Download, Upload, AlertTriangle, Layers, ListTree, Grid3x3, Target, Plus, X } from 'lucide-react';
@@ -22,7 +23,8 @@ import {
   toWireBlock, useDocumentTheme, runtimeVarNames, splitRepeatedLinks, mainOnlyLinks,
   TrayPicker, guardHint, guardProblem, guardSuggestions, guardsFor, trayForGuards, unitOf, SuggestInput,
   formatReference, referenceStart, rowListVariables, RunConfigError, isRowActive,
-  type FieldGuard, type FieldRef } from '@ivoryos/shared-ui';
+  blankChoicesFor, blankChoiceOf, BlankChoiceField, BlankChoiceOptions,
+  type FieldGuard, type FieldRef, type BlankChoices } from '@ivoryos/shared-ui';
 import Link from 'next/link';
 import { useQueueBusy } from '@/queueBusy';
 import { editRunIdFromUrl, hydrateBlocks, leaveEdit, loadQueuedRun, proposalIdFromUrl, saveQueuedRun, sourceBlock, type QueuedEdit } from '@/queuedEdit';
@@ -177,6 +179,10 @@ export default function RunWorkflowPage({ mode, stage }: {
   const [edgeStatus, setEdgeStatus] = useState<any>(null);
 
   const [varOptions, setVarOptions] = useState<Record<string, any[]>>({});
+  // Per variable, whether a cell may say None or "the driver's default" instead of a value, for
+  // the table and Once form (main steps) and for Fixed Values (prep and cleanup).
+  const [varBlanks, setVarBlanks] = useState<Record<string, BlankChoices>>({});
+  const [globalBlanks, setGlobalBlanks] = useState<Record<string, BlankChoices>>({});
   // Which fields each '#variable' feeds, so the safety guard's limits on those fields can be shown
   // on the variable (shared-ui safety.ts). The edge enforces them; this marks a value as it is typed.
   const [varFields, setVarFields] = useState<Record<string, FieldRef[]>>({});
@@ -406,6 +412,8 @@ export default function RunWorkflowPage({ mode, stage }: {
         setVarTypes(vTypes);
         setDeclaredUnits(vUnits);
         setVarOptions(vOptions);
+        setVarBlanks(blankChoicesFor(parsedSeq, (v) => liveVars.has(v)));
+        setGlobalBlanks(blankChoicesFor([...pSeq, ...cSeq], (v) => liveVars.has(v)));
         
         const savedGlobalValues = restored ? JSON.stringify(restored.globalValues) : localStorage.getItem('ivoryos_global_values');
         let initialGlobals: Record<string, string> = {};
@@ -539,41 +547,33 @@ export default function RunWorkflowPage({ mode, stage }: {
   const lockedRef = useRef(0);
   const rowsRef = useRef<Record<string, any>[]>([]);
   useEffect(() => { lockedRef.current = locked; rowsRef.current = rows; }, [locked, rows]);
-  useEffect(() => {
-    if (liveId === null) return;
-    const ws = new WebSocket(`${WS_BASE}/api/ws/queue`);
-    ws.onmessage = event => {
-      try {
-        const data = JSON.parse(event.data);
-        const run = data.active_run?.id === liveId ? data.active_run : data.recent_run?.id === liveId ? data.recent_run : null;
-        if (!run) return;
-        const from = typeof run.editable_from === 'number' ? run.editable_from : null;
-        const started: any[] = run.parameters?.rows || [];
-        const before = lockedRef.current;
-        const now = from ?? started.length;
-        if (from !== null && now <= before) return;
-        const next = rowsRef.current.map(r => ({ ...r }));
-        const taken: number[] = [];
-        for (let i = before; i < Math.min(now, started.length); i++) {
-          if (JSON.stringify(next[i]) !== JSON.stringify(started[i])) taken.push(i + 1);
-          next[i] = { ...started[i] };
-        }
-        rowsRef.current = next;
-        setRows(next);
-        // Nothing left to change: everything stays locked (a save would be refused, and says why).
-        const lockTo = from === null ? Math.max(now, next.length) : now;
-        lockedRef.current = lockTo;
-        setEditing(e => (e && e.id === liveId ? { ...e, lockedRows: lockTo } : e));
-        if (from === null) {
-          notify('The run has no samples left that can change: it has started them all, or it has ended.', { title: 'Nothing left to change' });
-        } else if (taken.length) {
-          notify(`Sample${taken.length === 1 ? '' : 's'} ${taken.join(', ')} started before your change was saved, so ${taken.length === 1 ? 'it runs' : 'they run'} with the values ${taken.length === 1 ? 'it' : 'they'} had.`,
-            { title: 'Started meanwhile' });
-        }
-      } catch { /* a malformed frame */ }
-    };
-    return () => ws.close();
-  }, [liveId]);
+  useEdgeTopic('queue', data => {
+    const run = data.active_run?.id === liveId ? data.active_run : data.recent_run?.id === liveId ? data.recent_run : null;
+    if (!run) return;
+    const from = typeof run.editable_from === 'number' ? run.editable_from : null;
+    const started: any[] = run.parameters?.rows || [];
+    const before = lockedRef.current;
+    const now = from ?? started.length;
+    if (from !== null && now <= before) return;
+    const next = rowsRef.current.map(r => ({ ...r }));
+    const taken: number[] = [];
+    for (let i = before; i < Math.min(now, started.length); i++) {
+      if (JSON.stringify(next[i]) !== JSON.stringify(started[i])) taken.push(i + 1);
+      next[i] = { ...started[i] };
+    }
+    rowsRef.current = next;
+    setRows(next);
+    // Nothing left to change: everything stays locked (a save would be refused, and says why).
+    const lockTo = from === null ? Math.max(now, next.length) : now;
+    lockedRef.current = lockTo;
+    setEditing(e => (e && e.id === liveId ? { ...e, lockedRows: lockTo } : e));
+    if (from === null) {
+      notify('The run has no samples left that can change: it has started them all, or it has ended.', { title: 'Nothing left to change' });
+    } else if (taken.length) {
+      notify(`Sample${taken.length === 1 ? '' : 's'} ${taken.join(', ')} started before your change was saved, so ${taken.length === 1 ? 'it runs' : 'they run'} with the values ${taken.length === 1 ? 'it' : 'they'} had.`,
+        { title: 'Started meanwhile' });
+    }
+  }, liveId !== null);
 
   const downloadCSV = () => {
     if (variables.length === 0) return;
@@ -670,8 +670,8 @@ export default function RunWorkflowPage({ mode, stage }: {
    * The per-sample/batch walk, the `#var` resolution and the numeric checks all live in
    * @ivoryos/shared-ui — the Cloud orchestrator dispatches spreadsheet runs through the very same
    * functions, so a distributed run and a bench run expand identically. The table above draws its
-   * group boundaries from the same `groupSizeFor`, which is what keeps the "not used for this row"
-   * hint from ever becoming a lie.
+   * group boundaries from the same `groupSizeFor`, which is what keeps its muted "ignored" cells
+   * from ever becoming a lie.
    */
   const buildBody = () => {
     // "Stop early" (Iterate only): conditions with a result and a number; one without a number is
@@ -798,7 +798,7 @@ export default function RunWorkflowPage({ mode, stage }: {
   const isInvalidNumericCell = (v: string, val: any) => {
     const typeHint = (varTypes[v] || '').toLowerCase();
     if (!typeHint.includes('int') && !typeHint.includes('float')) return false;
-    if (val === undefined || val === null || val === '') return false;
+    if (val === undefined || val === null || val === '' || blankChoiceOf(val)) return false;
     return isNaN(Number(val));
   };
 
@@ -821,7 +821,7 @@ export default function RunWorkflowPage({ mode, stage }: {
       {!stage && <Sidebar />}
 
       {/* Main Area */}
-      <div className={stage ? '' : 'flex-1 flex flex-col relative z-0'}>
+      <div className={stage ? '' : 'flex-1 flex flex-col relative z-0 min-w-0'}>
         {!stage && <header className="h-16 shrink-0 border-b border-gray-200 dark:border-white/10 flex items-center gap-3 px-6 bg-white/80 dark:bg-black/20 backdrop-blur-md shadow-sm dark:shadow-none z-10">
           <RunTabs active={once ? 'once' : 'configure'} />
           {!once && variables.length > 0 && (
@@ -879,6 +879,13 @@ export default function RunWorkflowPage({ mode, stage }: {
               {globalVariables.map(v => (
                 <div key={v} className="flex items-center gap-2">
                   <label className="text-xs font-medium text-amber-800 dark:text-amber-200 whitespace-nowrap">{v}</label>
+                  <BlankChoiceField value={globalValues[v]} choices={globalBlanks[v] ?? null} disabled={!!editing?.live}
+                    onChange={value => {
+                      const updated = {...globalValues, [v]: value};
+                      setGlobalValues(updated);
+                      if (!editingRef.current) localStorage.setItem('ivoryos_global_values', JSON.stringify(updated));
+                    }}
+                    className="w-36 rounded-md border border-amber-300 bg-white px-2 py-1 text-sm dark:border-amber-700/50 dark:bg-black/50">
                   <input
                      type="text"
                      value={globalValues[v] || ''}
@@ -898,6 +905,7 @@ export default function RunWorkflowPage({ mode, stage }: {
                          : 'border-amber-300 dark:border-amber-700/50 focus:border-amber-500'
                      }`}
                   />
+                  </BlankChoiceField>
                   {varUnits[v] && <span className="text-xs text-amber-700/80 dark:text-amber-300/80">{varUnits[v]}</span>}
                 </div>
               ))}
@@ -943,7 +951,7 @@ export default function RunWorkflowPage({ mode, stage }: {
                   const field = 'flex-1 min-w-0 px-3 py-2 rounded-lg text-sm bg-white border border-gray-200 text-gray-800 focus:outline-none focus:border-accent dark:bg-black/40 dark:border-white/10 dark:text-gray-100';
                   // What the safety guard allows for this value, said under the field as it is typed.
                   const guards = varGuards[v] || [];
-                  const refused = guardProblem(guards, value, safety);
+                  const refused = blankChoiceOf(value) ? null : guardProblem(guards, value, safety);
                   const hint = guards.map(g => guardHint(g, safety)).filter(Boolean).join(' · ');
                   const tray = trayForGuards(guards, safety);
                   return (
@@ -954,11 +962,15 @@ export default function RunWorkflowPage({ mode, stage }: {
                         <select id={`once-${stage ? `${stage.index}-` : ''}${v}`} value={value} onChange={e => updateRow(0, v, e.target.value)} className={`${field} ${refused ? '!border-red-400' : ''}`}>
                           <option value="" disabled>Select {v}</option>
                           {varOptions[v].map((opt: any) => <option key={String(opt)} value={String(opt)}>{String(opt)}</option>)}
+                          <BlankChoiceOptions choices={varBlanks[v] ?? null} />
                         </select>
                       ) : (
-                        <SuggestInput id={`once-${stage ? `${stage.index}-` : ''}${v}`} value={value} onChange={e => updateRow(0, v, e.target.value)}
-                          suggestions={guards.flatMap(g => guardSuggestions(g, safety))}
-                          className={`${field} ${isInvalidNumericCell(v, value) || refused ? '!border-red-400' : ''}`} />
+                        <BlankChoiceField value={value} choices={varBlanks[v] ?? null} onChange={value => updateRow(0, v, value)}
+                          className={`${field} flex-1`} wrapperClassName="flex-1">
+                          <SuggestInput id={`once-${stage ? `${stage.index}-` : ''}${v}`} value={value} onChange={e => updateRow(0, v, e.target.value)}
+                            suggestions={guards.flatMap(g => guardSuggestions(g, safety))}
+                            className={`${field} w-full ${isInvalidNumericCell(v, value) || refused ? '!border-red-400' : ''}`} />
+                        </BlankChoiceField>
                       )}
                       {tray && (
                         <button type="button" onClick={() => setPickingTray(v)} title={tray.choices ? 'Pick a plate and its wells' : `Pick a position on ${tray.tray.label}`}
@@ -1008,6 +1020,7 @@ export default function RunWorkflowPage({ mode, stage }: {
               safety={safety}
               onFillColumn={fillColumn}
               lockedRows={locked}
+              varBlanks={varBlanks}
             />
           )}
 

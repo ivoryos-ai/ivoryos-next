@@ -779,13 +779,17 @@ export default function DesignerPage() {
             header={
               <header className="@container h-16 shrink-0 border-b border-gray-200 dark:border-white/10 flex items-center justify-between px-6 bg-white/80 dark:bg-black/20 backdrop-blur-md shadow-sm dark:shadow-none z-50 relative">
                 <div className="flex flex-col justify-center flex-1 min-w-0 mr-4 space-y-1">
-                  <div className="flex items-center space-x-3">
+                  <div className="flex items-center space-x-3 min-w-0">
+                    {/* As wide as the name, up to the whole line: a fixed-width box cut the name off
+                        beside a description that ran the full width. `size` is the width where
+                        field-sizing is not supported. */}
                     <input
                       type="text"
                       value={currentWorkflowName}
                       onChange={(e) => setCurrentWorkflowName(e.target.value)}
                       placeholder="Sequence Name"
-                      className="text-sm font-bold tracking-wider text-gray-600 dark:text-gray-300 bg-transparent border-none focus:outline-none focus:ring-0 p-0"
+                      size={Math.max(currentWorkflowName.length, 13)}
+                      className="field-sizing-content min-w-0 max-w-full text-sm font-bold tracking-wider text-gray-600 dark:text-gray-300 bg-transparent border-none focus:outline-none focus:ring-0 p-0"
                     />
                     {isUnsaved && <span className="px-1.5 py-0.5 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 text-[10px] font-bold uppercase tracking-wider">Unsaved</span>}
                     {isOffline && (

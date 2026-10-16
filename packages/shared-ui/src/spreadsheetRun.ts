@@ -13,7 +13,7 @@
  *
  * 1. **A batch step reads its value from the group's FIRST row, and only the first row.** Not
  *    "whichever row in the group has one". The table mutes every other row in a batch column and
- *    labels it "not used for this row"; a best-effort scan makes that label a lie.
+ *    says its value is ignored; a best-effort scan makes that a lie.
  * 2. **Groups are chunked by plain row POSITION, never by which rows currently hold data.** With
  *    5 rows and batch size 4, row 5 begins batch 2 on a freshly loaded, completely empty table —
  *    grouping that waits for content never appears at all until someone starts typing.

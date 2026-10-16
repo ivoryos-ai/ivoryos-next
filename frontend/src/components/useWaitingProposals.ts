@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from 'react';
-import { API_BASE } from '@/config';
+import { useProposalFeed } from '@/proposalFeed';
 
 /**
  * How many agent proposals are waiting on a person.
@@ -10,26 +9,9 @@ import { API_BASE } from '@/config';
  * lands in a queue that is otherwise invisible until someone thinks to look — the one way the
  * MCP route quietly fails.
  *
- * Polls only while `enabled`, which callers set false once the panel is open: the panel lists
- * the proposals itself, and two pollers for the same thing is just noise in the server log.
+ * Counted only while `enabled`, which callers set false once the panel is open: the panel lists
+ * the proposals itself. The count comes with the page's socket (proposalFeed.ts); nothing is asked.
  */
 export function useWaitingProposals(enabled: boolean): number {
-  const [waiting, setWaiting] = useState(0);
-
-  useEffect(() => {
-    if (!enabled) { setWaiting(0); return; }
-    let cancelled = false;
-    const check = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/agent/proposals?status=pending`);
-        const data = await res.json();
-        if (!cancelled) setWaiting((data.proposals || []).length);
-      } catch { /* the designer works offline; a silent count beats an error */ }
-    };
-    check();
-    const timer = setInterval(check, 5000);
-    return () => { cancelled = true; clearInterval(timer); };
-  }, [enabled]);
-
-  return waiting;
+  return useProposalFeed(enabled).pending;
 }

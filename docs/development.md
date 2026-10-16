@@ -188,6 +188,7 @@ They contain:
 - Pure asynchronous methods (`AsyncPumpDriver.async_start_pump`)
 - Synchronous methods that spin up a thread to run an async event loop (`AsyncPumpDriver.sync_to_async_thread_test`)
 - Enum, `Literal` and nested-dataclass parameters, deliberately long names, and a method that raises
+- Optional arguments for trying a table cell's None and Default choices (`PumpDriver.test_optional_arguments`, which returns what reached it)
 - Every parameter shape Python allows: `*args`, `**kwargs`, keyword-only, positional-only, and
   methods hidden behind a decorator (`VariadicProbe`, `VendorBridge`)
 

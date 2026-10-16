@@ -3,7 +3,7 @@ import asyncio
 import threading
 from enum import Enum
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Optional
 
 class PumpDirection(Enum):
     FORWARD = "forward"
@@ -85,6 +85,14 @@ class PumpDriver:
         """Test method for nested dataclass introspection."""
         print(f"[Pump] Running with config: speed={config.target_speed}, dir={config.direction}, safety={config.enable_safety_valves} for {duration}s")
         return {"status": "success", "config_used": str(config)}
+
+    def test_optional_arguments(self, volume: float, rate: Optional[float] = 3.0,
+                                mode: Optional[Literal["fast", "slow"]] = "slow", note: Optional[str] = None):
+        """Test method for None vs the default: returns exactly what reached the driver.
+
+        rate and mode take None and have a default that is not None; note's default is None.
+        """
+        return {"volume": volume, "rate": rate, "mode": mode, "note": note}
 
 class DummyMathDriver:
     """A dummy driver for testing the optimizer with a simulated mathematical function."""

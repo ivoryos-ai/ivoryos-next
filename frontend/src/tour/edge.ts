@@ -317,17 +317,22 @@ export class TourEdge {
     return out;
   }
 
-  // --- the live queue (WebSocket /api/ws/queue) ------------------------------------------------
+  // --- the live queue (WebSocket /api/ws/queue, and `queue` on /api/ws) -----------------------
 
   subscribe(send: (payload: Json) => void): () => void {
     this.subscribers.add(send);
-    // queue.py: every subscribe broadcasts to everyone.
-    this.broadcast();
+    // queue.py subscribe_global: the newcomer is sent the current state.
+    send(this.queuePayload());
     return () => { this.subscribers.delete(send); };
   }
 
   private broadcast() {
     if (!this.subscribers.size) return;
+    const text = this.queuePayload();
+    for (const send of [...this.subscribers]) send(text);
+  }
+
+  private queuePayload(): Json {
     const payload: Json = {
       runs: this.liveRuns(10),
       status: {
@@ -342,8 +347,7 @@ export class TourEdge {
       const recent = this.runs.filter(r => TERMINAL.has(r.status) && r.end_time).sort((a, b) => (b.end_time! > a.end_time! ? 1 : -1))[0];
       if (recent && Date.now() - Date.parse(`${recent.end_time}Z`) < 10_000) payload.recent_run = this.runStatus(recent.id);
     }
-    const text = JSON.parse(JSON.stringify(payload));
-    for (const send of [...this.subscribers]) send(text);
+    return JSON.parse(JSON.stringify(payload));
   }
 
   private attention(run: Json): Json[] {

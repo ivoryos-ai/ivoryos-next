@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { cellText } from './runRecord';
+import { blankLabel } from './BlankChoice';
 
 /**
  * The flattened datasheet: one line per row/trial, inputs then named outputs. Exactly what
@@ -53,11 +54,16 @@ export function RunDataTable({ run, title = 'data', maxHeight = '420px', batchOf
                   )}
                   {row.row}
                 </td>
-                {variables.map((v, i) => (
-                  <td key={`${i}:${v}`} className="px-3 py-1 text-gray-800 dark:text-gray-200 whitespace-nowrap max-w-[16rem] truncate" title={cellText(row.values?.[i])}>
-                    {cellText(row.values?.[i])}
-                  </td>
-                ))}
+                {variables.map((v, i) => {
+                  // A row that chose None or the driver's default (runConfig.ts) reads as that; the
+                  // CSV keeps the marker itself, so the file can be imported back as it was run.
+                  const marker = blankLabel(row.values?.[i]);
+                  return (
+                    <td key={`${i}:${v}`} className={`px-3 py-1 whitespace-nowrap max-w-[16rem] truncate ${marker ? 'italic text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-gray-200'}`} title={cellText(row.values?.[i])}>
+                      {marker ?? cellText(row.values?.[i])}
+                    </td>
+                  );
+                })}
               </tr>
               );
             })}

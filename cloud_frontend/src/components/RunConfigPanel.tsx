@@ -13,6 +13,7 @@ import {
   type OptimizeConfig,
   type SpreadsheetRow,
   type WorkflowRuntime,
+  type BlankChoices,
 } from '@ivoryos/shared-ui';
 import type { NodeCadence, RunMode } from '@/lib/runPayload';
 import { useDeviceName } from '@/lib/deviceNames';
@@ -45,6 +46,8 @@ export interface ConfigurableNode {
   vars: string[];
   /** Declared type per #name, where the schema states one — drives the numeric warnings. */
   varTypes: Record<string, string>;
+  /** Per #name, whether a table cell may say None or "the driver's default" instead of a value. */
+  varBlanks?: Record<string, BlankChoices>;
   /** How this node turns into work. */
   mode: RunMode;
   /** Single mode: one value per #name. */
@@ -390,6 +393,7 @@ export default function RunConfigPanel({
                       idPrefix={`cloud-${node.id}`}
                       variables={node.vars}
                       varTypes={node.varTypes}
+                      varBlanks={node.varBlanks}
                       rows={node.rows}
                       batchSize={node.batchSize}
                       showBatchGrouping={!isBlank(node.batchSize)}

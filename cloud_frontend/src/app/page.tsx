@@ -16,6 +16,7 @@ import {
   notify,
   confirmDialog,
   chooseDialog,
+  blankChoicesFor,
 } from '@ivoryos/shared-ui';
 import { validateGraph, isDynamicValue, effectiveParamValue, blankParamsOf, TERMINAL_TASK_STATUSES, ACTIVE_TASK_STATUSES, isDeviceNode, deviceIdOf } from '@/lib/dag';
 import { graphSignature, isEmptyGraph } from '@/lib/graphSignature';
@@ -413,6 +414,15 @@ export default function CloudDesignerPage() {
     return types;
   };
 
+  /** Whether a cell may say None or "the driver's default" for each #name, from the node's schema. */
+  const varBlanksFor = (node: any) => {
+    const block = (node.data as any)?.block || {};
+    const params = Object.fromEntries(
+      Object.keys(block.schema?.parameters || {}).map((key) => [key, effectiveParamValue(block, key)]),
+    );
+    return blankChoicesFor([{ ...block, params }]);
+  };
+
   /** Panel rows: every node with #names, filled or not, so a configured one can be reviewed. */
   // Every step, not only those with #values: a step with none can still be repeated, and the
   // panel is also where the experiment is named.
@@ -430,6 +440,7 @@ export default function CloudDesignerPage() {
         deviceId,
         vars: dynamicVarsOf(n),
         varTypes: varTypesFor(n),
+        varBlanks: varBlanksFor(n),
         mode: runModeOf(n),
         values: configOf(n),
         // At least one row always exists so the table has somewhere to type.

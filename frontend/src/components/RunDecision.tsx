@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { AlertOctagon, Bot, Eraser, FastForward, Minimize2, Pencil, RefreshCcw, Square } from 'lucide-react';
 import { notify } from '@ivoryos/shared-ui';
 import { applyProposal, describeStepFix, dismissProposal, useRunProposals } from '@/runProposals';
-import { WS_BASE } from '@/config';
+import { useEdgeTopic } from '@/edgeSocket';
 import { choicesFor, choiceWords, decideFailure, isDecisionMinimized, setDecisionMinimized, type Decision, type PendingDecision } from '@/runControl';
 import { EDIT_FAILED_STEP_EVENT } from '@/runEdits';
 import StepEditor from './StepEditor';
@@ -35,24 +35,20 @@ export default function RunDecision() {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editRequested, setEditRequested] = useState(false);
 
+  useEdgeTopic('queue', data => {
+    if (!data.status) return;
+    const id = data.status.awaiting_decision ?? null;
+    if (id === null) { setWaiting(null); return; }
+    const run = data.active_run?.id === id ? data.active_run : (data.runs || []).find((r: any) => r.id === id);
+    const decision: PendingDecision | null = data.status.decision ?? null;
+    const step = decision && decision.kind !== 'step' ? null : (run?.steps || []).find((s: any) => s.status === 'error');
+    setWaiting(run ? { run, step, decision } : null);
+  });
   useEffect(() => {
-    const ws = new WebSocket(`${WS_BASE}/api/ws/queue`);
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (!data.status) return;
-        const id = data.status.awaiting_decision ?? null;
-        if (id === null) { setWaiting(null); return; }
-        const run = data.active_run?.id === id ? data.active_run : (data.runs || []).find((r: any) => r.id === id);
-        const decision: PendingDecision | null = data.status.decision ?? null;
-        const step = decision && decision.kind !== 'step' ? null : (run?.steps || []).find((s: any) => s.status === 'error');
-        setWaiting(run ? { run, step, decision } : null);
-      } catch { /* a malformed frame */ }
-    };
     // The run bar's Change: bring the pop-up back, open on the step.
     const openEditor = () => setEditRequested(true);
     window.addEventListener(EDIT_FAILED_STEP_EVENT, openEditor);
-    return () => { ws.close(); window.removeEventListener(EDIT_FAILED_STEP_EVENT, openEditor); };
+    return () => window.removeEventListener(EDIT_FAILED_STEP_EVENT, openEditor);
   }, []);
 
   const key = waiting ? waiting.decision?.key ?? `${waiting.run.id}:${waiting.step?.id ?? ''}` : '';

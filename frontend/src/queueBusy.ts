@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useState } from 'react';
-import { WS_BASE } from '@/config';
+import { useState } from 'react';
+import { useEdgeTopic } from '@/edgeSocket';
 
 /** Statuses of a run that is queued or under way, so a new one would wait behind it. */
 const BUSY = new Set(['pending', 'running', 'paused', 'pausing', 'cancelling', 'waiting_input']);
@@ -13,16 +13,9 @@ const BUSY = new Set(['pending', 'running', 'paused', 'pausing', 'cancelling', '
  */
 export function useQueueBusy(): boolean {
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    // The server sends the current queue as soon as a page subscribes, then on every change.
-    const ws = new WebSocket(`${WS_BASE}/api/ws/queue`);
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (Array.isArray(data.runs)) setBusy(data.runs.some((r: any) => BUSY.has(r.status)));
-      } catch { /* not a queue message */ }
-    };
-    return () => ws.close();
-  }, []);
+  // The current queue as soon as this listens, then every change.
+  useEdgeTopic('queue', data => {
+    if (Array.isArray(data.runs)) setBusy(data.runs.some((r: any) => BUSY.has(r.status)));
+  });
   return busy;
 }

@@ -7,6 +7,8 @@ import { groupSizeFor, SpreadsheetRow } from './spreadsheetRun';
 import { guardHint, guardProblem, trayForGuards, type FieldGuard, type SafetyView } from './safety';
 import { TrayPicker } from './TrayPicker';
 import { formatReference, referenceStart, rowUnitOf } from './labware';
+import { blankChoiceOf, type BlankChoices } from './runConfig';
+import { BlankChoiceField, BlankChoiceOptions, blankLabel } from './BlankChoice';
 
 /**
  * The iteration table: one column per `#variable`, one row per sample.
@@ -19,7 +21,7 @@ import { formatReference, referenceStart, rowUnitOf } from './labware';
  *
  * The group boundaries drawn here come from `groupSizeFor` in spreadsheetRun.ts — the same
  * function the expansion uses. That is the point of it living there: this table's purple divider,
- * its "Batch N" label and its muted "not used for this row" cells are promises about what will
+ * its "Batch N" label and its muted cells that a batch step does not read are promises about what will
  * run, and they used to be computed separately from the thing that actually ran.
  */
 
@@ -71,6 +73,12 @@ export interface SpreadsheetTableProps {
   lockedRows?: number;
   /** Why the locked rows are locked, as their tooltip. */
   lockedTitle?: string;
+  /**
+   * Per variable, whether a cell may say None or "the driver's default" instead of a value
+   * (`blankChoicesFor` in runConfig.ts). Chosen per cell, so one row can set a number and the next
+   * leave it to the driver. Omit when not known (the markers are still shown, not judged).
+   */
+  varBlanks?: Record<string, BlankChoices>;
 }
 
 const isInvalidNumericCell = (type: string | undefined, val: any) => {
@@ -101,6 +109,7 @@ export function SpreadsheetTable({
   onFillColumn,
   lockedRows = 0,
   lockedTitle = 'This sample has started; its values can no longer change.',
+  varBlanks,
 }: SpreadsheetTableProps) {
   // Which tray column's picker is open.
   const [picking, setPicking] = useState<string | null>(null);
@@ -109,7 +118,7 @@ export function SpreadsheetTable({
   // Said, not refused.
   const repeats = (v: string, idx: number): number[] => {
     const value = String(rows[idx]?.[v] ?? '').trim();
-    if (!trays[v] || !value) return [];
+    if (!trays[v] || !value || blankChoiceOf(value)) return [];
     return rows.flatMap((r, i) => (i !== idx && String(r?.[v] ?? '').trim() === value ? [i + 1] : []));
   };
   const groupSize = groupSizeFor(batchSize);
@@ -120,18 +129,22 @@ export function SpreadsheetTable({
   const renderCell = (row: SpreadsheetRow, idx: number, v: string) => {
     if (idx < lockedRows) {
       const value = row[v];
+      const marker = blankLabel(value, varBlanks?.[v]);
       return (
-        <span title={lockedTitle} className="block truncate px-2 py-1 text-sm text-gray-500 dark:text-gray-400">
-          {value === undefined || value === null || value === '' ? '\u2014' : String(value)}
+        <span title={lockedTitle} className={`block truncate px-2 py-1 text-sm text-gray-500 dark:text-gray-400 ${marker ? 'italic' : ''}`}>
+          {marker ?? (value === undefined || value === null || value === '' ? '\u2014' : String(value))}
         </span>
       );
     }
+    // What this column takes instead of a value: undefined when the page did not say.
+    const blanks = varBlanks ? varBlanks[v] ?? null : undefined;
+    const marked = !!blankChoiceOf(row[v]);
     const isBatchVar = batchVariables.includes(v) && !rowListVariables.includes(v);
     // Rule 1 made visible: for a batch column only the group's first row is ever read.
     const isDesignatedRow = !isBatchVar || idx % groupSize === 0;
-    const invalid = isInvalidNumericCell(varTypes[v], row[v]);
+    const invalid = !marked && isInvalidNumericCell(varTypes[v], row[v]);
     // Only a value that will be read is judged: a batch column's other rows are ignored anyway.
-    const refused = isDesignatedRow ? guardProblem(varGuards[v], row[v], safety) : null;
+    const refused = isDesignatedRow && !marked ? guardProblem(varGuards[v], row[v], safety) : null;
     const repeated = isDesignatedRow && !refused ? repeats(v, idx) : [];
 
     if (varOptions[v]) {
@@ -150,37 +163,42 @@ export function SpreadsheetTable({
           {varOptions[v].map((opt) => (
             <option key={String(opt)} value={String(opt)}>{String(opt)}</option>
           ))}
+          <BlankChoiceOptions choices={blanks} />
         </select>
       );
     }
 
     return (
-      <input
-        type="text"
-        value={row[v] || ''}
-        onChange={(e) => onRowChange(idx, v, e.target.value)}
-        placeholder={isDesignatedRow ? `Enter ${v}...` : 'not used for this row'}
-        title={
-          refused
-            ? `${row[v]} ${refused}`
-            : invalid
-            ? `Expects a number (${varTypes[v]})`
-            : repeated.length
-              ? `Also on row ${repeated.join(', ')}`
-            : isDesignatedRow
-              ? undefined
-              : "Only needed once per batch group — this row's value (if any) is ignored."
-        }
-        className={`w-full border-b px-2 py-1 text-sm outline-none transition-colors ${
-          refused
-            ? 'border-red-400 bg-red-50 dark:border-red-500/60 dark:bg-red-900/20'
-            : invalid || repeated.length
-            ? 'border-amber-400 bg-amber-50 dark:border-amber-500/50 dark:bg-amber-900/20'
-            : isDesignatedRow
-              ? 'border-transparent bg-transparent hover:border-gray-300 focus:border-accent dark:hover:border-white/20'
-              : 'border-transparent bg-gray-50 italic text-gray-400 placeholder:text-gray-300 hover:border-gray-200 focus:border-gray-300 dark:bg-white/[0.03] dark:text-gray-600 dark:placeholder:text-gray-600'
-        }`}
-      />
+      <BlankChoiceField value={row[v]} choices={blanks} onChange={(value) => onRowChange(idx, v, value)} className="w-full border-b border-transparent px-2 py-1 text-sm" wrapperClassName="w-full">
+        <input
+          type="text"
+          value={row[v] || ''}
+          onChange={(e) => onRowChange(idx, v, e.target.value)}
+          // No placeholder: the header already names the column, and "Enter <name>..." in every
+          // cell of a wide table was most of what it showed. A cell a batch step does not read is
+          // told apart by its grey fill, and its tooltip says why.
+          title={
+            refused
+              ? `${row[v]} ${refused}`
+              : invalid
+              ? `Expects a number (${varTypes[v]})`
+              : repeated.length
+                ? `Also on row ${repeated.join(', ')}`
+              : isDesignatedRow
+                ? undefined
+                : "Only needed once per batch group — this row's value (if any) is ignored."
+          }
+          className={`w-full border-b px-2 py-1 text-sm outline-none transition-colors ${
+            refused
+              ? 'border-red-400 bg-red-50 dark:border-red-500/60 dark:bg-red-900/20'
+              : invalid || repeated.length
+              ? 'border-amber-400 bg-amber-50 dark:border-amber-500/50 dark:bg-amber-900/20'
+              : isDesignatedRow
+                ? 'border-transparent bg-transparent hover:border-gray-300 focus:border-accent dark:hover:border-white/20'
+                : 'border-transparent bg-gray-50 italic text-gray-400 hover:border-gray-200 focus:border-gray-300 dark:bg-white/[0.03] dark:text-gray-600'
+          }`}
+        />
+      </BlankChoiceField>
     );
   };
 
@@ -343,13 +361,17 @@ export function SpreadsheetTable({
     <div className={compact
       ? 'overflow-hidden border-b border-gray-200 dark:border-white/10'
       : 'overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-white/10 dark:bg-black/40 dark:shadow-none'}>
-      <table className="w-full border-collapse text-left">
-        {header}
-        {onReorder ? draggableBody : staticBody}
-      </table>
+      {/* A workflow with many open values is wider than the page: the table scrolls sideways on its
+          own, and the frame above stays put. */}
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-left">
+          {header}
+          {onReorder ? draggableBody : staticBody}
+        </table>
+      </div>
       {picking && trays[picking] && onFillColumn && (() => {
         const found = trays[picking]!;
-        const cells = rows.map((r) => String(r?.[picking] ?? '').trim()).filter(Boolean);
+        const cells = rows.map((r) => String(r?.[picking] ?? '').trim()).filter((c) => c && !blankChoiceOf(c));
         // A wells column holds `plate[A1]` per row (labware.ts): the picker chooses the plate too.
         const start = found.choices ? referenceStart(cells, found.choices) : null;
         // Each row may get a well, or a whole column of them for an 8-channel head (`tips[A1:H1]`),

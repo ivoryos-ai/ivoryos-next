@@ -9,7 +9,7 @@ import Sidebar from '@/components/Sidebar';
 import DeckHistory from '@/components/DeckHistory';
 import FieldGuardDialog, { type GuardedField } from '@/components/safety/FieldGuardDialog';
 import { ExtraArguments, ResultView, SuggestInput, TrayPicker, confirmDialog, fieldGuard, guardHint, guardProblem, guardSuggestions, isOptionalObject, objectGiven, trayOf, unitOf, useDocumentTheme, type TrayView } from '@ivoryos/shared-ui';
-import { WS_BASE } from '@/config';
+import { useEdgeTopic } from '@/edgeSocket';
 
 /** Whether anything was typed into a form value, at any depth. */
 const anyTyped = (v: unknown): boolean =>
@@ -65,22 +65,17 @@ export default function InstrumentsPage() {
         }
       })
       .catch(err => console.error(err));
-
-    const ws = new WebSocket(`${WS_BASE}/api/ws/queue`);
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        // `active_run` is only sent while a run is under way. The queue on its own being paused
-        // is not a paused workflow: Stop, or a run ending in error, holds the queue with nothing
-        // running (_hold_queue_after), and that used to keep this page warning until Resume queue.
-        const run = data.active_run;
-        const busy = !!(run && ['running', 'pausing', 'waiting_input', 'cancelling'].includes(run.status));
-        const paused = !!run && (run.status === 'paused' || !!data.status?.queue_paused);
-        setBusyState({ running: busy, paused });
-      } catch (e) { }
-    };
-    return () => ws.close();
   }, []);
+
+  useEdgeTopic('queue', data => {
+    // `active_run` is only sent while a run is under way. The queue on its own being paused
+    // is not a paused workflow: Stop, or a run ending in error, holds the queue with nothing
+    // running (_hold_queue_after), and that used to keep this page warning until Resume queue.
+    const run = data.active_run;
+    const busy = !!(run && ['running', 'pausing', 'waiting_input', 'cancelling'].includes(run.status));
+    const paused = !!run && (run.status === 'paused' || !!data.status?.queue_paused);
+    setBusyState({ running: busy, paused });
+  });
 
 
   const handleInputChange = (instrument: string, method: string, param: string, value: any) => {

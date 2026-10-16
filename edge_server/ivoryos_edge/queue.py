@@ -13,6 +13,7 @@ from sqlalchemy import update, select, or_, and_, func, String, cast
 from sqlalchemy.orm import selectinload
 from ivoryos_edge import expressions
 from ivoryos_edge.introspection import serialize_result
+from ivoryos_edge.live import hub as live_hub
 from ivoryos_edge.models import async_session, WorkflowRun, WorkflowStep
 from ivoryos_edge.safety import SafetyViolation, guard as safety_guard
 from ivoryos_edge.run_edits import column_arguments, editable_from, later_runs, template_overrides, with_arguments
@@ -1774,16 +1775,32 @@ class WorkflowQueueManager:
 
     async def subscribe_global(self, websocket: Any):
         self.global_connections.append(websocket)
-        await self.broadcast_global_queue()
+        # The newcomer needs the current state; everyone else already has it.
+        try:
+            await websocket.send_json(await self.global_payload())
+        except Exception:
+            await self.unsubscribe_global(websocket)
 
     async def unsubscribe_global(self, websocket: Any):
         if websocket in self.global_connections:
             self.global_connections.remove(websocket)
 
     async def broadcast_global_queue(self):
-        if not self.global_connections:
+        """The queue status to /api/ws/queue as it is, and to every page's /api/ws as `queue`."""
+        if not self.global_connections and not live_hub.connections:
             return
-            
+        payload = await self.global_payload()
+        dead_conns = []
+        for ws in self.global_connections:
+            try:
+                await ws.send_json(payload)
+            except Exception:
+                dead_conns.append(ws)
+        for ws in dead_conns:
+            await self.unsubscribe_global(ws)
+        await live_hub.publish("queue", payload)
+
+    async def global_payload(self) -> Dict[str, Any]:
         runs = await self.get_live_runs()
         payload = {
             "runs": runs,
@@ -1817,15 +1834,7 @@ class WorkflowQueueManager:
                     # This ensures the status bar auto-dismisses gracefully instead of lingering
                     if (datetime.utcnow() - recent.end_time).total_seconds() < 10:
                         payload["recent_run"] = await self.get_run_status(recent.id)
-                
-        dead_conns = []
-        for ws in self.global_connections:
-            try:
-                await ws.send_json(payload)
-            except Exception:
-                dead_conns.append(ws)
-        for ws in dead_conns:
-            await self.unsubscribe_global(ws)
+        return payload
 
     async def broadcast_updates(self, run_id: Optional[int] = None):
         """Helper to broadcast both run status and global queue"""

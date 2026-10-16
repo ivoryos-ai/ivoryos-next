@@ -1,6 +1,7 @@
 "use client";
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { API_BASE } from '@/config';
+import { pendingProposals, useProposalFeed } from '@/proposalFeed';
 
 /**
  * Changes an agent proposed to a run under way (the edge's agent routes, propose-step-fix and
@@ -18,28 +19,26 @@ export type RunProposal = {
   payload: any;
 };
 
-const POLL_MS = 5000;
-
-/** The pending proposals about this run, polled while `runId` is set. */
+/**
+ * The pending proposals about this run, while `runId` is set: read again whenever the page's socket
+ * says the proposals changed (proposalFeed.ts), and when `recheck` is called.
+ */
 export function useRunProposals(runId: number | null): [RunProposal[], () => void] {
   const [found, setFound] = useState<RunProposal[]>([]);
   const [tick, setTick] = useState(0);
+  const { version } = useProposalFeed(runId !== null);
+  const seenTick = useRef(0);
   useEffect(() => {
     if (runId === null) { setFound([]); return; }
+    if (version === null) return;
     let gone = false;
-    const load = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/agent/proposals?status=pending`);
-        const data = await res.json();
-        if (gone) return;
-        setFound((data.proposals || []).filter((p: any) =>
-          (p.kind === 'step_edit' || p.kind === 'run_rows') && p.payload?.run_id === runId));
-      } catch { /* the assistant is optional; a run goes on without it */ }
-    };
-    load();
-    const timer = setInterval(load, POLL_MS);
-    return () => { gone = true; clearInterval(timer); };
-  }, [runId, tick]);
+    const fresh = seenTick.current !== tick;
+    seenTick.current = tick;
+    pendingProposals(version, fresh).then(list => {
+      if (!gone) setFound(list.filter((p: any) => (p.kind === 'step_edit' || p.kind === 'run_rows') && p.payload?.run_id === runId));
+    }).catch(() => { /* the assistant is optional; a run goes on without it */ });
+    return () => { gone = true; };
+  }, [runId, version, tick]);
   return [found, () => setTick(t => t + 1)];
 }
 
