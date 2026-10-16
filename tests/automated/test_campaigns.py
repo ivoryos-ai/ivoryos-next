@@ -199,8 +199,11 @@ async def test_baybe_campaign_never_suggests_a_point_twice():
 @pytest.mark.asyncio
 async def test_ax_campaign_reaches_its_model_and_keeps_constraints():
     pytest.importorskip("ax")
+    # Ax (and BoTorch under it) counts a point up to this far past a constraint as inside it, and
+    # the best of a - b sits on the edge a + b = 1, so the model's suggestions land there.
+    from ax.core.parameter_constraint import PARAMETER_CONSTRAINT_TOLERANCE
     space = [{"name": "a", "type": "range", "bounds": [0.0, 1.0], "value_type": "float"},
              {"name": "b", "type": "range", "bounds": [0.0, 1.0], "value_type": "float"}]
     rows = await _drive("ax", space, lambda v: v["a"] - v["b"], rounds=3, constraints=["a + b <= 1"])
     assert len(rows) == 8
-    assert all(r["values"]["a"] + r["values"]["b"] <= 1 + 1e-9 for r in rows)
+    assert all(r["values"]["a"] + r["values"]["b"] <= 1 + PARAMETER_CONSTRAINT_TOLERANCE for r in rows)

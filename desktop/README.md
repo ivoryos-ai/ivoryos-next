@@ -153,11 +153,15 @@ which is at the top of the screen and is what makes copy/paste work in text fiel
 
 A tray icon (menu bar on macOS) lists every profile with its state and port, each with Open /
 Start / Stop / Restart, plus Open IvoryOS and Quit (which says how many decks it will stop). On
-Windows and Linux, minimizing hides the window to the tray, and so does closing it: decks keep
-running, and the first time a balloon says so. Both are switches in Settings -> Window; with
-close-to-tray off, closing quits and stops every deck as before. Clicking the icon opens the
-window. macOS keeps its conventions (minimize to the Dock; closing already leaves the app
-running). `npm run smoke` with `IVORYOS_SMOKE_TRAY=1` checks minimize and close really hide.
+Windows and Linux, closing hides the window to the tray: decks keep running, and the first time a
+balloon says so. Minimizing goes to the taskbar, as any window's does, unless the tray is chosen
+for it too: it went to the tray by default until 2026-10, and people took the window vanishing for
+the app having gone. Both are switches in Settings -> Window (the minimize one is stored as
+`trayOnMinimize`, since the old `minimizeToTray` key was written for everyone); with close-to-tray
+off, closing quits and stops every deck as before. Clicking the icon opens the window. macOS keeps
+its conventions (minimize to the Dock; closing already leaves the app running). `npm run smoke`
+with `IVORYOS_SMOKE_TRAY=1` checks minimize stays in the taskbar (and hides when chosen) and close
+really hides.
 
 ## Updates
 

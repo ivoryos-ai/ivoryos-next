@@ -357,9 +357,11 @@ function showLauncher() {
     if (resources().frontendDir) launcherWindow.loadURL(LAUNCHER_URL);
     else launcherWindow.loadFile(path.join(__dirname, 'status.html')); // a build without the UI
     launcherWindow.on('resize', layoutTabs);
-    // The tray (Windows/Linux): minimizing, and closing, hide the window instead, so running
-    // decks are not one misclick away from being stopped. macOS keeps its own conventions:
-    // minimize goes to the Dock, and closing the window already leaves the app running.
+    // The tray (Windows/Linux): closing hides the window instead of quitting, so running decks
+    // are not one misclick away from being stopped. Minimizing stops nothing, so it goes to the
+    // taskbar like any other window unless the person chose the tray for it too (Settings ->
+    // Window). macOS keeps its own conventions: minimize goes to the Dock, and closing the
+    // window already leaves the app running.
     launcherWindow.on('minimize', (event) => {
         if (!tray || process.platform === 'darwin' || !manager || !manager.windowPref('minimizeToTray')) return;
         event.preventDefault();
@@ -1582,13 +1584,19 @@ async function smokeTest() {
         }
         launcher.menuBar = Menu.getApplicationMenu() ? 'present' : 'none';
         if (process.env.IVORYOS_SMOKE_TRAY) {
-            // The tray, as a person would use it: minimize and close must hide, not quit.
+            // The tray, as a person would use it: minimize goes to the taskbar unless the tray is
+            // chosen for it, and close hides rather than quits.
             createTray();
             launcherWindow.show();
             const settle = () => new Promise((r) => setTimeout(r, 800));
             const t = { created: !!tray };
             launcherWindow.minimize(); await settle();
-            t.minimizeHides = !launcherWindow.isVisible() && !launcherWindow.isDestroyed();
+            t.minimizeKeepsTaskbar = launcherWindow.isMinimized() && !launcherWindow.isDestroyed();
+            launcherWindow.restore(); await settle();
+            manager.setWindowPref('minimizeToTray', true);
+            launcherWindow.minimize(); await settle();
+            t.minimizeHidesWhenChosen = !launcherWindow.isVisible() && !launcherWindow.isDestroyed();
+            manager.setWindowPref('minimizeToTray', false);
             showLauncher(); await settle();
             t.showsAgain = launcherWindow.isVisible();
             launcherWindow.close(); await settle();

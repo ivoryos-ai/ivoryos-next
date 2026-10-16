@@ -50,6 +50,7 @@ export {
   mainOnlyLinks,
 } from './workflowBody';
 export type { ReuseMode, SavedBlock, SavedWorkflowBody, DiffRow, DiffStep, StepChange } from './workflowBody';
+export { isOptionalObject, objectGiven, defaultParams, addedObject } from './objectArgs';
 export { RunConfigError, resolveBlockParams, resolveFixedBlock, toWireBlock, rowListArgumentsOf } from './runConfig';
 export type { ResolveOptions, ResolvedStep } from './runConfig';
 export {
@@ -96,8 +97,8 @@ export { ToolChip, ToolboxGroupHeader, ToolboxGroupTitle, ToolboxInstrumentHeade
 export { TopNavBar, TopNavItem, TopNavButton, TopNavIconLink, TopNavDivider, TopNavBrand, TopNavMenu, TopNavMenuItem, topNavPill, BRAND_MARK } from './TopNav';
 export { fieldGuard, trayOf, guardsFor, guardHint, guardProblem, guardSuggestions, trayForGuards, orderPositions, unitOf } from './safety';
 export type { SafetyView, FieldGuard, TrayView, FieldRef } from './safety';
-export { takesRowList, wellChoices, expandWells, compactWells, parseReferences, expandReferences, formatReference, referencesProblem, referenceCount, referenceStart } from './labware';
-export type { TrayChoice } from './labware';
+export { takesRowList, wellChoices, expandWells, compactWells, parseReferences, expandReferences, formatReference, referencesProblem, referenceCount, referenceStart, groupPositions, rowUnitOf } from './labware';
+export type { TrayChoice, RowUnit } from './labware';
 export { TrayPicker } from './TrayPicker';
 export type { TrayPickerProps } from './TrayPicker';
 export { fieldText, parseField, changedArguments } from './stepEdits';

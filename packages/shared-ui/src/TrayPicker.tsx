@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { orderPositions, type TrayView } from './safety';
-import type { TrayChoice } from './labware';
+import { compactWells, groupPositions, type RowUnit, type TrayChoice } from './labware';
 
 /**
  * A tray seen from above: rows by columns, pick the positions to use.
@@ -19,6 +19,10 @@ import type { TrayChoice } from './labware';
  *
  * With `choices` (a wells argument that names its own labware, `plate[A1:H1]`), the plate is
  * chosen here too, and `onPick` says which one. Changing plate starts the picking over.
+ *
+ * With `groupRows` (a spreadsheet column of wells), each row may get one well, or a whole column
+ * or row of the plate (labware.ts `RowUnit`): `onPick` is also given the wells of each row, and
+ * the number drawn on a well is the row it goes to.
  */
 export interface TrayPickerProps {
   tray: TrayView;
@@ -28,11 +32,16 @@ export interface TrayPickerProps {
   initial?: string[];
   /** Labware to choose between; `tray` is the one shown first. */
   choices?: TrayChoice[];
-  onPick: (positions: string[], choice?: TrayChoice) => void;
+  groupRows?: boolean;
+  /** What each row got when the column was last filled. */
+  initialUnit?: RowUnit;
+  onPick: (positions: string[], choice?: TrayChoice, groups?: string[][]) => void;
   onClose: () => void;
 }
 
-export function TrayPicker({ tray: first, title, multiple = false, initial = [], choices, onPick, onClose }: TrayPickerProps) {
+const UNIT_LABEL: Record<RowUnit, string> = { well: 'a well', column: 'a column', row: 'a row' };
+
+export function TrayPicker({ tray: first, title, multiple = false, initial = [], choices, groupRows = false, initialUnit = 'well', onPick, onClose }: TrayPickerProps) {
   const [choiceName, setChoiceName] = useState(() => choices?.find((c) => c.tray === first)?.name ?? choices?.[0]?.name);
   const choice = choices?.find((c) => c.name === choiceName);
   const tray = choice?.tray ?? first;
@@ -59,7 +68,14 @@ export function TrayPicker({ tray: first, title, multiple = false, initial = [],
   }, [onClose]);
 
   const ordered = useMemo(() => orderPositions(tray, picked, order), [tray, picked, order]);
-  const sequence = useMemo(() => new Map(ordered.map((p, i) => [p, i + 1])), [ordered]);
+  const [unit, setUnit] = useState<RowUnit>(groupRows ? initialUnit : 'well');
+  // One group per row the pick fills; null when each position is a row of its own.
+  const groups = useMemo(() => (groupRows && unit !== 'well' ? groupPositions(ordered, tray.grid, unit) : null), [groupRows, unit, ordered, tray]);
+  const sequence = useMemo(() => (groups
+    ? new Map(groups.flatMap((group, i) => group.map((p) => [p, i + 1] as [string, number])))
+    : new Map(ordered.map((p, i) => [p, i + 1]))), [groups, ordered]);
+  const count = groups ? groups.length : ordered.length;
+  const noun = unit === 'column' ? 'column' : unit === 'row' ? 'row' : 'position';
 
   const paint = (r: number, c: number) => {
     const d = drag.current;
@@ -100,7 +116,9 @@ export function TrayPicker({ tray: first, title, multiple = false, initial = [],
       <div role="dialog" aria-label={title || tray.label} className="flex max-h-[90vh] min-w-[min(30rem,95vw)] max-w-[95vw] flex-col rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-white/10 dark:bg-[#1a1a1a]">
         <header className="flex items-center gap-3 border-b border-gray-200 px-5 py-3 dark:border-white/10">
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-sm font-bold text-gray-900 dark:text-gray-100">{title || tray.label}</h2>
+            <h2 className="truncate text-sm font-bold text-gray-900 dark:text-gray-100">
+              {title || tray.label}{groupRows ? `: one row per ${unit}` : ''}
+            </h2>
             <p className="text-[11px] text-gray-500 dark:text-gray-400">
               {choices ? '' : `${tray.label} · `}{tray.rows} x {tray.columns}
               {multiple ? ' · click, drag, or click a row or column heading' : ' · click a position'}
@@ -152,7 +170,7 @@ export function TrayPicker({ tray: first, title, multiple = false, initial = [],
                           type="button"
                           disabled={isBlocked}
                           aria-pressed={on}
-                          title={isBlocked ? `${name} (blocked)` : on && multiple ? `${name}, visited ${sequence.get(name)}` : name}
+                          title={isBlocked ? `${name} (blocked)` : on && multiple ? `${name}, ${groups ? 'row' : 'visited'} ${sequence.get(name)}` : name}
                           onMouseDown={(e) => {
                             if (!multiple || isBlocked) return;
                             e.preventDefault();
@@ -185,31 +203,55 @@ export function TrayPicker({ tray: first, title, multiple = false, initial = [],
           // first/last text changing as wells are picked cannot change the dialog's width. Those
           // two also have room for their longest text, so nothing in the row shifts either.
           <footer className="flex w-0 min-w-full flex-wrap items-center gap-2 border-t border-gray-200 px-5 py-3 text-xs dark:border-white/10">
-            <span className="text-gray-500 dark:text-gray-400">Visit</span>
-            {(['row', 'column'] as const).map((o) => (
-              <button
-                key={o}
-                type="button"
-                onClick={() => setOrder(o)}
-                className={`rounded-md border px-2 py-1 font-medium ${order === o ? 'border-accent-tint bg-accent-soft text-accent-fg' : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-white/10 dark:text-gray-300 dark:hover:bg-white/10'}`}
-              >
-                {o === 'row' ? 'row by row' : 'column by column'}
-              </button>
-            ))}
+            {groupRows && (
+              // A step on an 8-channel head takes a column at a time: one row per column.
+              <>
+                <span className="text-gray-500 dark:text-gray-400">Each row gets</span>
+                {(['well', 'column', 'row'] as const).map((u) => (
+                  <button
+                    key={u}
+                    type="button"
+                    aria-pressed={unit === u}
+                    onClick={() => setUnit(u)}
+                    className={`rounded-md border px-2 py-1 font-medium ${unit === u ? 'border-accent-tint bg-accent-soft text-accent-fg' : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-white/10 dark:text-gray-300 dark:hover:bg-white/10'}`}
+                  >
+                    {UNIT_LABEL[u]}
+                  </button>
+                ))}
+              </>
+            )}
+            {/* A column or a row of wells has one order, top to bottom or left to right. */}
+            {!groups && (
+              <>
+                <span className={`text-gray-500 dark:text-gray-400 ${groupRows ? 'ml-2' : ''}`}>Visit</span>
+                {(['row', 'column'] as const).map((o) => (
+                  <button
+                    key={o}
+                    type="button"
+                    onClick={() => setOrder(o)}
+                    className={`rounded-md border px-2 py-1 font-medium ${order === o ? 'border-accent-tint bg-accent-soft text-accent-fg' : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-white/10 dark:text-gray-300 dark:hover:bg-white/10'}`}
+                  >
+                    {o === 'row' ? 'row by row' : 'column by column'}
+                  </button>
+                ))}
+              </>
+            )}
             <button type="button" onClick={() => setPicked(new Set(usable))} className="ml-2 rounded-md px-2 py-1 font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/10">All</button>
             <button type="button" onClick={() => setPicked(new Set())} className="rounded-md px-2 py-1 font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-white/10">Clear</button>
             {/* Kept together, so on a narrow tray they wrap as one, to the right. */}
             <div className="ml-auto flex items-center gap-2">
               <span className="min-w-[8.5rem] text-right tabular-nums text-gray-500 dark:text-gray-400">
-                {ordered.length === 0 ? 'Nothing picked' : `${ordered[0]} first, ${ordered[ordered.length - 1]} last`}
+                {count === 0 ? 'Nothing picked'
+                  : groups ? `${compactWells(groups[0], tray.grid)} first, ${compactWells(groups[groups.length - 1], tray.grid)} last`
+                  : `${ordered[0]} first, ${ordered[ordered.length - 1]} last`}
               </span>
               <button
                 type="button"
-                disabled={ordered.length === 0}
-                onClick={() => { onPick(ordered, choice); onClose(); }}
+                disabled={count === 0}
+                onClick={() => { onPick(ordered, choice, groupRows ? (groups ?? ordered.map((p) => [p])) : undefined); onClose(); }}
                 className="min-w-[8.5rem] rounded-lg bg-accent px-3 py-1.5 text-center font-semibold tabular-nums text-on-accent hover:bg-accent-hover disabled:opacity-50"
               >
-                Use {ordered.length} {ordered.length === 1 ? 'position' : 'positions'}
+                Use {count} {noun}{count === 1 ? '' : 's'}
               </button>
             </div>
           </footer>
