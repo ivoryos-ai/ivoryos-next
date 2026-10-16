@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { API_BASE, withBase } from '@/config';
 import { applyProposal, describeStepFix, reviewSamplesHref, type RunProposal } from '@/runProposals';
+import { pendingProposals, useProposalFeed } from '@/proposalFeed';
 import {
   WorkflowDiff, confirmDialog, diffSteps, notify, toSequenceBlocks,
 } from '@ivoryos/shared-ui';
@@ -196,21 +197,21 @@ export default function AssistantPanel() {
   useEffect(() => { if (settingsOpen) loadModels(); }, [settingsOpen, loadModels]);
 
   // Proposals filed from another surface (a conversation in Claude Desktop) show up here, so there
-  // is one place to look. Asked for only while the panel is open.
+  // is one place to look. Read while the panel is open, again whenever the page's socket says the
+  // proposals changed (proposalFeed.ts).
+  const { version: proposalsVersion } = useProposalFeed(open && !onLauncher);
   const refreshInbox = useCallback(async () => {
     try {
-      const data = await (await fetch(`${API_BASE}/api/agent/proposals?status=pending`)).json();
+      const proposals = await pendingProposals(proposalsVersion);
       const mine = new Set(turns.flatMap(t => (t.role === 'assistant' && t.proposal ? [t.proposal.id] : [])));
-      setInbox((data.proposals || []).filter((p: Proposal) => !mine.has(p.id)));
+      setInbox(proposals.filter((p: Proposal) => !mine.has(p.id)));
     } catch { /* an unreachable inbox is not worth an error */ }
-  }, [turns]);
+  }, [turns, proposalsVersion]);
 
   useEffect(() => {
-    if (!open || onLauncher) return;
+    if (!open || onLauncher || proposalsVersion === null) return;
     refreshInbox();
-    const timer = setInterval(refreshInbox, 5000);
-    return () => clearInterval(timer);
-  }, [open, onLauncher, refreshInbox]);
+  }, [open, onLauncher, proposalsVersion, refreshInbox]);
 
   const describePhase = (e: any): { text: string; detail?: string; bad?: boolean } | null => {
     switch (e.phase) {

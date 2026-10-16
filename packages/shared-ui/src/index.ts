@@ -51,8 +51,12 @@ export {
 } from './workflowBody';
 export type { ReuseMode, SavedBlock, SavedWorkflowBody, DiffRow, DiffStep, StepChange } from './workflowBody';
 export { isOptionalObject, objectGiven, defaultParams, addedObject } from './objectArgs';
-export { RunConfigError, resolveBlockParams, resolveFixedBlock, toWireBlock, rowListArgumentsOf } from './runConfig';
-export type { ResolveOptions, ResolvedStep } from './runConfig';
+export {
+  RunConfigError, resolveBlockParams, resolveFixedBlock, toWireBlock, rowListArgumentsOf,
+  NONE_VALUE, DEFAULT_VALUE, blankChoiceOf, blankChoicesFor, acceptsNone, hasDefault,
+} from './runConfig';
+export type { ResolveOptions, ResolvedStep, BlankChoice, BlankChoices } from './runConfig';
+export { BlankChoiceField, BlankChoiceOptions, blankLabel } from './BlankChoice';
 export {
   isRowActive,
   groupSizeFor,

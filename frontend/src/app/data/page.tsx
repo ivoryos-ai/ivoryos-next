@@ -1,12 +1,13 @@
 "use client";
-import { API_BASE, WS_BASE } from '@/config';
+import { API_BASE } from '@/config';
+import { useEdgeTopic } from '@/edgeSocket';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Table2, Download, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import { clearRequestParam, useAssistantPage, usePageRequest } from '@/assistant';
 import {
-  ResultView, RunDataTable, readNamedOutput, SectionTitle, parseServerTime, serverDate, formatRun, datasheetCsv, cellText, isFlowStep, aggregateStatus, toDetail, phaseOf, issuesLabel, failedThenSkipped, useDocumentTheme, confirmDialog, notify } from '@ivoryos/shared-ui';
+  ResultView, RunDataTable, readNamedOutput, SectionTitle, parseServerTime, serverDate, formatRun, datasheetCsv, cellText, isFlowStep, aggregateStatus, toDetail, phaseOf, issuesLabel, failedThenSkipped, useDocumentTheme, confirmDialog, notify, blankLabel } from '@ivoryos/shared-ui';
 
 // Every step's outputs get wrapped as {"result": <value>} regardless of what the method actually
 // returned, so unwrap that one key before handing the value to ResultView — otherwise every result
@@ -106,7 +107,8 @@ const argumentsOf = (step: any): ArgItem[] => {
   return Object.entries(params)
     .filter(([k]) => !k.startsWith('_'))
     .map(([key, value]) => {
-      const text = cellText(value);
+      // A None sent on purpose (a cell's None choice) says so rather than reading blank.
+      const text = value === null ? 'None' : cellText(value);
       const ref = typeof value === 'string' ? /^#(\w+)$/.exec(value.trim())?.[1] : undefined;
       return { key, value, text, source: vars[key] ?? ref };
     });
@@ -773,32 +775,23 @@ export default function DataPage() {
       .then(res => res.json())
       .then(data => setEdgeStatus(data))
       .catch(err => console.error(err));
-
-    // The broadcast carries live and recent runs with their steps: enough to keep an open run
-    // current as it executes. The list itself is refreshed at most every couple of seconds --
-    // the broadcast fires after every step.
-    let lastListRefresh = 0;
-    const ws = new WebSocket(`${WS_BASE}/api/ws/queue`);
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.status) setEdgeStatus(data.status);
-        if (data.runs) {
-          const open = data.runs.find((r: any) => r.id === selectedIdRef.current);
-          if (open) setSelectedRun(formatRun(open));
-          if (Date.now() - lastListRefresh > 2000) {
-            lastListRefresh = Date.now();
-            setListVersion(v => v + 1);
-          }
-        }
-      } catch (e) { }
-    };
-
-    return () => {
-      ws.close();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The broadcast carries live and recent runs with their steps: enough to keep an open run
+  // current as it executes. The list itself is refreshed at most every couple of seconds --
+  // the broadcast fires after every step.
+  const lastListRefresh = useRef(0);
+  useEdgeTopic('queue', data => {
+    if (data.status) setEdgeStatus(data.status);
+    if (data.runs) {
+      const open = data.runs.find((r: any) => r.id === selectedIdRef.current);
+      if (open) setSelectedRun(formatRun(open));
+      if (Date.now() - lastListRefresh.current > 2000) {
+        lastListRefresh.current = Date.now();
+        setListVersion(v => v + 1);
+      }
+    }
+  });
 
   useEffect(() => {
     if (!selectedRun || selectedRun.type !== 'Optimization') {
@@ -1338,7 +1331,7 @@ export default function DataPage() {
                             ? 'Run'
                             : `${iterationLabelOf(selectedRun)} ${row.row}`}
                           summary={selectedRun.variables
-                            .map((v: string, i: number) => `${v}=${cellText(row.values?.[i])}`)
+                            .map((v: string, i: number) => `${v}=${blankLabel(row.values?.[i]) ?? cellText(row.values?.[i])}`)
                             .join('  ')}
                           steps={row.details || []}
                         />

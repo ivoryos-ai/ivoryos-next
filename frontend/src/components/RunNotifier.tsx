@@ -1,8 +1,8 @@
 "use client";
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Bell, X } from 'lucide-react';
 import { inDesktopApp } from '@ivoryos/shared-ui';
-import { WS_BASE } from '@/config';
+import { useEdgeTopic } from '@/edgeSocket';
 import { askToNotify, declineNotify, notifyDeclined, notifyState } from '@/browserNotify';
 
 /**
@@ -19,32 +19,24 @@ export default function RunNotifier() {
   const [asking, setAsking] = useState(false);
   const seen = useRef<Set<string>>(new Set());
 
-  useEffect(() => {
-    if (inDesktopApp() || notifyState() === 'unsupported') return;
-    const ws = new WebSocket(`${WS_BASE}/api/ws/queue`);
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (!data.status) return;
-        // Ask once a run is under way, which is when it is worth knowing.
-        if (data.status.active_workflow_id && notifyState() === 'default' && !notifyDeclined()) setAsking(true);
-        const items: any[] = Array.isArray(data.status.attention) ? data.status.attention : [];
-        const away = document.hidden || !document.hasFocus();
-        for (const item of items) {
-          if (!item?.key || seen.current.has(item.key)) continue;
-          if (away && notifyState() === 'granted') {
-            const note = new Notification(item.title, {
-              body: item.run_name ? `${item.run_name}: ${item.body}` : item.body,
-              tag: item.key, // one per moment, even with this edge open in several tabs
-            });
-            note.onclick = () => { window.focus(); note.close(); };
-          }
-        }
-        seen.current = new Set(items.map(i => i?.key).filter(Boolean));
-      } catch { /* a malformed frame */ }
-    };
-    return () => ws.close();
-  }, []);
+  useEdgeTopic('queue', data => {
+    if (inDesktopApp() || notifyState() === 'unsupported' || !data.status) return;
+    // Ask once a run is under way, which is when it is worth knowing.
+    if (data.status.active_workflow_id && notifyState() === 'default' && !notifyDeclined()) setAsking(true);
+    const items: any[] = Array.isArray(data.status.attention) ? data.status.attention : [];
+    const away = document.hidden || !document.hasFocus();
+    for (const item of items) {
+      if (!item?.key || seen.current.has(item.key)) continue;
+      if (away && notifyState() === 'granted') {
+        const note = new Notification(item.title, {
+          body: item.run_name ? `${item.run_name}: ${item.body}` : item.body,
+          tag: item.key, // one per moment, even with this edge open in several tabs
+        });
+        note.onclick = () => { window.focus(); note.close(); };
+      }
+    }
+    seen.current = new Set(items.map(i => i?.key).filter(Boolean));
+  });
 
   if (!asking) return null;
   return (

@@ -1,5 +1,6 @@
 "use client";
-import { API_BASE, WS_BASE, withBase } from '@/config';
+import { API_BASE, withBase } from '@/config';
+import { useEdgeTopic } from '@/edgeSocket';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bot, ChevronUp, CircleDot, Eraser, FastForward, Flag, Gauge, HandHelping, ListTodo, Pause, Pencil, Play, RefreshCcw, Square, Table2, X } from 'lucide-react';
 import { choicesFor, choiceWords, decideFailure, stopGracefully, type PendingDecision } from '@/runControl';
@@ -95,6 +96,17 @@ export default function LiveRun() {
 
   useEffect(() => {
     let gone = false;
+    fetch(`${API_BASE}/api/queue/runs?recent=10`).then(r => r.json()).then(data => {
+      if (gone) return;
+      const runs: RunLike[] = data.runs || [];
+      setQueued(runs.filter(r => r.status === 'pending').length);
+      const live = runs.find(r => !FINISHED.includes(r.status) && r.status !== 'pending');
+      if (live) fetch(`${API_BASE}/api/queue/runs/${live.id}`).then(r => r.json()).then(full => { if (!gone) setRun(full); }).catch(() => {});
+    }).catch(() => {});
+    return () => { gone = true; };
+  }, []);
+
+  useEdgeTopic('queue', data => {
     // A finished run is shown for LINGER_MS from when it ended (or from when this page first saw
     // it finished, if it has no end time). Decided here, as messages arrive, not while rendering.
     const fresh = (next: RunLike | null, waiting: number | null = null) => {
@@ -106,27 +118,15 @@ export default function LiveRun() {
       }
       return Date.now() - finishedAt.current.get(next.id)! > LINGER_MS ? null : next;
     };
-    const apply = (data: any) => {
-      if (data.runs) setQueued(data.runs.filter((r: RunLike) => r.status === 'pending').length);
-      if (data.status) {
-        setAwaiting(data.status.awaiting_decision ?? null);
-        setDecision(data.status.decision ?? null);
-        setGraceful(!!data.status.graceful_stop);
-        setPaused(!!data.status.queue_paused);
-      }
-      setRun(fresh(data.active_run || data.recent_run || null, data.status?.awaiting_decision ?? null));
-    };
-    fetch(`${API_BASE}/api/queue/runs?recent=10`).then(r => r.json()).then(data => {
-      if (gone) return;
-      const runs: RunLike[] = data.runs || [];
-      setQueued(runs.filter(r => r.status === 'pending').length);
-      const live = runs.find(r => !FINISHED.includes(r.status) && r.status !== 'pending');
-      if (live) fetch(`${API_BASE}/api/queue/runs/${live.id}`).then(r => r.json()).then(full => { if (!gone) setRun(full); }).catch(() => {});
-    }).catch(() => {});
-    const ws = new WebSocket(`${WS_BASE}/api/ws/queue`);
-    ws.onmessage = e => { try { apply(JSON.parse(e.data)); } catch { /* a malformed frame */ } };
-    return () => { gone = true; ws.close(); };
-  }, []);
+    if (data.runs) setQueued(data.runs.filter((r: RunLike) => r.status === 'pending').length);
+    if (data.status) {
+      setAwaiting(data.status.awaiting_decision ?? null);
+      setDecision(data.status.decision ?? null);
+      setGraceful(!!data.status.graceful_stop);
+      setPaused(!!data.status.queue_paused);
+    }
+    setRun(fresh(data.active_run || data.recent_run || null, data.status?.awaiting_decision ?? null));
+  });
 
   // A finished run (not one waiting for a decision) goes back to the idle chip after LINGER_MS.
   const runId = run?.id;

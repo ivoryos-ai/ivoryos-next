@@ -61,6 +61,97 @@ const isNumericType = (type: unknown) => {
 };
 
 /**
+ * A value that says "no value" on purpose, chosen per cell (one row can use the driver's default
+ * while the next sets a number). An empty cell is not one: it is a value nobody has filled in yet,
+ * refused as missing, and a row of nothing but empty cells is not a sample at all. A row of
+ * these markers is a sample, and runs.
+ *
+ * - `NONE_VALUE`: the argument is sent as None (JSON null).
+ * - `DEFAULT_VALUE`: the argument is left out of the call, so the driver's own default applies.
+ *   That is not the same as None: a parameter's default is often something else.
+ *
+ * Bracketed so neither can be a real value: a `mode: Literal["default", "fast"]` column holds the
+ * text `default`, and a `str` column may hold the text `None`.
+ */
+export const NONE_VALUE = '<None>';
+export const DEFAULT_VALUE = '<default>';
+export type BlankChoice = 'none' | 'default';
+
+export const blankChoiceOf = (value: unknown): BlankChoice | null => {
+  if (typeof value !== 'string') return null;
+  const v = value.trim();
+  return v === NONE_VALUE ? 'none' : v === DEFAULT_VALUE ? 'default' : null;
+};
+
+/**
+ * Whether a declared parameter (or object field) takes None: the edge marks it `optional` when the
+ * type had a None arm (an `Optional[Literal[...]]` is reported as `Literal`, so the type alone does
+ * not say), else the type says so, else its default is None.
+ */
+export function acceptsNone(declared: any): boolean {
+  if (!declared) return false;
+  if (declared.optional === true) return true;
+  const type = String(declared.type || '');
+  if (/^Optional\[/.test(type) || /\bNoneType\b/.test(type) || type === 'None') return true;
+  return declared.required === false && 'default' in declared && declared.default === null;
+}
+
+/** Whether a declared parameter (or object field) has a default for the driver to fall back on. */
+export const hasDefault = (declared: any): boolean => !!declared && declared.required === false;
+
+/** Why a blank choice cannot be used for this parameter, or null when it can. */
+function blankRefusal(choice: BlankChoice, declared: any): string | null {
+  if (choice === 'default') {
+    return hasDefault(declared) ? null : 'this argument has no default, so it needs a value';
+  }
+  return acceptsNone(declared) ? null : 'this argument does not take None, so it needs a value';
+}
+
+/** What a column offers instead of a value, from every argument it feeds. */
+export interface BlankChoices {
+  /** Every argument the column feeds takes None. */
+  none: boolean;
+  /** Every argument the column feeds has a default. */
+  default: boolean;
+  /** Those defaults, as the driver declared them (distinct), to show what "default" means. */
+  defaults: any[];
+}
+
+/**
+ * For each `#name` in a sequence, whether a cell may say None or "the driver's default" instead
+ * of a value. A column feeding several arguments offers a choice only when every one of them
+ * allows it, which is what `resolveBlockParams` checks again when the run is built.
+ */
+export function blankChoicesFor(sequence: any[], skip?: (name: string) => boolean): Record<string, BlankChoices> {
+  const out: Record<string, BlankChoices> = {};
+  const walk = (obj: any, schemaObj: any) => {
+    Object.entries(obj || {}).forEach(([key, val]) => {
+      if (key.startsWith('_')) return;
+      const declared = schemaObj?.parameters?.[key] ?? schemaObj?.fields?.[key] ?? null;
+      const m = typeof val === 'string' ? /^#(\w+)$/.exec(val.trim()) : null;
+      if (m) {
+        if (skip?.(m[1])) return;
+        const seen = out[m[1]];
+        const none = acceptsNone(declared);
+        const dflt = hasDefault(declared);
+        const defaults = dflt && 'default' in declared ? [declared.default] : [];
+        out[m[1]] = seen
+          ? {
+              none: seen.none && none,
+              default: seen.default && dflt,
+              defaults: [...seen.defaults, ...defaults.filter((d) => !seen.defaults.some((s) => JSON.stringify(s) === JSON.stringify(d)))],
+            }
+          : { none, default: dflt, defaults };
+      } else if (typeof val === 'object' && val !== null) {
+        walk(val, declared);
+      }
+    });
+  };
+  sequence.forEach((block) => walk(block?.params, block?.schema));
+  return out;
+}
+
+/**
  * Resolve every `#name` inside one block's params, returning a new params object.
  *
  * Walks nested objects against the matching slice of the schema (`parameters` at the top level,
@@ -89,6 +180,10 @@ export function resolveBlockParams(block: any, opts: ResolveOptions): Record<str
             if (value === undefined || value === null || value === '') {
               throw new RunConfigError(`Missing value for ${where}`);
             }
+            if (blankChoiceOf(value)) {
+              // One call acts on every row's value: a row cannot leave its share to a default.
+              throw new RunConfigError(`${where} needs a value: this step takes one from every row of its batch in one call`);
+            }
             if (!isNumericType(declared?.type)) return value;
             if (isNaN(Number(value))) {
               if (opts.numeric === 'strict') {
@@ -104,14 +199,29 @@ export function resolveBlockParams(block: any, opts: ResolveOptions): Record<str
         let subVal = opts.lookup(varName);
         if (subVal === undefined || subVal === null || subVal === '') {
           if (opts.onMissing === 'leave') return;
-          throw new RunConfigError(`Missing value for ${opts.describe(varName)}`);
+          const offer = [hasDefault(declared) && 'the default', acceptsNone(declared) && 'None'].filter(Boolean);
+          throw new RunConfigError(
+            `Missing value for ${opts.describe(varName)}` +
+              (offer.length ? `. To leave it to ${offer.join(' or ')}, choose that in the cell.` : ''),
+          );
+        }
+
+        const blank = blankChoiceOf(subVal);
+        if (blank) {
+          const refused = blankRefusal(blank, declared);
+          if (refused) throw new RunConfigError(`${opts.describe(varName)}: ${refused}`);
+          if (blank === 'default') delete obj[key];
+          else obj[key] = null;
+          return;
         }
 
         if (isNumericType(declared?.type)) {
           if (isNaN(Number(subVal))) {
             if (opts.numeric === 'strict') {
+              const typedNone = String(subVal).trim() === 'None' && acceptsNone(declared);
               throw new RunConfigError(
-                `${opts.describe(varName)} expects a number (${declared?.type}), got '${subVal}'`,
+                `${opts.describe(varName)} expects a number (${declared?.type}), got '${subVal}'` +
+                  (typedNone ? '. To send None, choose None in the cell rather than typing it.' : ''),
               );
             }
           } else {

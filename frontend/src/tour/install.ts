@@ -1,7 +1,8 @@
 // Turns a page of the tour build into a page of the desktop app on a simulated lab (README.md):
 //
 //   - `fetch` to the edge (`/api/...`, the same origin, as every page calls it: src/config.ts) and the
-//     queue's WebSocket (`/api/ws/queue`) reach the deck's simulated edge (edge.ts) instead;
+//     page's WebSocket (`/api/ws`, and the older `/api/ws/queue`) reach the deck's simulated edge
+//     (edge.ts) instead;
 //   - the launcher page gets the desktop app's API (desktop.ts), as Electron's preload gives it.
 //
 // Deck pages run in the launcher's iframes (tabs.ts) and share its lab (lab.ts currentLab); the
@@ -66,8 +67,8 @@ export function installTour() {
   const RealWebSocket = window.WebSocket;
   function TourWebSocket(this: unknown, url: string | URL, protocols?: string | string[]) {
     const hit = match(String(url).replace(/^ws/, 'http'));
-    if (!hit || hit.path !== '/ws/queue') return new RealWebSocket(url, protocols);
-    return new QueueSocket(String(url), () => edgeFor(hit.deckId));
+    if (!hit || (hit.path !== '/ws/queue' && hit.path !== '/ws')) return new RealWebSocket(url, protocols);
+    return new QueueSocket(String(url), () => edgeFor(hit.deckId), hit.path === '/ws');
   }
   Object.assign(TourWebSocket, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
   TourWebSocket.prototype = RealWebSocket.prototype;
@@ -95,7 +96,11 @@ function scopeStorage(which: 'localStorage' | 'sessionStorage', prefix: string) 
   Object.defineProperty(window, which, { configurable: true, get: () => scoped });
 }
 
-/** The queue WebSocket of a simulated edge: one snapshot on connect, then every change, like queue.py's. */
+/**
+ * The queue WebSocket of a simulated edge: one snapshot on connect, then every change, like queue.py's.
+ * As a page's `/api/ws` (`topics`), each message is `{topic, data}` as live.py sends them, with no
+ * proposals ever waiting: the agent is not part of the tour.
+ */
 class QueueSocket extends EventTarget {
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
@@ -112,16 +117,18 @@ class QueueSocket extends EventTarget {
   onerror: ((e: Event) => void) | null = null;
   private unsubscribe: (() => void) | null = null;
 
-  constructor(readonly url: string, edge: () => TourEdge | null) {
+  constructor(readonly url: string, edge: () => TourEdge | null, topics = false) {
     super();
     setTimeout(() => {
       const target = edge();
       if (!target) { this.fire(new Event('error')); this.finish(); return; }
       this.readyState = 1;
       this.fire(new Event('open'));
-      this.unsubscribe = target.subscribe(payload => {
-        if (this.readyState === 1) this.fire(new MessageEvent('message', { data: JSON.stringify(payload) }));
-      });
+      const send = (message: unknown) => {
+        if (this.readyState === 1) this.fire(new MessageEvent('message', { data: JSON.stringify(message) }));
+      };
+      if (topics) send({ topic: 'proposals', data: { pending: 0, version: 'tour' } });
+      this.unsubscribe = target.subscribe(payload => send(topics ? { topic: 'queue', data: payload } : payload));
     }, 0);
   }
 

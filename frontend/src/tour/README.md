@@ -28,7 +28,7 @@ the first request any page makes already lands here:
 |---|---|
 | `desktop.ts` | The desktop app's API for the launcher page (`desktop/src/preload.js`). Profiles, starts, installs and deck edits are the lab's. The Automation Hub is the real one, read anonymously through the app's own `desktop/src/hubCatalog.js`. Anything else (accounts, files, Python, updates) says it is part of the desktop app. |
 | `tabs.ts` | A deck's tab: an iframe laid where the app lays its `WebContentsView` (`desktop/src/main.js` `layoutTabs`). The frame's `name` says which deck its pages belong to. |
-| `edge.ts` | A deck's edge: every `/api/...` call and the `/api/ws/queue` WebSocket, mirroring `edge_server/ivoryos_edge/server.py` and `queue.py` (run and step shapes, the queue broadcast, `#name` substitution, return bindings, If/While/User input/Set variable/Sleep, failed-step decisions, pause, stop, graceful stop). |
+| `edge.ts` | A deck's edge: every `/api/...` call and the `/api/ws` and `/api/ws/queue` WebSockets, mirroring `edge_server/ivoryos_edge/server.py` and `queue.py` (run and step shapes, the queue broadcast, `#name` substitution, return bindings, If/While/User input/Set variable/Sleep, failed-step decisions, pause, stop, graceful stop). |
 | `sim.ts` | The instruments: a port of `example/lab_drivers.py` (the Suzuki coupling), and stand-ins for drivers from the Hub. A stand-in has the methods the Hub introspected for the driver (`modules.schema`, found by its Hub id or, added by hand, by import path and class), answers in each method's declared return type, and reads back what a `set_x` (or a property setter) set. |
 | `example.ts`, `fixtures/example-lab.json` | The example lab the tour opens on. |
 

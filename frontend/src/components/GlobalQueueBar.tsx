@@ -1,5 +1,6 @@
 "use client";
-import { API_BASE, WS_BASE } from '@/config';
+import { API_BASE } from '@/config';
+import { useEdgeTopic } from '@/edgeSocket';
 import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { Play, Pause, XCircle, Activity, ChevronUp, ChevronDown, RefreshCcw, FastForward, Eraser, Copy, CircleDot, ListTodo, HandHelping, Flag } from 'lucide-react';
@@ -53,30 +54,22 @@ export default function GlobalQueueBar() {
     };
     
     fetchInitial();
-
-    const ws = new WebSocket(`${WS_BASE}/api/ws/queue`);
-    ws.onmessage = (event) => {
-        try {
-            const data = JSON.parse(event.data);
-            if (data.status) setStatus(data.status);
-            if (data.runs) {
-                setQueue(data.runs.slice(0, 3));
-                setPendingCount(data.runs.filter((r: any) => r.status === 'pending').length);
-            }
-            if (data.active_run) {
-                setActiveRun(data.active_run);
-            } else if (data.recent_run) {
-                setActiveRun(data.recent_run);
-            } else if (data.status && !data.status.active_workflow_id) {
-                setActiveRun(null);
-            }
-        } catch(e) {}
-    };
-
-    return () => {
-        ws.close();
-    };
   }, [onLauncher]);
+
+  useEdgeTopic('queue', data => {
+    if (data.status) setStatus(data.status);
+    if (data.runs) {
+        setQueue(data.runs.slice(0, 3));
+        setPendingCount(data.runs.filter((r: any) => r.status === 'pending').length);
+    }
+    if (data.active_run) {
+        setActiveRun(data.active_run);
+    } else if (data.recent_run) {
+        setActiveRun(data.recent_run);
+    } else if (data.status && !data.status.active_workflow_id) {
+        setActiveRun(null);
+    }
+  }, !onLauncher);
 
   const handleRunControl = async (action: 'pause' | 'resume' | 'cancel') => {
     if (!activeRun) return;

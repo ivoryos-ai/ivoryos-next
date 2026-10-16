@@ -1,6 +1,7 @@
 import os
 import asyncio
 import inspect
+import logging
 import sys
 import time
 import uuid
@@ -21,6 +22,7 @@ from .models import init_db, async_session, WorkflowRun
 from sqlalchemy import func, select
 from .queue import WorkflowQueueManager, unproduced_references
 from . import deck
+from . import live
 from . import runtime
 from . import safety
 from . import workflows as wf
@@ -35,6 +37,33 @@ app = FastAPI(title="IvoryOS Edge Server")
 queue_manager = WorkflowQueueManager(app)
 # The guard reads the live deck from this app when it checks a call (safety.py).
 safety.guard.app = app
+# What a page's /api/ws carries, each sent in full as the page connects (live.py).
+live.hub.topic("queue", queue_manager.global_payload)
+live.hub.topic("proposals", live.proposals_state)
+
+# Requests something asks for on a timer, left out of the access log when they succeed: one line
+# per deck every 20 s from the launcher buried everything else in the log it shows. A failure is
+# still logged, and so is every other request. What can be pushed is pushed instead (live.py).
+QUIET_POLLS = {
+    ("GET", "/api/cloud-settings"),  # the launcher's Cloud panel, for every running deck
+}
+
+
+class _QuietPolls(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        # uvicorn's access line: (client, method, path with query, http version, status)
+        args = record.args
+        if not isinstance(args, tuple) or len(args) != 5:
+            return True
+        _, method, path, _, status = args
+        try:
+            failed = int(status) >= 400
+        except (TypeError, ValueError):
+            return True
+        return failed or (method, str(path).split("?", 1)[0]) not in QUIET_POLLS
+
+
+logging.getLogger("uvicorn.access").addFilter(_QuietPolls())
 
 # Other websites may neither read from nor drive this edge (origin_guard.py). CORS only lets the
 # desktop launcher and pages on this computer read cross-origin; the guard, added last so it runs
@@ -1886,6 +1915,8 @@ async def ws_run_status(websocket: WebSocket, run_id: int):
 
 @app.websocket("/api/ws/queue")
 async def ws_global_queue(websocket: WebSocket):
+    """The queue status alone, as the desktop app (desktop/src/attention.js) reads it. Pages use
+    /api/ws, which carries it as one of its topics."""
     await websocket.accept()
     await queue_manager.subscribe_global(websocket)
     try:
@@ -1893,6 +1924,18 @@ async def ws_global_queue(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         await queue_manager.unsubscribe_global(websocket)
+
+
+@app.websocket("/api/ws")
+async def ws_live(websocket: WebSocket):
+    """A page's one socket: every topic of live.py, each sent in full as the page connects."""
+    await websocket.accept()
+    await live.hub.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        live.hub.disconnect(websocket)
 
 @app.post("/api/queue/runs/{run_id}/pause")
 async def pause_run(run_id: int):

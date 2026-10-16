@@ -1,5 +1,6 @@
 "use client";
-import { API_BASE, WS_BASE, withBase } from '@/config';
+import { API_BASE, withBase } from '@/config';
+import { useEdgeTopic } from '@/edgeSocket';
 import CloudRepeats from '@/components/CloudRepeats';
 import { useCallback, useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
@@ -72,19 +73,16 @@ export default function QueueDrawer() {
     if (!open || onLauncher) return;
     let gone = false;
     loadQueue().then(q => { if (!gone) { setActive(q.active); setPending(q.pending); setCloudQueue(q.cloudQueue); setPaused(q.paused); } }).catch(() => {});
-    const ws = new WebSocket(`${WS_BASE}/api/ws/queue`);
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        const live = data.active_run || null;
-        if ('active_run' in data || data.status) setActive(live);
-        if (data.runs) setPending(orderPending(data.runs, live?.id));
-        if (data.status && 'cloud_queue' in data.status) setCloudQueue(data.status.cloud_queue ?? null);
-        if (data.status && 'queue_paused' in data.status) setPaused(!!data.status.queue_paused);
-      } catch { /* a malformed frame */ }
-    };
-    return () => { gone = true; ws.close(); };
+    return () => { gone = true; };
   }, [open, onLauncher]);
+
+  useEdgeTopic('queue', data => {
+    const live = data.active_run || null;
+    if ('active_run' in data || data.status) setActive(live);
+    if (data.runs) setPending(orderPending(data.runs, live?.id));
+    if (data.status && 'cloud_queue' in data.status) setCloudQueue(data.status.cloud_queue ?? null);
+    if (data.status && 'queue_paused' in data.status) setPaused(!!data.status.queue_paused);
+  }, open && !onLauncher);
 
   if (onLauncher || !open) return null;
 

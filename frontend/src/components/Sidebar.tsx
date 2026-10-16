@@ -1,5 +1,6 @@
 "use client";
-import { API_BASE, WS_BASE } from '@/config';
+import { API_BASE } from '@/config';
+import { useEdgeTopic } from '@/edgeSocket';
 import { HOME_HREF, HOME_PAGE_SHOWN } from '@/homePage';
 import { toggleAssistant, useAssistant } from '@/assistant';
 import { useWaitingProposals } from '@/components/useWaitingProposals';
@@ -93,33 +94,26 @@ export default function Sidebar() {
 
   // Human-in-the-loop: watch every page for a run paused on a 'User_Input' step and
   // pop up a global prompt, so the operator sees it no matter where they're browsing.
-  useEffect(() => {
-    const ws = new WebSocket(`${WS_BASE}/api/ws/queue`);
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        const runs = data.runs || [];
-        const active = runs.find((r: any) => r.status === 'waiting_input');
-        if (active) {
-          const step = (active.steps || []).find((s: any) => s.status === 'waiting_input');
-          const prompt = step?.outputs?.prompt || 'Input required';
-          // The step declares what kind of value it wants, so the prompt can show the matching
-          // control rather than making the operator hand-type 'true' or a number into a text box.
-          const inputType = step?.outputs?.input_type || 'str';
-          if (lastWaitingRunId.current !== active.id) {
-            lastWaitingRunId.current = active.id;
-            setInputValue(inputType === 'bool' ? 'false' : '');
-          }
-          setWaitingRun({ id: active.id, stepId: step?.id, prompt, inputType });
-          setPromptMinimizedState(isPromptMinimized(promptKey(active.id, step?.id)));
-        } else {
-          lastWaitingRunId.current = null;
-          setWaitingRun(null);
-        }
-      } catch (e) { }
-    };
-    return () => ws.close();
-  }, []);
+  useEdgeTopic('queue', data => {
+    const runs = data.runs || [];
+    const active = runs.find((r: any) => r.status === 'waiting_input');
+    if (active) {
+      const step = (active.steps || []).find((s: any) => s.status === 'waiting_input');
+      const prompt = step?.outputs?.prompt || 'Input required';
+      // The step declares what kind of value it wants, so the prompt can show the matching
+      // control rather than making the operator hand-type 'true' or a number into a text box.
+      const inputType = step?.outputs?.input_type || 'str';
+      if (lastWaitingRunId.current !== active.id) {
+        lastWaitingRunId.current = active.id;
+        setInputValue(inputType === 'bool' ? 'false' : '');
+      }
+      setWaitingRun({ id: active.id, stepId: step?.id, prompt, inputType });
+      setPromptMinimizedState(isPromptMinimized(promptKey(active.id, step?.id)));
+    } else {
+      lastWaitingRunId.current = null;
+      setWaitingRun(null);
+    }
+  });
 
   useEffect(() => {
     if (!waitingRun) return;

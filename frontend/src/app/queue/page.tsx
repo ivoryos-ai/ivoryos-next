@@ -1,5 +1,6 @@
 "use client";
-import { API_BASE, WS_BASE } from '@/config';
+import { API_BASE } from '@/config';
+import { useEdgeTopic } from '@/edgeSocket';
 import CloudRepeats from '@/components/CloudRepeats';
 
 import { useState, useEffect } from 'react';
@@ -140,43 +141,35 @@ export default function QueuePage() {
 
   useEffect(() => {
     fetchQueue();
-    const ws = new WebSocket(`${WS_BASE}/api/ws/queue`);
-    ws.onmessage = async (event) => {
-        try {
-            const data = JSON.parse(event.data);
-            if (data.runs) {
-                const liveId = data.status?.active_workflow_id ?? null;
-                setActiveWorkflowId(liveId);
-                if (data.status && 'cloud_queue' in data.status) setCloudQueue(data.status.cloud_queue ?? null);
-                const active = pickActive(data.runs, liveId);
-
-                if (active) {
-                    if (data.active_run && data.active_run.id === active.id) {
-                        setActiveRun(data.active_run);
-                        setWorkflow(data.active_run);
-                    } else if (data.recent_run && data.recent_run.id === active.id) {
-                        setActiveRun(data.recent_run);
-                        setWorkflow(data.recent_run);
-                    } else {
-                        // Use the run data directly since it already contains steps from the DB
-                        setActiveRun(active);
-                        setWorkflow(active);
-                    }
-                } else {
-                    setActiveRun(null);
-                    setWorkflow(null);
-                }
-                
-                // Populate Up Next list
-                setPendingRuns(orderPending(data.runs, active?.id));
-            }
-        } catch(e) {}
-    };
-    
-    return () => {
-        ws.close();
-    };
   }, []);
+
+  useEdgeTopic('queue', data => {
+    if (!data.runs) return;
+    const liveId = data.status?.active_workflow_id ?? null;
+    setActiveWorkflowId(liveId);
+    if (data.status && 'cloud_queue' in data.status) setCloudQueue(data.status.cloud_queue ?? null);
+    const active = pickActive(data.runs, liveId);
+
+    if (active) {
+        if (data.active_run && data.active_run.id === active.id) {
+            setActiveRun(data.active_run);
+            setWorkflow(data.active_run);
+        } else if (data.recent_run && data.recent_run.id === active.id) {
+            setActiveRun(data.recent_run);
+            setWorkflow(data.recent_run);
+        } else {
+            // Use the run data directly since it already contains steps from the DB
+            setActiveRun(active);
+            setWorkflow(active);
+        }
+    } else {
+        setActiveRun(null);
+        setWorkflow(null);
+    }
+
+    // Populate Up Next list
+    setPendingRuns(orderPending(data.runs, active?.id));
+  });
 
   // Nothing re-runs the selection on its own — the panel only updates on a websocket message or a
   // manual fetch, and a server with nothing to do sends neither. Without this, a run shown in its

@@ -731,7 +731,7 @@ export default function OptimizeRunPage({ stage }: { stage?: EmbeddedStage } = {
     <div className={stage ? 'text-gray-900 dark:text-white' : `flex h-screen bg-gray-50 dark:bg-[#0a0a0a] text-gray-900 dark:text-white font-sans overflow-hidden ${theme}`}>
       {!stage && <Sidebar />}
       
-      <div className={stage ? '' : 'flex-1 flex flex-col relative z-0'}>
+      <div className={stage ? '' : 'flex-1 flex flex-col relative z-0 min-w-0'}>
         {!stage && <header className="h-16 shrink-0 border-b border-gray-200 dark:border-white/10 flex items-center gap-3 px-6 bg-white/80 dark:bg-black/20 backdrop-blur-md shadow-sm dark:shadow-none z-10">
           <RunTabs active="optimize" />
           {variables.length > 0 && returns.length > 0 && (
