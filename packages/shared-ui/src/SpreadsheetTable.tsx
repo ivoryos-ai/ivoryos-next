@@ -21,7 +21,7 @@ import { BlankChoiceField, BlankChoiceOptions, blankLabel } from './BlankChoice'
  *
  * The group boundaries drawn here come from `groupSizeFor` in spreadsheetRun.ts — the same
  * function the expansion uses. That is the point of it living there: this table's purple divider,
- * its "Batch N" label and its muted "not used for this row" cells are promises about what will
+ * its "Batch N" label and its muted cells that a batch step does not read are promises about what will
  * run, and they used to be computed separately from the thing that actually ran.
  */
 
@@ -174,7 +174,9 @@ export function SpreadsheetTable({
           type="text"
           value={row[v] || ''}
           onChange={(e) => onRowChange(idx, v, e.target.value)}
-          placeholder={isDesignatedRow ? `Enter ${v}...` : 'not used for this row'}
+          // No placeholder: the header already names the column, and "Enter <name>..." in every
+          // cell of a wide table was most of what it showed. A cell a batch step does not read is
+          // told apart by its grey fill, and its tooltip says why.
           title={
             refused
               ? `${row[v]} ${refused}`
@@ -193,7 +195,7 @@ export function SpreadsheetTable({
               ? 'border-amber-400 bg-amber-50 dark:border-amber-500/50 dark:bg-amber-900/20'
               : isDesignatedRow
                 ? 'border-transparent bg-transparent hover:border-gray-300 focus:border-accent dark:hover:border-white/20'
-                : 'border-transparent bg-gray-50 italic text-gray-400 placeholder:text-gray-300 hover:border-gray-200 focus:border-gray-300 dark:bg-white/[0.03] dark:text-gray-600 dark:placeholder:text-gray-600'
+                : 'border-transparent bg-gray-50 italic text-gray-400 hover:border-gray-200 focus:border-gray-300 dark:bg-white/[0.03] dark:text-gray-600'
           }`}
         />
       </BlankChoiceField>

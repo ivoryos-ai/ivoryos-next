@@ -670,8 +670,8 @@ export default function RunWorkflowPage({ mode, stage }: {
    * The per-sample/batch walk, the `#var` resolution and the numeric checks all live in
    * @ivoryos/shared-ui — the Cloud orchestrator dispatches spreadsheet runs through the very same
    * functions, so a distributed run and a bench run expand identically. The table above draws its
-   * group boundaries from the same `groupSizeFor`, which is what keeps the "not used for this row"
-   * hint from ever becoming a lie.
+   * group boundaries from the same `groupSizeFor`, which is what keeps its muted "ignored" cells
+   * from ever becoming a lie.
    */
   const buildBody = () => {
     // "Stop early" (Iterate only): conditions with a result and a number; one without a number is
