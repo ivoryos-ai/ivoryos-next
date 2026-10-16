@@ -3,16 +3,13 @@
   "configurations": [
     {
       "name": "edge-server-demo",
-      "runtimeExecutable": "uv",
+      "runtimeExecutable": "sh",
       "runtimeArgs": [
-        "run",
-        "--project",
-        "edge_server",
-        "python",
-        "example/demo.py"
+        "-c",
+        "export IVORYOS_PORT=${PORT:-8080}; if [ \"$IVORYOS_PORT\" != 8080 ]; then export IVORYOS_DATA_DIR=\"${TMPDIR:-/tmp}/ivoryos-demo-$IVORYOS_PORT\"; [ -d \"$IVORYOS_DATA_DIR/workflows\" ] || { mkdir -p \"$IVORYOS_DATA_DIR\" && cp -R edge_server/ivoryos_edge/workflows \"$IVORYOS_DATA_DIR/workflows\"; }; fi; exec uv run --project edge_server python example/demo.py"
       ],
       "port": 8080,
-      "autoPort": false
+      "autoPort": true
     },
     {
       "name": "liquid-handler-demo",
