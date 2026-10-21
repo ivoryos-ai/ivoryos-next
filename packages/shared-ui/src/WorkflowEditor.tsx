@@ -77,6 +77,15 @@ export type SequenceBlock = {
 // `unit` is what the driver declared the value to be in (`-> Annotated[float, Unit("°C")]`).
 export type ReturnLeaf = { path: string; type: string; numeric: boolean; unit?: string };
 
+/** After an item of a hover-opened menu is chosen with the mouse. The menu is also shown while
+ *  anything in it holds focus (for keyboard use), and a mouse click leaves the clicked button
+ *  focused, so after Disable step the menu stayed open wherever the cursor went until something
+ *  else was clicked. Blurred, the hover rule alone decides; a keyboard activation (`detail` 0)
+ *  keeps its place. */
+const leaveMenu = (e: React.MouseEvent<HTMLElement>) => {
+  if (e.detail > 0) e.currentTarget.blur();
+};
+
 const isNumericTypeName = (t: string | undefined): boolean => {
   const bare = String(t || '').replace(/Optional\[|\]/g, '').trim();
   return bare === 'int' || bare === 'float';
@@ -1755,8 +1764,13 @@ export default function WorkflowEditor({
                                 className={`
                                   relative ${bgClass} rounded-lg shadow-sm border
                                   transition-all duration-200 group
-                                  ${block.isHidden ? 'opacity-50 border-gray-200 dark:border-gray-800' :
-                                    snapshot.isDragging ? 'z-50' :
+                                  ${snapshot.isDragging ? 'z-50' :
+                                    // A disabled step is dimmed by a translucent veil drawn over its
+                                    // content (::after, under the ⋯ menu's z-30), not by opacity on
+                                    // the card: opacity makes the card a stacking context of its own,
+                                    // which painted that menu under the cards below it and, lifted
+                                    // above them, at half strength. Clicks pass through the veil.
+                                    block.isHidden ? "border-gray-200 dark:border-gray-800 after:pointer-events-none after:absolute after:inset-0 after:z-10 after:rounded-[inherit] after:bg-white/60 after:content-[''] dark:after:bg-[#1a1a1a]/60" :
                                     'border-gray-200 dark:border-white/10 hover:border-gray-300 dark:hover:border-white/20'
                                   }
                                   ${inExpandedGroup ? 'border-l-2 border-l-gray-300 dark:border-l-white/20 rounded-l-none' : ''}
@@ -2137,7 +2151,7 @@ export default function WorkflowEditor({
                                             <div className="absolute right-0 top-full mt-1 w-44 py-1 bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-white/10 rounded-lg shadow-lg opacity-0 invisible group-hover/more:opacity-100 group-hover/more:visible group-focus-within/more:opacity-100 group-focus-within/more:visible transition-all z-30 text-left">
                                               <button
                                                 type="button"
-                                                onClick={(e) => { e.stopPropagation(); toggleHideBlock(block.id, listId); }}
+                                                onClick={(e) => { e.stopPropagation(); toggleHideBlock(block.id, listId); leaveMenu(e); }}
                                                 className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/5"
                                               >
                                                 {block.isHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
@@ -2146,7 +2160,7 @@ export default function WorkflowEditor({
                                               {!isClosingFlowBlock && (
                                                 <button
                                                   type="button"
-                                                  onClick={(e) => { e.stopPropagation(); duplicateBlock(index, listId); }}
+                                                  onClick={(e) => { e.stopPropagation(); duplicateBlock(index, listId); leaveMenu(e); }}
                                                   className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-white/5"
                                                 >
                                                   <Copy className="w-3.5 h-3.5" />
