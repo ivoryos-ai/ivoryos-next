@@ -9,6 +9,7 @@ import { TrayPicker } from './TrayPicker';
 import { formatReference, referenceStart, rowUnitOf } from './labware';
 import { blankChoiceOf, type BlankChoices } from './runConfig';
 import { BlankChoiceField, BlankChoiceOptions, blankLabel } from './BlankChoice';
+import { isNumericType } from './paramTypes';
 
 /**
  * The iteration table: one column per `#variable`, one row per sample.
@@ -82,8 +83,7 @@ export interface SpreadsheetTableProps {
 }
 
 const isInvalidNumericCell = (type: string | undefined, val: any) => {
-  const hint = String(type || '').toLowerCase();
-  if (!hint.includes('int') && !hint.includes('float')) return false;
+  if (!isNumericType(type)) return false;
   if (val === undefined || val === null || val === '') return false;
   return isNaN(Number(val));
 };

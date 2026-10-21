@@ -20,6 +20,7 @@ from ivoryos_edge.agent.deck import (
     FLOW_CONTROL_METHODS,
     LIBRARY_INSTRUMENT,
 )
+from ivoryos_edge.introspection import parse_container_text
 from ivoryos_edge.queue import set_variable_reads
 
 PHASES = ("prep", "script", "cleanup")
@@ -91,6 +92,65 @@ def _block_params(block):
 
 def _is_reference(value):
     return isinstance(value, str) and value.strip().startswith("#")
+
+
+def _is_numeric_type(info):
+    """A field that takes a number: an int or a float, however it was written (`Optional[int]`),
+    and nothing else. "int" in the type's name used to decide it, so a `Dict[str, int]` was told
+    its dict was not a number."""
+    if not isinstance(info, dict):
+        return False
+    if info.get("numeric"):
+        return True
+    if info.get("is_mapping") or info.get("is_list") or info.get("is_object"):
+        return False
+    name = str(info.get("type", "")).strip()
+    inner = re.fullmatch(r"Optional\[(.*)\]", name)
+    if inner:
+        name = inner.group(1).strip()
+    return name in ("int", "float")
+
+
+def _value_problem(info, value):
+    """Why `value` does not fit a key, value or item of a container, or None."""
+    if not isinstance(info, dict) or value is None:
+        return None
+    if _is_numeric_type(info) and not _numeric_ok(value):
+        return f"is not a number ({info.get('type')})"
+    options = info.get("options")
+    if options and str(value) not in [str(o) for o in options]:
+        return f"is not one of {[str(o) for o in options]}"
+    return _container_problem(info, value)
+
+
+def _container_problem(info, value):
+    """Why `value` is not the dict or list the schema asks for (`is_mapping` / `is_list`, with
+    `key_type`, `value_type`, `item_type` or `items`: introspection.py), or None. Text is read as
+    the edge reads it at the call (JSON or Python's literal), so what passes here runs."""
+    kind = "dict" if info.get("is_mapping") else "list" if info.get("is_list") else None
+    if kind is None:
+        return None
+    given = parse_container_text(value) if isinstance(value, str) else value
+    if kind == "dict":
+        if not isinstance(given, dict):
+            return f"expects a dict ({info.get('type')}), written like {{\"name\": 1}}, but got {value!r}"
+        for key, item in given.items():
+            problem = _value_problem(info.get("key_type"), key)
+            if problem:
+                return f"key {key!r} {problem}"
+            problem = _value_problem(info.get("value_type"), item)
+            if problem:
+                return f"value {item!r} of {key!r} {problem}"
+        return None
+    if isinstance(given, dict) or not isinstance(given, (list, tuple, set, frozenset)):
+        return f"expects a list ({info.get('type')}), written like [1, 2], but got {value!r}"
+    fixed = info.get("items")
+    for i, item in enumerate(given):
+        sub = fixed[i] if fixed and i < len(fixed) else info.get("item_type")
+        problem = _value_problem(sub, item)
+        if problem:
+            return f"item {i + 1} ({item!r}) {problem}"
+    return None
 
 
 def _numeric_ok(value):
@@ -172,8 +232,7 @@ def _check_params(where, entry, params, issues, known_vars, instrument, method):
         # a deliberate None (optional). Neither is a number to check.
         if value is None or (isinstance(value, str) and value.strip() == ""):
             continue
-        type_name = str(info.get("type", "")).lower()
-        if ("int" in type_name or "float" in type_name) and not _numeric_ok(value):
+        if _is_numeric_type(info) and not _numeric_ok(value):
             unit = info.get("unit")
             issues.append(_issue(
                 "error", where,
@@ -190,6 +249,15 @@ def _check_params(where, entry, params, issues, known_vars, instrument, method):
                     "error", where,
                     f"'{name}' must be one of {allowed}, not {value!r}.",
                 ))
+
+        # A dict or a list, with its keys, values or items checked by their own types.
+        problem = _container_problem(info, value)
+        if problem:
+            issues.append(_issue(
+                "error", where, f"'{name}' {problem}.",
+                hint=("Write it as JSON, with double quotes: {\"name\": 1.5}." if info.get("is_mapping")
+                      else "Write it as JSON: [1, 2, 3]."),
+            ))
 
 
 def _check_returns(where, entry, block, issues, instrument, method):

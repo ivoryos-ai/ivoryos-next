@@ -3,7 +3,7 @@ import asyncio
 import threading
 from enum import Enum
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Dict, List, Literal, Optional, Sequence, Tuple
 
 class PumpDirection(Enum):
     FORWARD = "forward"
@@ -15,6 +15,53 @@ class PumpConfig:
     target_speed: float
     direction: PumpDirection
     enable_safety_valves: bool = True
+
+class SettingsStore:
+    """Dicts and lists as arguments, one method per shape, each returning what reached it.
+
+    A `Dict` argument used to be unrecognised (GitHub issue 35): the type's name was all the
+    schema said, the pages took "int" in "Dict[str, int]" for a number, and the typed text
+    reached the driver as text. Now a dict or list is described with what it holds
+    (`is_mapping` / `is_list` in the schema), typed as JSON or Python's own literal, and cast
+    at the call. Loaded with the other test drivers; tests/automated/test_container_parameters.py.
+    """
+
+    def set_offsets(self, offsets: Dict[str, float]) -> dict:
+        """A dict of floats by name, e.g. {"x": 1.5, "y": -0.2}."""
+        return {"offsets": offsets, "value_types": sorted({type(v).__name__ for v in offsets.values()})}
+
+    def set_channels(self, channels: dict[int, str]) -> dict:
+        """A dict keyed by channel number: {"1": "pump", "2": "valve"} (JSON keys are text; they arrive as ints)."""
+        return {"channels": channels, "key_types": sorted({type(k).__name__ for k in channels})}
+
+    def set_any(self, settings: dict) -> dict:
+        """A dict of anything."""
+        return {"settings": settings}
+
+    def set_levels(self, levels: List[float]) -> dict:
+        """A list of floats: [0.5, 1.0, 2.0]."""
+        return {"levels": levels, "item_types": sorted({type(v).__name__ for v in levels})}
+
+    def set_names(self, names: list) -> dict:
+        """A bare list."""
+        return {"names": names}
+
+    def set_directions(self, directions: List[PumpDirection]) -> dict:
+        """A list of an enum: ["forward", "backward"]."""
+        return {"directions": [d.value for d in directions]}
+
+    def set_window(self, window: Tuple[int, int]) -> dict:
+        """A pair: [10, 20]."""
+        return {"window": list(window), "kind": type(window).__name__}
+
+    def set_optional(self, extra: Optional[Dict[str, int]] = None) -> dict:
+        """A dict that may be left as None."""
+        return {"extra": extra}
+
+    def select(self, wells: Sequence[str]) -> dict:
+        """Text that only starts like a list (plate[A1:H1]) stays text."""
+        return {"wells": wells}
+
 
 class PumpDriver:
     """A dummy pump driver for testing introspection and execution."""

@@ -4,6 +4,7 @@ import {
   type SavedWorkflowBody,
 } from './workflowBody';
 import { wholeReference, withoutReferenceMarks } from './flowControl';
+import { containerKind, parseContainerText } from './paramTypes';
 
 const PY_KEYWORDS = new Set(['False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await', 'break', 'class', 'continue',
   'def', 'del', 'elif', 'else', 'except', 'finally', 'for', 'from', 'global', 'if', 'import', 'in', 'is', 'lambda',
@@ -58,6 +59,7 @@ export function generatePythonCode(
     // is a NameError when the generated script is actually run.
     if (typeof v === 'boolean') return v ? 'True' : 'False';
     if (v === null || v === undefined) return 'None';
+    if (Array.isArray(v)) return `[${v.map(formatValue).join(', ')}]`;
     if (typeof v === 'object' && v !== null) {
       const dictEntries = Object.entries(v).map(([subK, subV]) => `"${subK}": ${formatValue(subV)}`);
       return `{${dictEntries.join(', ')}}`;
@@ -236,11 +238,20 @@ export function generatePythonCode(
         if (!(name in block.params)) break;
         positionalNames.push(name);
       }
+      // A dict or list typed as text (`{"a": 1}`, or Python's `{'a': 1}`) is the value it
+      // names: the edge parses it at the call (cast_value), so the script says what the call does.
+      const argValue = (k: string, v: any): string => {
+        if (typeof v === 'string' && containerKind(schemaParams[k])) {
+          const parsed = parseContainerText(v);
+          if (parsed !== undefined) return formatValue(parsed);
+        }
+        return formatValue(v);
+      };
       const params = [
-        ...positionalNames.map(k => formatValue(block.params[k])),
+        ...positionalNames.map(k => argValue(k, block.params[k])),
         ...Object.entries(block.params)
           .filter(([k]) => !positionalNames.includes(k) && !k.startsWith('_'))
-          .map(([k, v]) => `${k}=${formatValue(v)}`),
+          .map(([k, v]) => `${k}=${argValue(k, v)}`),
       ].join(', ');
       emitAssignment(`${block.instrument}.${block.method}(${params})`);
     });

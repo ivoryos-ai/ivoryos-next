@@ -1,4 +1,8 @@
+import ast
+import collections
+import collections.abc as _abc
 import inspect
+import json
 import types
 import typing
 from typing import get_origin, get_args
@@ -31,6 +35,100 @@ def _holds_union(annotation) -> bool:
         if any(_is_union(a) or _holds_union(a) for a in inner):
             return True
     return False
+
+
+# A dict, by its origin. `dict`, `typing.Dict`, `Mapping` and `MutableMapping` (typing's and
+# collections.abc's share an origin), `OrderedDict`, `defaultdict`.
+_MAPPING_ORIGINS = (dict, _abc.Mapping, _abc.MutableMapping, collections.OrderedDict, collections.defaultdict)
+# A list, by its origin. `str` and `bytes` are Sequences to Python and are not here: text is text.
+_SEQUENCE_ORIGINS = (list, tuple, set, frozenset, _abc.Sequence, _abc.MutableSequence, _abc.Set,
+                     _abc.MutableSet, _abc.Iterable, _abc.Collection, collections.deque)
+
+
+def _container_shape(annotation):
+    """What a dict or list annotation holds: ("mapping", key, value), ("list", item, fixed), or
+    None for anything else.
+
+    `Dict[str, float]`, `dict[str, float]`, `Mapping[str, int]` and a bare `dict` are mappings
+    (`inspect.Parameter.empty` where the annotation says nothing about the key or the value);
+    `List[float]`, `Sequence[str]`, `Set[int]`, `Tuple[int, ...]` and a bare `list`, `tuple` or
+    `set` are lists of one item type; `Tuple[int, str]` is a list of a fixed length, `fixed`
+    holding one annotation per place. A class of the driver's own that subclasses dict or list
+    counts as one. A dataclass, a model, an enum and a str are none of these.
+    """
+    origin = get_origin(annotation)
+    if origin is None:
+        if isinstance(annotation, type) and not isinstance(annotation, types.GenericAlias):
+            origin = annotation
+        else:
+            return None
+    if not isinstance(origin, type):
+        return None
+    args = get_args(annotation)
+    empty = inspect.Parameter.empty
+    if origin in _MAPPING_ORIGINS or issubclass(origin, dict):
+        key, value = (args + (empty, empty))[:2] if len(args) == 2 else (empty, empty)
+        return ("mapping", key, value)
+    if origin in _SEQUENCE_ORIGINS or issubclass(origin, (list, tuple, set, frozenset)):
+        if origin is tuple:
+            if len(args) == 2 and args[1] is Ellipsis:
+                return ("list", args[0], None)
+            if args and args != ((),):
+                return ("list", empty, list(args))
+            return ("list", empty, None)
+        return ("list", args[0] if len(args) == 1 else empty, None)
+    return None
+
+
+def _describe_container(shape, _depth, _seen):
+    """The schema keys for a dict or list parameter: what it is, and what its keys, values or
+    items are, each described as a parameter is (so a `Dict[str, Color]` value lists the enum's
+    choices, and a `List[float]` item is numeric). `required` means nothing inside a container
+    and is left off."""
+    def inner(annotation):
+        if annotation is inspect.Parameter.empty:
+            return None
+        info = extract_type_info(annotation, inspect.Parameter.empty, _depth + 1, _seen)
+        info.pop("required", None)
+        return info
+
+    kind = shape[0]
+    if kind == "mapping":
+        out = {"is_mapping": True}
+        key, value = inner(shape[1]), inner(shape[2])
+        if key is not None:
+            out["key_type"] = key
+        if value is not None:
+            out["value_type"] = value
+        return out
+    out = {"is_list": True}
+    if shape[2] is not None:
+        out["items"] = [inner(a) or {"type": "Any"} for a in shape[2]]
+    else:
+        item = inner(shape[1])
+        if item is not None:
+            out["item_type"] = item
+    return out
+
+
+def parse_container_text(text):
+    """A dict or list written as text, the way a form field or a table cell carries one: JSON
+    (`{"offset": 1.5}`, `[1, 2]`) or Python's own literal (`{'offset': 1.5}`, `(1, 2)`). None
+    when the text is neither, including text that only starts like one: a wells selection
+    `plate[A1:H1]` or any other string is left to the driver."""
+    if not isinstance(text, str):
+        return None
+    stripped = text.strip()
+    if not stripped or stripped[0] not in "{[(":
+        return None
+    try:
+        value = json.loads(stripped)
+    except ValueError:
+        try:
+            value = ast.literal_eval(stripped)
+        except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+            return None
+    return value if isinstance(value, (dict, list, tuple, set, frozenset)) else None
 
 
 def _argument_name(arg) -> str:
@@ -75,6 +173,7 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
     is_numeric = False
     fields = {}
     nullable = False
+    container = {}
     _seen = set() if _seen is None else _seen
     # `Annotated[float, Unit("mL")]`: the type is what sits underneath, and what the markers say
     # is added at the end. A method's parameters have theirs read by _resolve_markers (the hints
@@ -109,6 +208,14 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
         # Check for bool
         if annotation is bool:
             options = ["True", "False"]
+
+        # A dict or a list: said apart, with what its keys, values or items are, so a form can
+        # take one as text and check it (paramTypes.ts), and the call can cast its contents
+        # (cast_value). The type's name alone (`Dict[str, float]`) told the pages nothing a
+        # substring test could trust: "int" in "Dict[str, int]" made it a number box.
+        shape = _container_shape(annotation)
+        if shape is not None:
+            container = _describe_container(shape, _depth, _seen | {id(annotation)})
 
         # A model that contains itself (directly or through a cycle) would otherwise recurse
         # forever; expanding it once and reporting the repeat as a plain leaf is enough for
@@ -161,11 +268,13 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
         # Optional[X] / Union[X, None] is still just X as far as a form (or an objective) is
         # concerned — without unwrapping it, an optional enum loses its choices, an optional
         # dataclass loses its fields, and an Optional[float] return stops looking numeric.
-        if options is None and not is_object:
+        # A union only: this used to unwrap any generic of one argument, so `List[float]` was
+        # numeric, `List[Color]` one dropdown and `List[Point]` one object's fields.
+        if options is None and not is_object and _is_union(annotation):
             try:
                 all_args = get_args(annotation)
                 args = [a for a in all_args if a is not type(None)]
-                if get_origin(annotation) is not None and len(args) == 1:
+                if len(args) == 1:
                     # A None arm was stripped: the parameter accepts None, and a validator must
                     # not call a deliberate None "missing" or "not a number".
                     nullable = len(args) < len(all_args)
@@ -179,6 +288,9 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
                         param_type = inner["type"]
                     elif inner.get("numeric"):
                         is_numeric = True
+                    elif inner.get("is_mapping") or inner.get("is_list"):
+                        # `Optional[Dict[str, float]]` is a dict a form can leave as None.
+                        container = {k: inner[k] for k in ("is_mapping", "is_list", "key_type", "value_type", "item_type", "items") if k in inner}
                     # `Optional[Annotated[float, Unit("mL")]]` keeps the Annotated inside the
                     # Union: its markers still apply, and the type reads "Optional[float]"
                     # rather than the Annotated repr.
@@ -203,6 +315,7 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
     if is_numeric:
         # Marks a leaf an optimizer can use as an objective — see build_return_paths.
         param_data["numeric"] = True
+    param_data.update(container)
 
     if default != inspect.Parameter.empty:
         import enum
@@ -940,6 +1053,15 @@ def cast_value(annotation, val):
             return cast_value(arms[0], val)
         return val
 
+    # A dict or a list: parsed from text when that is how it arrived (a form field, a table
+    # cell), then its keys, values or items cast by their own annotations, as the schema promised
+    # (`Dict[str, float]` with `{"a": "1.5"}` reaches the driver as {"a": 1.5}; `Dict[int, str]`
+    # gets its JSON keys back as ints). Before, the text itself reached the driver, and a bare
+    # `list` got `list("[1, 2]")`: the characters.
+    shape = _container_shape(annotation)
+    if shape is not None:
+        return _cast_container(shape, annotation, val)
+
     import dataclasses
     if dataclasses.is_dataclass(annotation) and isinstance(val, dict):
         kwargs = {}
@@ -969,6 +1091,38 @@ def cast_value(annotation, val):
         except Exception:
             return val
     return val
+
+def _cast_container(shape, annotation, val):
+    given = val
+    if isinstance(val, str):
+        given = parse_container_text(val)
+        if given is None:
+            # Not a dict or list written as text (a wells selection, `plate[A1:H1]`, is typed
+            # Sequence[str] by some drivers): the driver gets the text, as before.
+            return val
+    kind = shape[0]
+    if kind == "mapping":
+        if not isinstance(given, dict):
+            return val
+        _, key_ann, value_ann = shape
+        return {cast_value(key_ann, k): cast_value(value_ann, v) for k, v in given.items()}
+    if isinstance(given, dict) or not isinstance(given, (list, tuple, set, frozenset)):
+        return val
+    _, item_ann, fixed = shape
+    items = list(given)
+    if fixed is not None:
+        casted = [cast_value(a, v) for a, v in zip(fixed, items)] + items[len(fixed):]
+    else:
+        casted = [cast_value(item_ann, v) for v in items]
+    origin = get_origin(annotation) or annotation
+    if origin is frozenset:
+        return frozenset(casted)
+    if origin in (set, _abc.Set, _abc.MutableSet):
+        return set(casted)
+    if origin is tuple:
+        return tuple(casted)
+    return casted
+
 
 def cast_arguments(method, args):
     if not args:

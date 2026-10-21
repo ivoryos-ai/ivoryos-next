@@ -10,6 +10,7 @@ import DeckHistory from '@/components/DeckHistory';
 import FieldGuardDialog, { type GuardedField } from '@/components/safety/FieldGuardDialog';
 import { ExtraArguments, ResultView, SuggestInput, TrayPicker, confirmDialog, fieldGuard, guardHint, guardProblem, guardSuggestions, isOptionalObject, objectGiven, trayOf, unitOf, useDocumentTheme, type TrayView } from '@ivoryos/shared-ui';
 import { useEdgeTopic } from '@/edgeSocket';
+import { isNumericType, isBoolType, bareTypeName, containerKind, containerExample, containerProblem, notify } from '@ivoryos/shared-ui';
 
 /** Whether anything was typed into a form value, at any depth. */
 const anyTyped = (v: unknown): boolean =>
@@ -127,6 +128,7 @@ export default function InstrumentsPage() {
     // them one at a time turns a four-field form into four rejected attempts.
     const argsToSubmit: Record<string, unknown> = {};
     const missing: string[] = [];
+    const wrong: string[] = [];
 
     const walk = (schemaParams: Record<string, ParamSchema>, values: Record<string, unknown> | undefined, prefix: string, sink: Record<string, unknown>) => {
       for (const [paramName, pData] of Object.entries(schemaParams || {})) {
@@ -153,6 +155,14 @@ export default function InstrumentsPage() {
             continue;
           }
         }
+        // A dict or a list typed as text the edge could not read, or holding a key, value or
+        // item of the wrong type (paramTypes.ts): said here, with the field marked.
+        const containerIssue = containerProblem(pData, val);
+        if (containerIssue) {
+          wrong.push(`${path} ${containerIssue}`);
+          missing.push(path);
+          continue;
+        }
         sink[paramName] = val;
       }
     };
@@ -169,6 +179,9 @@ export default function InstrumentsPage() {
       }
     }
 
+    if (wrong.length > 0) {
+      await notify(wrong.join('\n'), { title: 'A value the method cannot take', tone: 'error' });
+    }
     if (missing.length > 0) {
       // Marked on the fields themselves rather than announced. alert() is a silent no-op in the
       // desktop app's webview, so this check was invisible there and a browser popup everywhere
@@ -510,7 +523,7 @@ export default function InstrumentsPage() {
                                     <span className="break-all">{paramLabel}</span>
                                     {pData.required && <span className="text-red-500/80 dark:text-red-400/70 ml-1 text-sm leading-none shrink-0">*</span>}
                                   </label>
-                                  {displayType.includes('bool') ? (
+                                  {isBoolType(pData) ? (
                                     <select
                                       value={currentValue !== undefined ? currentValue.toString() : (pData.default !== undefined ? pData.default.toString() : '')}
                                       className={`w-full bg-gray-50 dark:bg-black/40 border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none transition-colors text-gray-900 dark:text-white ${fieldBorder}`}
@@ -523,18 +536,18 @@ export default function InstrumentsPage() {
                                   ) : (
                                     <div className="flex items-center gap-1.5">
                                       <SuggestInput
-                                        type={displayType.includes('int') || displayType.includes('float') ? 'number' : 'text'}
-                                        step={displayType.includes('float') ? 'any' : '1'}
+                                        type={isNumericType(pData) ? 'number' : 'text'}
+                                        step={bareTypeName(pData.type) === 'float' ? 'any' : '1'}
                                         // Enum / Literal parameters know their accepted values, so offer them as
                                         // suggestions instead of leaving the operator to guess the spelling. A
                                         // field the guard narrows (a tray, an allowed list) offers only those.
                                         suggestions={guard?.tray || guard?.allowed ? guardSuggestions(guard, safety) : (pData.options || []).map((o: any) => String(o))}
                                         value={currentValue !== undefined ? currentValue : (pData.default !== undefined ? pData.default : '')}
                                         className={`w-full bg-gray-50 dark:bg-black/40 border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none transition-colors text-gray-900 dark:text-white ${refused ? 'border-red-400 dark:border-red-500/60 focus:border-red-500' : fieldBorder}`}
-                                        placeholder={displayType}
+                                        placeholder={containerKind(pData) ? containerExample(pData) : displayType}
                                         onChange={(e) => {
                                           let val: any = e.target.value;
-                                          if (displayType.includes('int') || displayType.includes('float')) {
+                                          if (isNumericType(pData)) {
                                             if (val !== '' && !isNaN(Number(val))) val = Number(val);
                                           }
                                           handleInputChange(instName, methodName, paramPath, val);

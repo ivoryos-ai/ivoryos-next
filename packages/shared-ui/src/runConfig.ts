@@ -14,6 +14,7 @@
  */
 
 import { takesRowList } from './labware';
+import { isNumericType } from './paramTypes';
 
 /** Thrown for a value that is missing or of the wrong shape. Message is user-facing verbatim. */
 export class RunConfigError extends Error {
@@ -54,11 +55,6 @@ export interface ResolveOptions {
    */
   rowValues?: (varName: string) => { value: any; where: string }[];
 }
-
-const isNumericType = (type: unknown) => {
-  const hint = String(type || '').toLowerCase();
-  return hint.includes('int') || hint.includes('float');
-};
 
 /**
  * A value that says "no value" on purpose, chosen per cell (one row can use the driver's default
@@ -184,7 +180,7 @@ export function resolveBlockParams(block: any, opts: ResolveOptions): Record<str
               // One call acts on every row's value: a row cannot leave its share to a default.
               throw new RunConfigError(`${where} needs a value: this step takes one from every row of its batch in one call`);
             }
-            if (!isNumericType(declared?.type)) return value;
+            if (!isNumericType(declared)) return value;
             if (isNaN(Number(value))) {
               if (opts.numeric === 'strict') {
                 throw new RunConfigError(`${where} expects a number (${declared?.type}), got '${value}'`);
@@ -215,7 +211,7 @@ export function resolveBlockParams(block: any, opts: ResolveOptions): Record<str
           return;
         }
 
-        if (isNumericType(declared?.type)) {
+        if (isNumericType(declared)) {
           if (isNaN(Number(subVal))) {
             if (opts.numeric === 'strict') {
               const typedNone = String(subVal).trim() === 'None' && acceptsNone(declared);

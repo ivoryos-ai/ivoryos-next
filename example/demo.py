@@ -67,12 +67,14 @@ hplc = HPLC()
 
 # --- Synthetic test drivers (opt-in) ----------------------------------------------
 # if os.getenv("IVORYOS_DEMO_TEST_DRIVERS"):
-from dummy_driver import AsyncPumpDriver, DummyMathDriver, PumpDriver
+from dummy_driver import AsyncPumpDriver, DummyMathDriver, PumpDriver, SettingsStore
 from variadic_driver import VariadicProbe, VendorBridge
 
 test_pump = PumpDriver()
 test_async_pump = AsyncPumpDriver()
 test_math_driver = DummyMathDriver()
+# Dict and list arguments, one method per shape -- see dummy_driver.py.
+test_settings = SettingsStore()
 # Signature shapes that don't fit "a step stores named arguments": *args, **kwargs,
 # keyword-only, positional-only, decorated and compiled methods. Each one reports back
 # what actually reached the driver -- see variadic_driver.py.

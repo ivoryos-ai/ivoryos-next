@@ -25,6 +25,7 @@ import {
   confirmDialog,
   notify,
   promptDialog, useDocumentTheme, FLOW_CONTROL_PALETTE, workflowOutputs, getReturnLeaves, runtimeVarNames, mainOnlyLink } from '@ivoryos/shared-ui';
+import { isNumericType, containerProblem } from '@ivoryos/shared-ui';
 
 export default function DesignerPage() {
   const [statusData, setStatusData] = useState<any>(null);
@@ -669,8 +670,13 @@ export default function DesignerPage() {
 
           // A param typed int/float has to resolve to an actual number — anything else would
           // only fail once the run tries to cast it, so catch it here instead.
-          const typeStr = ((param as any)?.type || '').toLowerCase();
-          if ((typeStr.includes('int') || typeStr.includes('float')) && isNaN(Number(val))) {
+          const containerIssue = containerProblem(param, val);
+          if (containerIssue) {
+            await notify(`Parameter '${key}' in ${block.instrument}.${block.method} ${containerIssue}`,
+              { title: 'Wrong parameter type', tone: 'error' });
+            return false;
+          }
+          if (isNumericType(param) && isNaN(Number(val))) {
             await notify(`Parameter '${key}' in ${block.instrument}.${block.method} expects a number (or '#variable'), got '${val}'`,
               { title: 'Wrong parameter type', tone: 'error' });
             return false;

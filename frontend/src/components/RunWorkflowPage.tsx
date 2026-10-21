@@ -30,6 +30,7 @@ import { useQueueBusy } from '@/queueBusy';
 import { editRunIdFromUrl, hydrateBlocks, leaveEdit, loadQueuedRun, proposalIdFromUrl, saveQueuedRun, sourceBlock, type QueuedEdit } from '@/queuedEdit';
 import { dismissProposal } from '@/runProposals';
 import { currentStages, loadStage, stageKeeper, type EmbeddedStage } from '@/stages';
+import { isNumericType } from '@ivoryos/shared-ui';
 
 /** One condition of Iterate's "Stop early": a saved result compared with a number. */
 type StopCondition = { metric: string; op: '>=' | '<='; threshold: string };
@@ -796,8 +797,7 @@ export default function RunWorkflowPage({ mode, stage }: {
   // A cell is only flagged once it has real content — an empty/untouched cell isn't wrong yet,
   // it's just unfilled (that's caught separately as "missing value" when Run is actually clicked).
   const isInvalidNumericCell = (v: string, val: any) => {
-    const typeHint = (varTypes[v] || '').toLowerCase();
-    if (!typeHint.includes('int') && !typeHint.includes('float')) return false;
+    if (!isNumericType(varTypes[v])) return false;
     if (val === undefined || val === null || val === '' || blankChoiceOf(val)) return false;
     return isNaN(Number(val));
   };
