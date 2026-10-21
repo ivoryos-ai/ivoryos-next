@@ -9,6 +9,7 @@ import { setPromptMinimized } from '@/inputPrompt';
 import { openQueue } from './QueueDrawer';
 import { notify } from '@ivoryos/shared-ui';
 import { buildProgress, positionText } from './RunProgress';
+import { useFinishedRunLinger } from '@/finishedRun';
 
 export default function GlobalQueueBar() {
   const [activeRun, setActiveRun] = useState<any>(null);
@@ -26,6 +27,9 @@ export default function GlobalQueueBar() {
   // card stands down while a run is showing; the idle chip stays, as the way into the queue.
   // Stages too: it draws its own LiveRun, and missing it here showed two idle chips side by side.
   const onRunPage = /^\/(once|execution|optimize|stages)(\/|$)/.test(pathname);
+  // A finished run leaves the card after a few seconds, as it leaves the run bar (finishedRun.ts).
+  // The card used to wait for a message without it, and after the last run none comes.
+  const keep = useFinishedRunLinger(activeRun, status?.awaiting_decision ?? null, id => setActiveRun((r: any) => (r && r.id === id ? null : r)));
 
   useEffect(() => {
     if (onLauncher) return;
@@ -62,10 +66,11 @@ export default function GlobalQueueBar() {
         setQueue(data.runs.slice(0, 3));
         setPendingCount(data.runs.filter((r: any) => r.status === 'pending').length);
     }
+    const waiting = data.status?.awaiting_decision ?? null;
     if (data.active_run) {
-        setActiveRun(data.active_run);
+        setActiveRun(keep(data.active_run, waiting));
     } else if (data.recent_run) {
-        setActiveRun(data.recent_run);
+        setActiveRun(keep(data.recent_run, waiting));
     } else if (data.status && !data.status.active_workflow_id) {
         setActiveRun(null);
     }

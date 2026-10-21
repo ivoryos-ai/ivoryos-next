@@ -2540,6 +2540,20 @@ def _default_frontend_dir():
     return os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "out")
 
 
+class UIFiles(StaticFiles):
+    """The built UI. Its pages are rechecked on every load (`no-cache`; an unchanged one comes
+    back as a cheap 304), as plugin pages are (PluginFiles). Without a caching header a browser
+    guesses how long a page stays fresh, and after the edge was updated it went on loading the old
+    page and the old scripts that page names, until a hard reload. Files under `_next/static/` are
+    named by their content, so a name never changes meaning: those are kept."""
+
+    def file_response(self, full_path, stat_result, scope, status_code=200):
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        immutable = scope.get("path", "").startswith("/_next/static/")
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable" if immutable else "no-cache"
+        return response
+
+
 def _alias_main_script(module_name):
     """Make `import demo` from inside a plugin return the running script, not a second copy.
 
@@ -2750,7 +2764,7 @@ def run(module_name: str = None, port: int = None, plugins: list = None, *,
     # Serve the static Next.js export last so it doesn't intercept plugin routes
     frontend_out = frontend_dir or _default_frontend_dir()
     if os.path.exists(frontend_out):
-        app.mount("/", StaticFiles(directory=frontend_out, html=True), name="static")
+        app.mount("/", UIFiles(directory=frontend_out, html=True), name="static")
     else:
         print(f"Warning: Frontend build directory not found at {frontend_out}")
 
