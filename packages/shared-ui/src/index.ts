@@ -59,6 +59,7 @@ export type { ResolveOptions, ResolvedStep, BlankChoice, BlankChoices } from './
 export { BlankChoiceField, BlankChoiceOptions, blankLabel } from './BlankChoice';
 export {
   isRowActive,
+  fitRowsToColumns,
   groupSizeFor,
   chunkRowGroups,
   expandSpreadsheet,
