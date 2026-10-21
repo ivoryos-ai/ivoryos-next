@@ -179,6 +179,13 @@ have two profiles: "Bench A" with `PUMP_PORT=COM3`, "Bench B" with `COM4`.
 **Arguments** do the same job for scripts written to read them, e.g. with `argparse`:
 `python demo.py --simulate`. Most IvoryOS scripts do not read any, so leave the field empty.
 
+**Imports from your own project.** Python looks for imports in the script's own folder; PyCharm
+also looks in the project you opened. The launcher does the same: the folders above the script
+that look like a project (holding `pyproject.toml`, `setup.py`, `requirements.txt`, `.git` or
+`.idea`), their `src/` folder, and the working folder are on the module path. So
+`from drivers import Pump` in `repo/scripts/deck.py` finds `repo/drivers/` from the launcher as it
+does in PyCharm. For a folder somewhere else, add a `PYTHONPATH` environment variable.
+
 The launcher also sets a few variables itself, which is how a script started from it lands on the
 profile's port without being changed: `IVORYOS_PORT`, `IVORYOS_HOST`, and `IVORYOS_DATA_DIR` if
 the profile has its own data folder. `ivoryos_edge.run(__name__)` reads them.

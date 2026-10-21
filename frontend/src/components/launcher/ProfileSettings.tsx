@@ -93,7 +93,7 @@ export default function ProfileSettings({ api, profile, link, sharedWith, onRemo
               folder={draft.cwd || (draft.script ? draft.script.replace(/[\\/][^\\/]*$/, '') : null)}
               onChoose={p => set('python', p)}
             />
-            <Field label="Working folder">
+            <Field label="Working folder" hint="Where the script runs. Python finds imports in the script’s own folder, here, and in the project above the script (the folders holding pyproject.toml, setup.py, requirements.txt, .git or .idea, and their src/), as PyCharm does. For another folder, add a PYTHONPATH variable below.">
               <div className="flex gap-2">
                 <input value={draft.cwd || ''} onChange={e => set('cwd', e.target.value)} className={`${inputClass} font-mono`} />
                 <Button onClick={() => pick('folder', p => set('cwd', p))}>Browse…</Button>

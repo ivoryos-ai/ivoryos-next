@@ -15,6 +15,7 @@
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const DECK_FORMAT = 'ivoryos-deck/1';
@@ -166,6 +167,59 @@ function saveProfiles(home, store) {
  * @param {object} profile
  * @param {{python: string, frontendDir?: string|null}} ctx  the launcher's venv python and the bundled UI
  */
+// What marks a folder as a project's root: what PyCharm opens, or what a package carries.
+const PROJECT_MARKERS = ['pyproject.toml', 'setup.py', 'setup.cfg', 'requirements.txt', '.git', '.hg', '.idea'];
+// The repository (or the folder an IDE opened): the walk up ends with it.
+const REPOSITORY_MARKERS = ['.git', '.hg', '.idea'];
+
+const isPlainFolder = (folder) => {
+    try {
+        return fs.statSync(folder).isDirectory() && !fs.existsSync(path.join(folder, '__init__.py'));
+    } catch {
+        return false;
+    }
+};
+
+/**
+ * The folders a script's imports are resolved against, as a PYTHONPATH value, or null for none.
+ *
+ * `python script.py` puts only the script's own folder on sys.path, so `from drivers import Pump`
+ * in `repo/scripts/deck.py` fails for `repo/drivers/` with "No module named 'drivers'", although
+ * the same script runs in PyCharm, which puts the project's root (the folder it opened) and its
+ * source roots on the path (GitHub issue 37). The launcher does the same: every folder above the
+ * script that looks like a project root (pyproject.toml, setup.py, setup.cfg, requirements.txt,
+ * .git, .hg, .idea), nearest first, up to and including the first that holds a repository or IDE
+ * marker; a `src/` folder in each that is not itself a package (the src layout); and the working
+ * folder, when it is not the script's own. The person's own PYTHONPATH (the profile's variable,
+ * then the launcher's environment) comes first. Never the home folder or the filesystem root: a
+ * `.git` there would put everything on the path.
+ */
+function modulePathFor(script, cwd, own = []) {
+    const scriptDir = path.dirname(path.resolve(script));
+    const stop = new Set([os.homedir(), path.parse(scriptDir).root].map((p) => path.resolve(p)));
+    const roots = [];
+    for (let dir = scriptDir; !stop.has(dir); ) {
+        const has = (name) => fs.existsSync(path.join(dir, name));
+        if (PROJECT_MARKERS.some(has)) roots.push(dir);
+        if (REPOSITORY_MARKERS.some(has)) break;
+        const parent = path.dirname(dir);
+        if (parent === dir) break;
+        dir = parent;
+    }
+    const entries = [];
+    for (const value of own) {
+        for (const part of String(value || '').split(path.delimiter)) if (part) entries.push(part);
+    }
+    if (cwd && path.resolve(cwd) !== scriptDir) entries.push(path.resolve(cwd));
+    for (const root of roots) {
+        entries.push(root);
+        const src = path.join(root, 'src');
+        if (isPlainFolder(src)) entries.push(src);
+    }
+    const unique = [...new Set(entries)];
+    return unique.length ? unique.join(path.delimiter) : null;
+}
+
 function commandFor(profile, ctx) {
     const host = profile.listenOnNetwork ? '0.0.0.0' : '127.0.0.1';
     const env = {
@@ -181,11 +235,13 @@ function commandFor(profile, ctx) {
         ...(ctx.frontendDir ? { IVORYOS_FRONTEND_DIR: ctx.frontendDir } : {}),
     };
     if (profile.kind === 'script') {
+        const cwd = profile.cwd || path.dirname(profile.script);
+        const modulePath = modulePathFor(profile.script, cwd, [profile.env && profile.env.PYTHONPATH, process.env.PYTHONPATH]);
         return {
             command: profile.python || ctx.python,
             args: [profile.script, ...profile.args],
-            cwd: profile.cwd || path.dirname(profile.script),
-            env,
+            cwd,
+            env: modulePath ? { ...env, PYTHONPATH: modulePath } : env,
             port: profile.port,
         };
     }
@@ -216,6 +272,7 @@ function writeDeckFile(file, deck) {
 }
 
 module.exports = {
+    modulePathFor,
     DEFAULT_PORT, loadProfiles, saveProfiles, withDefaults, validateProfile, commandFor,
     readDeckFile, writeDeckFile, profileDir, newId,
 };
