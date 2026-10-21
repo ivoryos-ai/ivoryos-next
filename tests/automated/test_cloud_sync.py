@@ -282,11 +282,21 @@ async def test_sync_now_needs_a_connection(edge, monkeypatch):
 
 # --- a repeated step: one run at a time, each numbered -----------------------------------------
 
-async def wait_for_statuses(broker, node_id, wanted, timeout_s=5.0):
+def task_statuses(broker, node_id):
+    """One node's status reports, in order. A progress update is not a change of status."""
+    return [m["payload"] for m in broker.on("/task-status")
+            if m["payload"].get("nodeId") == node_id and "progress" not in m["payload"]]
+
+
+async def wait_for_statuses(broker, node_id, wanted, timeout_s=5.0, since=0):
+    """The node's reports from the `since`-th on, once the last of them is `wanted`.
+
+    `since` is how many the node had before the run being waited for was sent. A node sent
+    again already ends in its previous run's "completed", which would otherwise be returned at
+    once, before the new run had reported anything (a slow CI runner did exactly that)."""
     deadline = asyncio.get_event_loop().time() + timeout_s
     while asyncio.get_event_loop().time() < deadline:
-        seen = [m["payload"] for m in broker.on("/task-status")
-                if m["payload"].get("nodeId") == node_id and "progress" not in m["payload"]]
+        seen = task_statuses(broker, node_id)[since:]
         if [p["status"] for p in seen][-1:] == [wanted]:
             return seen
         await asyncio.sleep(0.05)
@@ -318,11 +328,13 @@ async def test_each_run_of_a_repeated_step_reports_its_number_and_its_own_clock(
         assert result["result"]["parameters"]["cloud_occurrence"]["index"] == 3
 
         # The next run of the same step is numbered afresh; a step that is not repeated has none.
+        # Only run 4's own reports are waited for: run 3's "completed" is still the last one.
+        before = len(task_statuses(broker, "n1"))
         await server.handle_cloud_task({"runId": "cloud_rep", "nodeId": "n1", "block": block,
                                         "occurrence": {"index": 4, "total": 20}})
-        await asyncio.sleep(0.05)
-        seen = await wait_for_statuses(broker, "n1", "completed")
-        assert seen[-1]["occurrence"] == 4
+        seen = await wait_for_statuses(broker, "n1", "completed", since=before)
+        assert [p["status"] for p in seen] == ["running", "completed"]
+        assert all(p["occurrence"] == 4 for p in seen)
         await server.handle_cloud_task({"runId": "cloud_once", "nodeId": "n2", "block": block})
         once = await wait_for_statuses(broker, "n2", "completed")
         assert all("occurrence" not in p for p in once)
