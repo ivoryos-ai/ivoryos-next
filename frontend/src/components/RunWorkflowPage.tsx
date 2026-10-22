@@ -22,7 +22,7 @@ import {
   toSubmittedStep,
   toWireBlock, useDocumentTheme, runtimeVarNames, splitRepeatedLinks, mainOnlyLinks,
   TrayPicker, guardHint, guardProblem, guardSuggestions, guardsFor, trayForGuards, unitOf, SuggestInput,
-  formatReference, referenceStart, rowListVariables, RunConfigError, isRowActive,
+  formatReference, referenceStart, rowListVariables, RunConfigError, isRowActive, fitRowsToColumns,
   blankChoicesFor, blankChoiceOf, BlankChoiceField, BlankChoiceOptions,
   type FieldGuard, type FieldRef, type BlankChoices } from '@ivoryos/shared-ui';
 import Link from 'next/link';
@@ -424,11 +424,15 @@ export default function RunWorkflowPage({ mode, stage }: {
         }
         setGlobalValues(initialGlobals);
         
-        // Init rows from memory or empty
+        // Init rows from memory or empty. The browser's rows outlive the workflow they were typed
+        // for: loaded for this one, they keep the columns the two share and lose the rest, so a
+        // row of the last workflow's values (or its None / Default markers) under names this one
+        // never asks for is a blank row here, not a sample. A queued run's or a stage's rows were
+        // made for these columns, and a running run's started rows must go back as they are.
         const savedRows = restored ? (restored.rows.length ? JSON.stringify(restored.rows) : null) : localStorage.getItem('ivoryos_spreadsheet');
         let initialRows = [];
         if (savedRows) {
-            initialRows = JSON.parse(savedRows);
+            initialRows = restored ? JSON.parse(savedRows) : fitRowsToColumns(JSON.parse(savedRows), varList);
         } else {
             for (let i = 0; i < 5; i++) {
                 const initRow: Record<string, any> = {};
@@ -535,9 +539,8 @@ export default function RunWorkflowPage({ mode, stage }: {
       if (!next[locked + i]) next[locked + i] = Object.fromEntries(variables.map(v => [v, '']));
       next[locked + i][variable] = value;
     });
-    const isEmpty = (r: Record<string, any>) => variables.every(v => r[v] === undefined || r[v] === null || r[v] === '');
     for (let i = locked + fill.length; i < next.length; i++) next[i][variable] = '';
-    while (next.length > Math.max(1, locked + fill.length) && isEmpty(next[next.length - 1])) next.pop();
+    while (next.length > Math.max(1, locked + fill.length) && !isRowActive(next[next.length - 1], variables)) next.pop();
     setRows(next);
   };
 
@@ -661,7 +664,7 @@ export default function RunWorkflowPage({ mode, stage }: {
   // Once runs the first row only, start to finish. A run under way is changed with its blank rows
   // left out, so each sample's place in the table is its place in the run (the edge matches the
   // samples already started by it).
-  const runRows = once ? rows.slice(0, 1) : editing?.live ? rows.filter(isRowActive) : rows;
+  const runRows = once ? rows.slice(0, 1) : editing?.live ? rows.filter(r => isRowActive(r, variables)) : rows;
   const runBatchSize = once ? '' : batchSize;
 
   /**
@@ -811,7 +814,8 @@ export default function RunWorkflowPage({ mode, stage }: {
   // step 1, then every row's step 2), so it also decides whether rows interleave. Blank is 1 —
   // each row start to finish — and the field shows whenever there are rows to group.
   const hasBatchSize = parseInt(batchSize) > 1;
-  const activeRowCount = rows.filter(r => Object.values(r || {}).some(v => v !== undefined && v !== null && v !== '')).length;
+  // The samples the preview counts: judged by this workflow's columns, as the walk judges them.
+  const activeRowCount = rows.filter(r => isRowActive(r, variables)).length;
 
   // Embedded in the Stages page, only the configuration itself is drawn: that page has the
   // sidebar, the tabs and the run bar.

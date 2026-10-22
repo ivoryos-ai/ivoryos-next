@@ -31,9 +31,38 @@ import { isFlowControlInstrument } from './flowControl';
 
 export type SpreadsheetRow = Record<string, any>;
 
-/** A row with nothing in it at all is skipped when expanding, but never shifts a group boundary. */
-export const isRowActive = (row: SpreadsheetRow) =>
-  Object.values(row || {}).some((v) => v !== undefined && v !== null && v !== '');
+/**
+ * Whether a row is a sample: it holds something under at least one of the table's columns. A
+ * row with nothing in it is skipped when expanding, but never shifts a group boundary. A cell's
+ * None / Default marker (runConfig.ts) is something, so a row of markers is a sample.
+ *
+ * Only the current columns are judged. A row kept in the browser from the last workflow can still
+ * carry that workflow's keys (`volume_ml: '<None>'`) under new columns it has nothing for; judged
+ * by every key it holds, such a row read as a sample, so Run refused it ("Missing value for
+ * 'vol_1' in row 2") and the preview counted it. `fitRowsToColumns` drops those keys when a page
+ * loads its rows; this is the same rule for a row that reaches the walk by another door.
+ *
+ * `variables` is checked to be an array because `rows.filter(isRowActive)` would hand this the
+ * row's index as its second argument (AGENTS.md section 15 records that bug): without columns
+ * the old rule, any key at all, applies.
+ */
+export const isRowActive = (row: SpreadsheetRow, variables?: readonly string[]) => {
+  const cells = Array.isArray(variables) ? variables.map((v) => row?.[v]) : Object.values(row || {});
+  return cells.some((v) => v !== undefined && v !== null && v !== '');
+};
+
+/**
+ * The rows reshaped to exactly these columns: a value under a column that still exists is kept
+ * (a person switching between two similar workflows keeps what the two share), a key that is no
+ * longer a column is dropped, and a new column starts empty. The Iterate page passes its stored
+ * rows through this when it loads a workflow, so a row left from the last one cannot count as a
+ * sample for this one.
+ */
+export function fitRowsToColumns(rows: SpreadsheetRow[], variables: readonly string[]): SpreadsheetRow[] {
+  return (rows || []).map((row) =>
+    Object.fromEntries(variables.map((v) => [v, row && row[v] !== undefined && row[v] !== null ? row[v] : ''])),
+  );
+}
 
 /**
  * Rows per batch group. A blank/invalid batch size means 1: each row runs the whole sequence start
@@ -58,12 +87,12 @@ export interface RowGroup {
  * are trailing unused rows), but the boundaries themselves are never content-dependent — see
  * rule 2 above.
  */
-export function chunkRowGroups(rows: SpreadsheetRow[], groupSize: number): RowGroup[] {
+export function chunkRowGroups(rows: SpreadsheetRow[], groupSize: number, variables?: readonly string[]): RowGroup[] {
   const groups: RowGroup[] = [];
   const size = Math.max(1, groupSize);
   for (let start = 0; start < rows.length; start += size) {
     const slice = rows.slice(start, start + size);
-    if (slice.some(isRowActive)) {
+    if (slice.some((row) => isRowActive(row, variables))) {
       groups.push({ rows: slice, start, number: Math.floor(start / size) + 1 });
     }
   }
@@ -194,11 +223,11 @@ export function expandSpreadsheet(opts: ExpandOptions): ExpandedSpreadsheetStep[
     return out;
   }
 
-  if (!rows.some(isRowActive)) {
+  if (!rows.some((row) => isRowActive(row, variables))) {
     throw new RunConfigError('Fill in at least one row before running.');
   }
 
-  const groups = chunkRowGroups(rows, groupSizeFor(batchSize));
+  const groups = chunkRowGroups(rows, groupSizeFor(batchSize), variables);
   const segments = sequenceSegments(sequence);
 
   for (const group of groups) {
@@ -212,7 +241,7 @@ export function expandSpreadsheet(opts: ExpandOptions): ExpandedSpreadsheetStep[
       if (sequence[segment.start].isBatchAction) {
         const active = group.rows
           .map((row, r) => ({ row, index: group.start + r }))
-          .filter(({ row }) => isRowActive(row));
+          .filter(({ row }) => isRowActive(row, variables));
         blocks.forEach((block, k) => {
           const perRow = Object.keys(rowListArgumentsOf(block, skip));
           out.push({
@@ -241,7 +270,7 @@ export function expandSpreadsheet(opts: ExpandOptions): ExpandedSpreadsheetStep[
 
       for (let r = 0; r < group.rows.length; r++) {
         const rowData = group.rows[r];
-        if (!isRowActive(rowData)) continue; // an unused row inside a group has nothing to run
+        if (!isRowActive(rowData, variables)) continue; // an unused row inside a group has nothing to run
         const rowIndex = group.start + r;
         blocks.forEach((block, k) => {
           out.push({
@@ -320,7 +349,7 @@ export function buildSpreadsheetParameters(opts: {
   return {
     type: variables.length > 0 ? 'Spreadsheet' : 'Simple',
     variables,
-    rows: variables.length > 0 ? rows.filter(isRowActive) : [],
+    rows: variables.length > 0 ? rows.filter((row) => isRowActive(row, variables)) : [],
     ...(variables.length > 0 ? { batch_size: groupSizeFor(batchSize) } : {}),
     sequence_template: sequence.map((b) => ({
       instrument: b.instrument,

@@ -474,8 +474,9 @@ export function isPaced(node: any): boolean {
  */
 export function firingGroupsOf(node: any): SpreadsheetRow[][] {
   const config = runConfigOf(node);
-  return chunkRowGroups(config.spreadsheet?.rows || [], groupSizeFor(config.spreadsheet?.batchSize))
-    .map((g) => g.rows.filter(isRowActive));
+  const vars = dynamicVarsOf(node);
+  return chunkRowGroups(config.spreadsheet?.rows || [], groupSizeFor(config.spreadsheet?.batchSize), vars)
+    .map((g) => g.rows.filter((row) => isRowActive(row, vars)));
 }
 
 /** "batch" when rows fire in groups, "row" when one at a time. */

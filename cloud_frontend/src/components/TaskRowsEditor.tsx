@@ -79,6 +79,8 @@ export default function TaskRowsEditor({ runId, nodeId, onClose }: { runId: stri
     else setProblem(`The device did not take the change: ${answer.error}`);
   }, [answer, onClose]);
 
+  const variables = loaded?.variables || [];
+
   const save = async () => {
     setProblem('');
     setNote('');
@@ -86,7 +88,7 @@ export default function TaskRowsEditor({ runId, nodeId, onClose }: { runId: stri
       const res = await fetch('/api/cloud-workflows/rows', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         // Blank rows are left out, so each sample's place here is its place in the run.
-        body: JSON.stringify({ runId, nodeId, rows: rows.filter(isRowActive) }),
+        body: JSON.stringify({ runId, nodeId, rows: rows.filter(r => isRowActive(r, variables)) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) { setProblem(data.error || 'Could not send the change.'); return; }
@@ -96,7 +98,6 @@ export default function TaskRowsEditor({ runId, nodeId, onClose }: { runId: stri
     }
   };
 
-  const variables = loaded?.variables || [];
   const blank = () => Object.fromEntries(variables.map(v => [v, '']));
 
   return createPortal(
