@@ -107,3 +107,5 @@ export type { TrayChoice, RowUnit } from './labware';
 export { TrayPicker } from './TrayPicker';
 export type { TrayPickerProps } from './TrayPicker';
 export { fieldText, parseField, changedArguments } from './stepEdits';
+export { bareTypeName, isNumericType, isBoolType, containerKind, parseContainerText, containerProblem, containerExample } from './paramTypes';
+export type { ContainerKind } from './paramTypes';

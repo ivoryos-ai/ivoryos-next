@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { SuggestInput } from './SuggestInput';
+import { parseContainerText } from './paramTypes';
 
 /**
  * Name/value rows for the arguments a `**kwargs` method takes but the schema cannot list.
@@ -61,6 +62,11 @@ export function coerceArgumentLiteral(text: string): unknown {
   }
   if (/^(true|false)$/i.test(trimmed)) return trimmed.toLowerCase() === 'true';
   if (trimmed !== '' && !Number.isNaN(Number(trimmed))) return Number(trimmed);
+  // A dict or a list, as JSON or Python's literal: `{"gain": 2}` is a dict, not the text of one.
+  if ('{[('.includes(trimmed[0])) {
+    const parsed = parseContainerText(trimmed);
+    if (parsed !== undefined) return parsed;
+  }
   return text;
 }
 

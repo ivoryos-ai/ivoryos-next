@@ -30,6 +30,7 @@ import { fieldGuard, guardHint, guardProblem, guardSuggestions, unitOf } from '.
 import { formatReference, referenceCount, referenceStart, referencesProblem, wellChoices, type TrayChoice } from './labware';
 import { TrayPicker } from './TrayPicker';
 import { addedObject, defaultParams, isOptionalObject, objectGiven } from './objectArgs';
+import { isNumericType, isBoolType, containerKind, containerProblem, containerExample, parseContainerText } from './paramTypes';
 
 // One named variable bound to one addressable leaf of a step's return value. `path` is the
 // dotted pointer the backend's introspection published in `schema.return_paths`
@@ -607,10 +608,13 @@ export default function WorkflowEditor({
     updateBlock(listId, blockId, block => {
       let parsedValue = value;
       if (typeof value === 'string' && !value.startsWith('#')) {
-        if (type.includes('bool')) {
+        // By the type's exact name (paramTypes.ts): "int" in "Dict[str, int]" used to make a
+        // dict's text a number whenever it happened to parse as one. A dict or a list stays
+        // text; the edge parses it at the call.
+        if (isBoolType(type)) {
           if (value.toLowerCase() === 'true') parsedValue = true;
           else if (value.toLowerCase() === 'false') parsedValue = false;
-        } else if (type.includes('int') || type.includes('float')) {
+        } else if (isNumericType(type)) {
           if (!isNaN(Number(value)) && value !== '') parsedValue = Number(value);
         }
       }
@@ -1657,10 +1661,16 @@ export default function WorkflowEditor({
                           // A param typed int/float has to be a '#variable' or an actual number —
                           // anything else would only fail once the run tries to cast it, so flag
                           // it here instead of letting that happen mid-run.
-                          const typeStr = (pData?.type || '').toLowerCase();
-                          const isNumericType = typeStr.includes('int') || typeStr.includes('float');
-                          if (isNumericType && !isDynamicRef && val !== undefined && val !== '' && isNaN(Number(val))) {
+                          if (isNumericType(pData) && !isDynamicRef && val !== undefined && val !== '' && isNaN(Number(val))) {
                               blockWarnings.push(`Parameter '${fullKey}' expects a number (or '#variable'), got '${val}'`);
+                              continue;
+                          }
+
+                          // A dict or a list typed as text the edge could not read, or holding a key,
+                          // value or item of the wrong type (paramTypes.ts).
+                          const containerIssue = isDynamicRef ? null : containerProblem(pData, val);
+                          if (containerIssue) {
+                              blockWarnings.push(`'${fullKey}' ${containerIssue}`);
                               continue;
                           }
 
@@ -1864,8 +1874,13 @@ export default function WorkflowEditor({
                                       opens the card on that field. */}
                                   {(() => {
                                     const valueAt = (path: string) => path.split('.').reduce((acc: any, part: string) => (acc && acc[part] !== undefined ? acc[part] : undefined), block.params);
-                                    const shown = (v: any) => {
+                                    const shown = (v: any, pData?: any) => {
                                       if (typeof v === 'object' && v !== null) return JSON.stringify(v);
+                                      // A dict or list typed as text reads as the value it is, not as a quoted string.
+                                      if (typeof v === 'string' && containerKind(pData)) {
+                                        const parsed = parseContainerText(v);
+                                        if (parsed !== undefined) return JSON.stringify(parsed);
+                                      }
                                       const t = String(v);
                                       return t === '' || /\s/.test(t) ? `"${t}"` : t;
                                     };
@@ -1879,8 +1894,8 @@ export default function WorkflowEditor({
                                         : unitOf(fieldGuard(statusData?.safety, block.instrument, block.method, key), pData?.unit);
                                       if (typeof v === 'string' && v.trim() === '#') args.push({ key, name, text: '#?', tone: 'missing' });
                                       // null is how a step dropped before None defaults were left out holds one: shown as None, not "null".
-                                      else if (v !== undefined && v !== '' && v !== null) args.push({ key, name, text: shown(v), tone: typeof v === 'string' && v.startsWith('#') ? 'var' : 'set', unit });
-                                      else if (pData?.default !== undefined && pData.default !== '' && pData.default !== null) args.push({ key, name, text: shown(pData.default), tone: 'default', unit });
+                                      else if (v !== undefined && v !== '' && v !== null) args.push({ key, name, text: shown(v, pData), tone: typeof v === 'string' && v.startsWith('#') ? 'var' : 'set', unit });
+                                      else if (pData?.default !== undefined && pData.default !== '' && pData.default !== null) args.push({ key, name, text: shown(pData.default, pData), tone: 'default', unit });
                                       else args.push({ key, name, text: pData?.required ? '?' : 'None', tone: pData?.required ? 'missing' : 'empty' });
                                     };
                                     const walk = (schemaObj: any, prefix: string) => {
@@ -2303,7 +2318,9 @@ export default function WorkflowEditor({
 
                                                 const displayType = (pData.type || '').replace(/<class '([^']+)'>/, '$1').replace('typing.', '');
                                                 const val = paramKey.split('.').reduce((acc: any, part: string) => acc && acc[part] !== undefined ? acc[part] : undefined, paramsObj);
-                                                const actualVal = val !== undefined ? val : (pData.default !== undefined && pData.default !== null ? String(pData.default) : '');
+                                                // A dict or list held as a value (a workflow an assistant wrote, an imported one) is edited as its JSON.
+                                                const fieldText = (v: any) => (typeof v === 'object' && v !== null ? JSON.stringify(v) : v);
+                                                const actualVal = val !== undefined ? fieldText(val) : (pData.default !== undefined && pData.default !== null ? String(fieldText(pData.default)) : '');
                                                 const hashInvalid = emptyHashFields.has(hashFieldKey(lId, bId, paramKey));
                                                 // The safety guard's limit on this field, if any: its
                                                 // values are offered, and the shield says what it allows.
@@ -2337,7 +2354,7 @@ export default function WorkflowEditor({
                                                           ...availableVars.map((v: string) => ({ value: `#${v}`, label: 'earlier step' })),
                                                         ]}
                                                         value={actualVal}
-                                                        placeholder={pData.default === null ? 'None' : pData.default !== undefined ? String(pData.default) : displayType}
+                                                        placeholder={pData.default === null ? 'None' : pData.default !== undefined ? String(fieldText(pData.default)) : containerKind(pData) ? containerExample(pData) : displayType}
                                                         onChange={(e) => {
                                                           handleParamChange(bId, paramKey, e.target.value, pData.type || '', lId);
                                                           clearHashWarning(lId, bId, paramKey);
@@ -2348,7 +2365,7 @@ export default function WorkflowEditor({
                                                           }
                                                           handleHashBlur(lId, bId, paramKey, e.target.value);
                                                         }}
-                                                        className={`w-28 h-6 rounded-md border bg-white px-1.5 font-mono text-[12px] focus:outline-none focus:border-accent dark:bg-white/5 placeholder:text-gray-300 dark:placeholder:text-gray-600 ${typeof actualVal === 'string' && actualVal.startsWith('#') ? 'font-semibold text-gray-900 bg-gray-50 dark:text-white dark:bg-white/10' : 'text-gray-900 dark:text-gray-100'} ${hashInvalid || guardRefuses ? 'border-red-400 dark:border-red-500/70' : 'border-gray-200 dark:border-white/10'}`}
+                                                        className={`${containerKind(pData) ? 'w-56' : 'w-28'} h-6 rounded-md border bg-white px-1.5 font-mono text-[12px] focus:outline-none focus:border-accent dark:bg-white/5 placeholder:text-gray-300 dark:placeholder:text-gray-600 ${typeof actualVal === 'string' && actualVal.startsWith('#') ? 'font-semibold text-gray-900 bg-gray-50 dark:text-white dark:bg-white/10' : 'text-gray-900 dark:text-gray-100'} ${hashInvalid || guardRefuses ? 'border-red-400 dark:border-red-500/70' : 'border-gray-200 dark:border-white/10'}`}
                                                       />
                                                       {/* The unit, after the value, as on the folded card. */}
                                                       {unit && <span className="shrink-0 text-gray-400 dark:text-gray-500" title={`Values are in ${unit}`}>{unit}</span>}
