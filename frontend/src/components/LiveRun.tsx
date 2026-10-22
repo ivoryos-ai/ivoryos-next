@@ -9,10 +9,10 @@ import StepEditDialog from './StepEditDialog';
 import { liveEditHref } from '@/queuedEdit';
 import { reviewSamplesHref, useRunProposals } from '@/runProposals';
 import { setPromptMinimized } from '@/inputPrompt';
-import RunProgress, { buildProgress, parseServerTime, positionText, type RunLike } from './RunProgress';
+import RunProgress, { buildProgress, positionText, type RunLike } from './RunProgress';
 import { openQueue } from './QueueDrawer';
+import { FINISHED, useFinishedRunLinger } from '@/finishedRun';
 
-const FINISHED = ['completed', 'cancelled', 'error'];
 /** The step view's height: remembered per browser, dragged with the handle along its top. */
 const HEIGHT_KEY = 'ivoryos_liverun_height';
 const DEFAULT_HEIGHT = 260;
@@ -20,13 +20,6 @@ const MIN_HEIGHT = 120;
 const maxHeight = () => (typeof window === 'undefined' ? 600 : Math.round(window.innerHeight * 0.7));
 /** After the person scrolls the steps themselves, leave their place alone for this long. */
 const HANDS_OFF_MS = 5000;
-/**
- * A finished run stays as the run bar this long, long enough to see how it ended, then the bar
- * shrinks back to the idle chip. Counted by a timer: after a run ends the edge sends nothing more,
- * so waiting for the next message to notice kept the bar wide indefinitely. (It used to linger 15
- * minutes on purpose; the result is in Data History.)
- */
-const LINGER_MS = 5000;
 
 /**
  * The run in progress, on the page that started it (Once, Iterate, Optimize), at the bottom of
@@ -64,7 +57,8 @@ export default function LiveRun() {
   const [closed, setClosed] = useState<number | null>(null);
   // A step still to come, open for changing.
   const [editingStep, setEditingStep] = useState<any>(null);
-  const finishedAt = useRef<Map<number, number>>(new Map());
+  // A finished run shrinks back to the idle chip after a few seconds (finishedRun.ts).
+  const keep = useFinishedRunLinger(run, awaiting, id => { setRun(r => (r && r.id === id ? null : r)); setOpen(false); });
   // Read in the initializer on purpose: this component renders nothing until a run arrives
   // from the client-side fetch, so the first (hydrated) render never depends on the value.
   const [height, setHeight] = useState<number>(() => {
@@ -107,17 +101,6 @@ export default function LiveRun() {
   }, []);
 
   useEdgeTopic('queue', data => {
-    // A finished run is shown for LINGER_MS from when it ended (or from when this page first saw
-    // it finished, if it has no end time). Decided here, as messages arrive, not while rendering.
-    const fresh = (next: RunLike | null, waiting: number | null = null) => {
-      // A run waiting on a failed step reads "error" but is not over: it stays until decided.
-      if (!next || !FINISHED.includes(next.status) || next.id === waiting) return next;
-      if (!finishedAt.current.has(next.id)) {
-        const ended = parseServerTime(next.end_time);
-        finishedAt.current.set(next.id, isFinite(ended) ? ended : Date.now());
-      }
-      return Date.now() - finishedAt.current.get(next.id)! > LINGER_MS ? null : next;
-    };
     if (data.runs) setQueued(data.runs.filter((r: RunLike) => r.status === 'pending').length);
     if (data.status) {
       setAwaiting(data.status.awaiting_decision ?? null);
@@ -125,19 +108,8 @@ export default function LiveRun() {
       setGraceful(!!data.status.graceful_stop);
       setPaused(!!data.status.queue_paused);
     }
-    setRun(fresh(data.active_run || data.recent_run || null, data.status?.awaiting_decision ?? null));
+    setRun(keep(data.active_run || data.recent_run || null, data.status?.awaiting_decision ?? null));
   });
-
-  // A finished run (not one waiting for a decision) goes back to the idle chip after LINGER_MS.
-  const runId = run?.id;
-  const over = !!run && FINISHED.includes(run.status) && run.id !== awaiting;
-  useEffect(() => {
-    if (!over || runId === undefined) return;
-    if (!finishedAt.current.has(runId)) finishedAt.current.set(runId, Date.now());
-    const wait = Math.max(0, finishedAt.current.get(runId)! + LINGER_MS - Date.now());
-    const timer = setTimeout(() => { setRun(r => (r && r.id === runId ? null : r)); setOpen(false); }, wait);
-    return () => clearTimeout(timer);
-  }, [over, runId]);
 
   // Keep the running step in view inside the step box: only that box scrolls, never the page.
   const runningId = (run?.steps || []).find(st => st.status === 'running' || st.status === 'waiting_input')?.id ?? null;
