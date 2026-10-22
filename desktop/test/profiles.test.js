@@ -180,3 +180,53 @@ test('a release without Cloud tells the decks it starts, so their own pages do n
     assert.equal(commandFor(profile, { python: 'python', cloudComingSoon: true }).env.IVORYOS_CLOUD_COMING_SOON, '1');
     assert.equal(commandFor(profile, { python: 'python' }).env.IVORYOS_CLOUD_COMING_SOON, undefined);
 });
+
+// GitHub issue 37: a script from an existing repository imported a package beside it
+// (`from drivers import ...`, `repo/drivers/`) and failed with "No module named 'drivers'" from
+// the launcher while it ran in PyCharm, which puts the project's root on the module path.
+test('a script profile puts its project on the module path, as PyCharm does', () => {
+    const home = tmp();
+    const repo = path.join(home, 'lab-repo');
+    fs.mkdirSync(path.join(repo, 'scripts'), { recursive: true });
+    fs.mkdirSync(path.join(repo, 'drivers'));
+    fs.mkdirSync(path.join(repo, 'src'));
+    fs.mkdirSync(path.join(repo, '.git'));
+    fs.writeFileSync(path.join(repo, 'pyproject.toml'), '[project]\nname = "lab"\n');
+    const script = path.join(repo, 'scripts', 'deck.py');
+    fs.writeFileSync(script, 'from drivers import pump\n');
+    const p = withDefaults(home, { kind: 'script', script, port: 8081, env: { PYTHONPATH: '/extra' } });
+    const cmd = commandFor(p, { python: '/venv/bin/python' });
+    const entries = cmd.env.PYTHONPATH.split(path.delimiter);
+    assert.equal(entries[0], '/extra', 'the profile’s own PYTHONPATH comes first');
+    assert.ok(entries.includes(repo), `the project root: ${entries}`);
+    assert.ok(entries.includes(path.join(repo, 'src')), 'a src layout');
+    assert.ok(!entries.includes(home), 'the walk ends at the repository');
+    assert.equal(cmd.cwd, path.join(repo, 'scripts'));
+});
+
+test('the module path has every project folder up to the repository, nearest first, and the working folder', () => {
+    const { modulePathFor } = require('../src/profiles');
+    const home = tmp();
+    const repo = path.join(home, 'mono');
+    const project = path.join(repo, 'labs', 'mylab');
+    fs.mkdirSync(path.join(project, 'scripts'), { recursive: true });
+    fs.mkdirSync(path.join(repo, '.idea'));
+    fs.writeFileSync(path.join(project, 'requirements.txt'), 'pyserial\n');
+    const script = path.join(project, 'scripts', 'deck.py');
+    fs.writeFileSync(script, '');
+    const entries = modulePathFor(script, repo, []).split(path.delimiter);
+    assert.deepEqual(entries, [repo, project]);
+    // A src/ that is a package of its own is not a source root.
+    fs.mkdirSync(path.join(project, 'src'));
+    fs.writeFileSync(path.join(project, 'src', '__init__.py'), '');
+    assert.deepEqual(modulePathFor(script, null, []).split(path.delimiter), [project, repo]);
+});
+
+test('a script with no project around it gets no module path of its own', () => {
+    const home = tmp();
+    const script = path.join(home, 'alone.py');
+    fs.writeFileSync(script, '');
+    const { modulePathFor } = require('../src/profiles');
+    assert.equal(modulePathFor(script, path.dirname(script), []), null);
+    assert.equal(modulePathFor(script, path.dirname(script), ['/mine']), '/mine', 'only what the person set');
+});
