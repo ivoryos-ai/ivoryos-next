@@ -1,6 +1,6 @@
 'use strict';
 // Keeping the app itself up to date, from the GitHub releases CI publishes
-// (.github/workflows/desktop.yml, a `desktop-v*` tag).
+// (.github/workflows/desktop.yml, a `v*` tag; releases up to 0.1.1 were tagged `desktop-v*`).
 //
 // Every system uses electron-updater: it reads latest.yml / latest-mac.yml / latest-linux.yml from
 // the newest release, downloads in the background, and installs on restart.
@@ -69,7 +69,7 @@ class Updates extends EventEmitter {
             this.updater.on('checking-for-update', () => this._set({ state: 'checking', message: null }));
             this.updater.on('update-not-available', () => this._set({ state: 'up-to-date', checkedAt: Date.now() }));
             this.updater.on('update-available', (info) => {
-                this._set({ state: 'available', version: info.version, checkedAt: Date.now(), releaseUrl: `${RELEASES_PAGE}/tag/desktop-v${info.version}` });
+                this._set({ state: 'available', version: info.version, checkedAt: Date.now(), releaseUrl: `${RELEASES_PAGE}/tag/v${info.version}` });
                 if (this.autoDownload()) this.download().catch(() => {});
             });
             this.updater.on('download-progress', (p) => this._set({ state: 'downloading', percent: Math.round(p.percent || 0) }));

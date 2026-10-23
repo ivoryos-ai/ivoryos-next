@@ -67,4 +67,10 @@ test('macOS outside Applications only checks, and links to the .dmg', async () =
     assert.equal(s.downloadUrl, 'https://dl/IvoryOS.dmg');
     const same = new Updates({ currentVersion: '0.3.0', packaged: true, platform: 'darwin', canInstall: false, fetch });
     assert.equal((await same.check()).state, 'up-to-date');
+    // From 0.1.2 on, one tag v<version> releases the app and the edge.
+    const vTagged = async () => new Response(JSON.stringify({ tag_name: 'v0.4.0', html_url: 'https://github.com/o/r/releases/tag/v0.4.0', assets: [] }));
+    const next = await new Updates({ currentVersion: '0.3.0', packaged: true, platform: 'darwin', canInstall: false, fetch: vTagged }).check();
+    assert.equal(next.state, 'available');
+    assert.equal(next.version, '0.4.0');
+    assert.equal(next.releaseUrl, 'https://github.com/o/r/releases/tag/v0.4.0');
 });
