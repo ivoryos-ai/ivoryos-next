@@ -165,7 +165,9 @@ function saveProfiles(home, store) {
 /**
  * How to start a profile: the command, its arguments, environment and working directory.
  * @param {object} profile
- * @param {{python: string, frontendDir?: string|null}} ctx  the launcher's venv python and the bundled UI
+ * @param {{python: string, frontendDir?: string|null, edgeHasUi?: boolean}} ctx  the launcher's
+ *   venv python, the bundled UI, and whether the edge in a script's own interpreter carries its
+ *   own UI (runtime.hasOwnUi; asked only for such a script)
  */
 // What marks a folder as a project's root: what PyCharm opens, or what a package carries.
 const PROJECT_MARKERS = ['pyproject.toml', 'setup.py', 'setup.cfg', 'requirements.txt', '.git', '.hg', '.idea'];
@@ -220,8 +222,19 @@ function modulePathFor(script, cwd, own = []) {
     return unique.length ? unique.join(path.delimiter) : null;
 }
 
+/** A script run by an interpreter other than the launcher's: its edge is the one installed there. */
+function usesOwnInterpreter(profile, launcherPython) {
+    return profile.kind === 'script' && !!profile.python && profile.python !== launcherPython;
+}
+
 function commandFor(profile, ctx) {
     const host = profile.listenOnNetwork ? '0.0.0.0' : '127.0.0.1';
+    // The pages must be the version of the API serving them. An edge in the launcher's venv was
+    // installed from the wheel built beside the app's copy of the UI, so it gets that copy. One in
+    // a script's own interpreter (a project's .venv, "Install IvoryOS here", `pip install`) can be
+    // any version, so it serves the UI it carries itself; it gets the app's copy only when it has
+    // none (an edge installed before its wheel carried the UI), since old pages beat none.
+    const frontendDir = usesOwnInterpreter(profile, ctx.python) && ctx.edgeHasUi ? null : ctx.frontendDir;
     const env = {
         // The Cloud this launcher points at, when someone chose one (a lab running its own on the
         // network); otherwise the edge keeps its built-in default. A profile's own env wins.
@@ -232,7 +245,7 @@ function commandFor(profile, ctx) {
         IVORYOS_PORT: String(profile.port),
         IVORYOS_HOST: host,
         ...(profile.dataDir ? { IVORYOS_DATA_DIR: profile.dataDir } : {}),
-        ...(ctx.frontendDir ? { IVORYOS_FRONTEND_DIR: ctx.frontendDir } : {}),
+        ...(frontendDir ? { IVORYOS_FRONTEND_DIR: frontendDir } : {}),
     };
     if (profile.kind === 'script') {
         const cwd = profile.cwd || path.dirname(profile.script);
@@ -249,7 +262,7 @@ function commandFor(profile, ctx) {
         command: ctx.python,
         args: ['-m', 'ivoryos_edge', '--deck', profile.deck, '--data-dir', profile.dataDir,
             '--port', String(profile.port), '--host', host,
-            ...(ctx.frontendDir ? ['--frontend-dir', ctx.frontendDir] : [])],
+            ...(frontendDir ? ['--frontend-dir', frontendDir] : [])],
         cwd: profile.dataDir,
         env,
         port: profile.port,
@@ -273,6 +286,6 @@ function writeDeckFile(file, deck) {
 
 module.exports = {
     modulePathFor,
-    DEFAULT_PORT, loadProfiles, saveProfiles, withDefaults, validateProfile, commandFor,
+    DEFAULT_PORT, loadProfiles, saveProfiles, withDefaults, validateProfile, commandFor, usesOwnInterpreter,
     readDeckFile, writeDeckFile, profileDir, newId,
 };

@@ -52,6 +52,27 @@ test('script profiles keep the script’s own data by default and pass port and 
     assert.equal(commandFor(own, { python: 'py', cloudUrl: 'http://lab-cloud:3000' }).env.IVORYOS_CLOUD_URL, 'http://mine:3000');
 });
 
+test('the app’s UI goes to edges in its venv; a script’s own interpreter serves the UI its edge carries', () => {
+    const home = tmp();
+    const script = path.join(home, 'deck.py');
+    fs.writeFileSync(script, 'import ivoryos_edge\nivoryos_edge.run(__name__)\n');
+    const ctx = { python: '/launcher/venv/bin/python', frontendDir: '/app/ui' };
+    const inLauncher = withDefaults(home, { kind: 'script', script });
+    assert.equal(commandFor(inLauncher, ctx).env.IVORYOS_FRONTEND_DIR, '/app/ui');
+    assert.equal(commandFor(inLauncher, { ...ctx, edgeHasUi: true }).env.IVORYOS_FRONTEND_DIR, '/app/ui');
+    const named = { ...inLauncher, python: '/launcher/venv/bin/python' };
+    assert.equal(commandFor(named, { ...ctx, edgeHasUi: true }).env.IVORYOS_FRONTEND_DIR, '/app/ui', 'the launcher’s python, chosen by path');
+    // A project's .venv ("Install IvoryOS here"): its edge can be another version than the app's.
+    const project = { ...inLauncher, python: path.join(home, '.venv', 'bin', 'python') };
+    assert.equal(commandFor(project, { ...ctx, edgeHasUi: true }).env.IVORYOS_FRONTEND_DIR, undefined);
+    // ...unless that edge has no UI of its own (installed before its wheel carried one).
+    assert.equal(commandFor(project, { ...ctx, edgeHasUi: false }).env.IVORYOS_FRONTEND_DIR, '/app/ui');
+    assert.equal(commandFor(project, { python: ctx.python, edgeHasUi: false }).env.IVORYOS_FRONTEND_DIR, undefined, 'a build with no UI');
+    const deck = withDefaults(home, { kind: 'deck' });
+    assert.deepEqual(commandFor(deck, { ...ctx, edgeHasUi: true }).args.slice(-2), ['--frontend-dir', '/app/ui']);
+    assert.equal(commandFor(deck, { ...ctx, edgeHasUi: true }).env.IVORYOS_FRONTEND_DIR, '/app/ui');
+});
+
 test('deck profiles run the deck through the CLI with their own data folder', () => {
     const home = tmp();
     const p = withDefaults(home, { kind: 'deck', name: 'Bench 3', listenOnNetwork: true });

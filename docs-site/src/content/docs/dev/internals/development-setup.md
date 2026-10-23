@@ -33,6 +33,7 @@ disk per request, so a rebuilt interface is picked up without a restart.
 npm install                              # once, from the repository root (npm workspaces)
 npm --prefix frontend run dev            # hot reload on :3000, talking to the edge on :8080
 npm --prefix frontend run build          # the static export the edge serves (frontend/out)
+npm run build:edge                       # the edge's sdist and wheel, with that interface inside
 ```
 
 Type-check before building: `npx tsc --noEmit -p .` in `frontend/`, `cloud_frontend/` or

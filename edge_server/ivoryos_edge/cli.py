@@ -27,7 +27,8 @@ def _parse(argv):
     parser.add_argument("--port", type=int, default=int(os.environ.get("IVORYOS_PORT", 8080)))
     parser.add_argument("--host", default=os.environ.get("IVORYOS_HOST", "0.0.0.0"),
                         help="interface to listen on; 127.0.0.1 keeps it off the network")
-    parser.add_argument("--frontend-dir", help="built UI to serve (default: $IVORYOS_FRONTEND_DIR, else frontend/out)")
+    parser.add_argument("--frontend-dir", help="built UI to serve (default: $IVORYOS_FRONTEND_DIR, else the package's own, "
+                        "else frontend/out in a checkout)")
     parser.add_argument("--plugins-dir", help="static plugins folder (default: 'plugins' beside the deck file)")
     return parser.parse_args(argv)
 

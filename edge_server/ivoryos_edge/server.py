@@ -2532,12 +2532,22 @@ def _discover_plugins(plugins_dir, plugins):
     return plugins
 
 
-def _default_frontend_dir():
-    """The built UI: IVORYOS_FRONTEND_DIR, else frontend/out beside a source checkout."""
+def _frontend_dirs():
+    """Where the built UI is looked for, in order. IVORYOS_FRONTEND_DIR, when set, is the only
+    place. Otherwise the copy inside this package (`ivoryos_edge/ui/`, copied in by
+    scripts/build-edge.js as the wheel is built), so an edge installed with pip serves the pages of
+    its own version; then frontend/out beside a source checkout, which is where an editable install
+    finds them in development."""
     configured = os.environ.get("IVORYOS_FRONTEND_DIR")
     if configured:
-        return configured
-    return os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "out")
+        return [configured]
+    package = os.path.dirname(os.path.abspath(__file__))
+    return [os.path.join(package, "ui"), os.path.join(os.path.dirname(os.path.dirname(package)), "frontend", "out")]
+
+
+def _default_frontend_dir():
+    """The first of _frontend_dirs() that holds a built UI (an index.html), or None."""
+    return next((d for d in _frontend_dirs() if os.path.isfile(os.path.join(d, "index.html"))), None)
 
 
 class UIFiles(StaticFiles):
@@ -2763,10 +2773,12 @@ def run(module_name: str = None, port: int = None, plugins: list = None, *,
 
     # Serve the static Next.js export last so it doesn't intercept plugin routes
     frontend_out = frontend_dir or _default_frontend_dir()
-    if os.path.exists(frontend_out):
+    if frontend_out and os.path.exists(frontend_out):
         app.mount("/", UIFiles(directory=frontend_out, html=True), name="static")
     else:
-        print(f"Warning: Frontend build directory not found at {frontend_out}")
+        tried = [frontend_dir] if frontend_dir else _frontend_dirs()
+        print(f"Warning: Frontend build directory not found (looked in {', '.join(tried)}); "
+              "serving the API without pages")
 
     # Start uvicorn
     print(f"Starting IvoryOS Edge Server on {host}:{port}...")

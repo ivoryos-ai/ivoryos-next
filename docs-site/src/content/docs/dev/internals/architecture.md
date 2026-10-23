@@ -27,7 +27,8 @@ file), **introspects** each one into a schema (`introspection.py`), records the 
 
 - the REST API and websockets (`server.py`): status and schema, execute one method, the run queue,
   workflows, safety, plugins, agent tools, Cloud pairing;
-- the built web interface from `frontend/out` as static files;
+- the built web interface as static files: the copy inside the package (`ivoryos_edge/ui/`), or
+  `frontend/out` in a source checkout;
 - plugins' pages and routes.
 
 Runs are executed one at a time by `WorkflowQueueManager` (`queue.py`): a plain run walks prep,

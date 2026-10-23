@@ -16,7 +16,7 @@ if (process.env.FAKE_DIE_ON_START) { console.error('fake edge: ImportError: no m
 
 setTimeout(() => {
     http.createServer((req, res) => {
-        if (req.url === '/api/status') { res.end(JSON.stringify({ pid: process.pid, supervised: process.env.IVORYOS_SUPERVISED })); return; }
+        if (req.url === '/api/status') { res.end(JSON.stringify({ pid: process.pid, supervised: process.env.IVORYOS_SUPERVISED, frontendDir: process.env.IVORYOS_FRONTEND_DIR })); return; }
         if (req.method === 'POST' && req.url === '/restart') { res.end('{}'); setTimeout(() => process.exit(75), 50); return; }
         if (req.method === 'POST' && req.url === '/crash') { res.end('{}'); console.error('fake edge: Traceback: boom'); setTimeout(() => process.exit(1), 50); return; }
         res.statusCode = 404; res.end();

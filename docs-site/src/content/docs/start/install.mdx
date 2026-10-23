@@ -55,14 +55,16 @@ nothing to plug in), **Add a deck** (your own instruments) and the Automation Hu
 ## The edge server alone (pip)
 
 The deck is a plain Python package, `ivoryos-edge`. Use it directly when you already have a script
-that creates your instruments, or on a machine where you want no desktop app. It is not on PyPI
-yet, so install it from the repository (Python 3.10 or newer):
+that creates your instruments, or on a machine where you want no desktop app. The package carries
+its web interface, which is built from the repository's frontend, and it is not on PyPI yet, so
+build it from a checkout (Python 3.10 or newer, Node.js 22 and [uv](https://docs.astral.sh/uv/)):
 
 ```bash
-pip install "git+https://github.com/ivoryzh/ivoryos-next.git#subdirectory=edge_server"
+npm install && npm run build:edge
+pip install edge_server/dist/ivoryos_edge-*.whl
 ```
 
-or, from a checkout, `pip install -e ./edge_server`.
+or, to work on IvoryOS itself, `pip install -e ./edge_server` after `npm --prefix frontend run build`.
 
 Then end your script with `ivoryos_edge.run(__name__)` and run it:
 

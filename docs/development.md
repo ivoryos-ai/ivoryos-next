@@ -48,6 +48,8 @@ A ready-made `Suzuki coupling screen` workflow ships in the workflow library wit
 
 The demo serves the built interface from `frontend/out` at http://localhost:8080, so build it
 once first (section 2). The server runs without auto-reload: restart it after a Python change.
+An edge installed from a wheel serves the copy of the interface inside the package instead
+(section 2); `IVORYOS_FRONTEND_DIR` overrides both.
 
 **Reaching it from other computers**: open it by this machine's IP address, its computer name, or a
 `.local` name. The edge answers only to names that are its own, so another website cannot trick a
@@ -76,6 +78,18 @@ Build the static export the edge serves (`frontend/out`); do this after any inte
 ```bash
 npm --prefix frontend run build
 ```
+
+**Building the edge package.** A wheel carries the interface inside it (`ivoryos_edge/ui/`), so
+`pip install` of it and `python my_deck.py` serve pages of the same version as the API, with no
+checkout and no desktop app. Build it from the repository root:
+```bash
+npm run build:edge
+```
+That builds `frontend/`, copies `frontend/out` into the package, writes the sdist and wheel to
+`edge_server/dist/` and removes the copy again. `-- --wheel` builds the wheel only,
+`-- --skip-frontend` packages `frontend/out` as already built, `-- --out-dir <folder>` puts them
+elsewhere. A bare `uv build edge_server` refuses to build without the interface
+(`edge_server/build_backend.py`); `pip install -e ./edge_server` needs none of this.
 
 ## 3. Desktop app (Electron)
 

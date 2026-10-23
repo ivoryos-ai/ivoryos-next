@@ -1,6 +1,9 @@
 {
   "name": "ivoryos-nextgen-root",
   "private": true,
+  "scripts": {
+    "build:edge": "node scripts/build-edge.js"
+  },
   "workspaces": [
     "frontend",
     "cloud_frontend",

@@ -101,6 +101,22 @@ class PythonRuntime {
     }
 
     /**
+     * Whether the edge `python` imports would find a built UI of its own: the copy its wheel
+     * carries (ivoryos_edge/ui/), or frontend/out beside an editable checkout, as
+     * `_frontend_dirs` in the edge's server.py looks. Asked with the environment and folder the
+     * script will run with, so it finds the same ivoryos_edge. Never throws: no answer is false.
+     */
+    async hasOwnUi(python, { env, cwd } = {}) {
+        const probe = 'import importlib.util, os\ns = importlib.util.find_spec("ivoryos_edge")\npkg = os.path.dirname(s.origin) if s and s.origin else None\nprint(bool(pkg) and any(os.path.isfile(os.path.join(d, "index.html")) for d in (os.path.join(pkg, "ui"), os.path.join(pkg, "..", "..", "frontend", "out"))))';
+        try {
+            const out = await run(python, ['-c', probe], { env, cwd });
+            return out.trim().split(/\r?\n/).pop() === 'True';
+        } catch {
+            return false;
+        }
+    }
+
+    /**
      * A `.venv` in `folder` with this launcher's edge installed: the environment a project's IDE
      * and the launcher then share. Reused if it already exists (only the edge is installed).
      * @returns {Promise<string>} the new interpreter's path
