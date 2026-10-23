@@ -1017,7 +1017,9 @@ function registerIpc() {
     handle('launcher:pick', async (kind) => {
         const opts = {
             script: { title: 'Choose a Python script', filters: [{ name: 'Python', extensions: ['py'] }], properties: ['openFile'] },
-            python: { title: 'Choose a Python interpreter', properties: ['openFile', 'showHiddenFiles'] },
+            // A venv's bin/python is a symlink to the interpreter it was made from, and macOS hands
+            // back the symlink's target unless told not to: the base Python, without the venv's packages.
+            python: { title: 'Choose a Python interpreter', properties: ['openFile', 'showHiddenFiles', 'noResolveAliases'] },
             folder: { title: 'Choose a folder', properties: ['openDirectory', 'createDirectory'] },
         }[kind];
         if (!opts) throw new Error(`Unknown picker: ${kind}`);
