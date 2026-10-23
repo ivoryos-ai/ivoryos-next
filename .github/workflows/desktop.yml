@@ -7,13 +7,17 @@ name: Desktop installers
 #   to the workflow run as artifacts (Actions tab -> the run -> Artifacts; needs a GitHub login).
 # - Run workflow (Actions tab -> Desktop installers -> Run workflow): the same, but signed and
 #   notarized. Still only artifacts, so it is how to check the signing setup without publishing.
-# - A tag `desktop-v<version>`: signed, built as that version, then a GitHub release with the
-#   installers as public download links.
-#     desktop-v0.2.0         a release. Installed apps update to it (desktop/src/updater.js reads
-#                            latest.yml / latest-mac.yml / latest-linux.yml from the newest release;
-#                            on macOS the update is the .zip, which Squirrel.Mac installs only into
-#                            a signed app).
-#     desktop-v0.2.0-test.1  a pre-release: downloadable for testing, never offered as an update.
+# - A tag `v<version>`: signed, built as that version, then a GitHub release with the installers
+#   as public download links. The same tag publishes ivoryos-edge, the package the app bundles, to
+#   PyPI (edge-pypi.yml); both refuse a tag that is not the version in edge_server/pyproject.toml
+#   and desktop/package.json (scripts/check-release-version.js). Earlier releases were tagged
+#   `desktop-v<version>` (the app) and `edge-v<version>` (PyPI).
+#     v0.2.0         a release. Installed apps update to it (desktop/src/updater.js reads
+#                    latest.yml / latest-mac.yml / latest-linux.yml from the newest release;
+#                    on macOS the update is the .zip, which Squirrel.Mac installs only into a
+#                    signed app).
+#     v0.2.0-test.1  a pre-release: downloadable for testing, never offered as an update, and
+#                    nothing goes to PyPI.
 #
 # Signing (Settings -> Secrets and variables -> Actions). The Linux AppImage is never signed.
 #   macOS    Developer ID certificate, then notarized by Apple. Secrets: MAC_CSC_LINK (the .p12,
@@ -33,7 +37,7 @@ name: Desktop installers
 on:
   push:
     branches: ['**']
-    tags: ['desktop-v*']
+    tags: ['v[0-9]*']
     paths:
       - 'desktop/**'
       - 'frontend/src/app/launcher/**'
@@ -80,13 +84,18 @@ jobs:
     env:
       # Release tags and manual runs are signed. Branch pushes are not: no notarization wait, no
       # signing quota spent on builds nobody downloads.
-      SIGN: ${{ startsWith(github.ref, 'refs/tags/desktop-v') || github.event_name == 'workflow_dispatch' }}
+      SIGN: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      # Before the long build: a tag that is not the version of the edge and the app goes nowhere.
+      - name: The tag is the release's version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: node scripts/check-release-version.js "$GITHUB_REF_NAME"
 
       - uses: astral-sh/setup-uv@v6
 
@@ -174,9 +183,10 @@ jobs:
         run: npm test
         working-directory: desktop
 
+      # The same version, plus a pre-release's suffix (0.2.0-test.1), which the app reports.
       - name: Version from the tag
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
-        run: npm version "${GITHUB_REF_NAME#desktop-v}" --no-git-tag-version --allow-same-version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
         working-directory: desktop
 
       - name: Package
@@ -256,7 +266,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -265,7 +275,7 @@ jobs:
       - name: Release or pre-release
         id: kind
         run: |
-          v="${GITHUB_REF_NAME#desktop-v}"
+          v="${GITHUB_REF_NAME#v}"
           if [[ "$v" == *-* ]]; then echo "pre=true" >> "$GITHUB_OUTPUT"; else echo "pre=false" >> "$GITHUB_OUTPUT"; fi
 
       - uses: actions/download-artifact@v4
@@ -290,3 +300,6 @@ jobs:
             First launch downloads Python (via the bundled uv), so it needs internet and takes a minute.
             Once installed, later versions arrive by themselves (Settings -> Updates). On macOS that
             needs IvoryOS in the Applications folder; Settings offers to move it there.
+
+            Without the app: the edge server of this release, with its web interface, is on PyPI as
+            `ivoryos-edge` (`pip install ivoryos-edge`; a pre-release is not published there).

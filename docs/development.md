@@ -231,22 +231,31 @@ GitHub Actions runs the edge tests on pushes and pull requests to `main`
 smoke-tests the desktop app on Windows, macOS and Linux for every push that touches it
 (`desktop.yml`).
 
-## 7. Releasing the desktop app
+## 7. Releasing
 
-Every push that touches the desktop app attaches installers to its Actions run (the run's
-**Artifacts**, which need a GitHub login). A tag publishes them as a GitHub release:
+One tag releases the desktop app and the Python package `ivoryos-edge` together, at one version,
+so the app bundles the very package that is on PyPI. Every push that touches the desktop app also
+attaches installers to its Actions run (the run's **Artifacts**, which need a GitHub login).
 
+Set `version` in `edge_server/pyproject.toml` (then `uv lock` in `edge_server/`) and in
+`desktop/package.json` (`npm version 0.2.0 --no-git-tag-version` in `desktop/` sets it and the lock
+file), merge, then tag the merged commit:
 ```bash
-git tag desktop-v0.2.0
+git tag v0.2.0
 ```
 ```bash
-git push origin desktop-v0.2.0
+git push origin v0.2.0
 ```
 
-- `desktop-v0.2.0` is a release. Installed apps update to it themselves, macOS included when
-  the app is in Applications (a copy run from the `.dmg` or from Downloads only links to it).
-- `desktop-v0.2.0-test.1` (anything after a hyphen) is a pre-release: downloadable, never offered
-  as an update. Use it for internal test builds.
+- `v0.2.0` is a release. `desktop.yml` builds signed installers and publishes them as the newest
+  GitHub release; installed apps update to it themselves, macOS included when the app is in
+  Applications (a copy run from the `.dmg` or from Downloads only links to it). `edge-pypi.yml`
+  publishes `ivoryos-edge` 0.2.0 to PyPI (section 8).
+- `v0.2.0-test.1` (anything after a hyphen) is a desktop pre-release: downloadable, never offered
+  as an update. The edge is built and checked, not published. Use it for internal test builds.
+- Both workflows start with `scripts/check-release-version.js`: a tag that is not the version in
+  `edge_server/pyproject.toml` and `desktop/package.json` stops before anything is built.
+- Releases up to 0.1.1 had a tag each: `desktop-v0.1.1` for the app, `edge-v0.1.1` for PyPI.
 
 Tagged builds are signed (the macOS app with a Developer ID and notarized, the Windows installer
 through Azure Trusted Signing; the AppImage is not signed). Branch builds are unsigned, so they
@@ -255,11 +264,10 @@ warn on first open. `desktop/README.md` lists the secrets this needs.
 ## 8. Publishing ivoryos-edge
 
 `.github/workflows/edge-pypi.yml` builds the package with `npm run build:edge` (section 2) and
-checks it on every run: the tag equals the version in `edge_server/pyproject.toml`, `twine check`
-passes, the wheel holds the interface, and a fresh environment with only the wheel installed
+checks it on every run: the tag is the release's version (section 7), `twine check` passes, the wheel holds the interface, and a fresh environment with only the wheel installed
 serves both `/api/status` and the pages. Then:
 
-- a tag `edge-v0.1.0` publishes to PyPI;
+- a release tag `v0.2.0` (section 7) publishes to PyPI;
 - **Run workflow** on the Actions page ("Edge package (PyPI)") publishes to TestPyPI, a dry run of
   the whole path (a version already there is skipped, not an error);
 - a pull request that changes `edge_server/` or the build only builds and checks.
@@ -283,18 +291,8 @@ account) with environment `testpypi`. The project is created by its first upload
 the two environments the first time the workflow uses them. To have a tag wait for a click before
 it uploads, add yourself as a required reviewer of `pypi` under Settings → Environments.
 
-**A release.** Set `version` in `edge_server/pyproject.toml`, merge, then tag the merged commit:
-
-```bash
-git tag edge-v0.1.0
-```
-```bash
-git push origin edge-v0.1.0
-```
-
-A tag that differs from the version is refused before anything is built. PyPI takes each version
-once, ever, even after it is deleted, so a mistake means the next version number. To try a
-TestPyPI upload:
+**A release** is the one tag of section 7. PyPI takes each version once, ever, even after it is
+deleted, so a mistake means the next version number. To try a TestPyPI upload:
 
 ```bash
 pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ ivoryos-edge

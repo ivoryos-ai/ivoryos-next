@@ -5,13 +5,15 @@ name: Edge package (PyPI)
 # trusts this workflow file, in this repository, running in the named environment, which is set up
 # once on pypi.org and test.pypi.org (docs/development.md, "Publishing ivoryos-edge").
 #
-#   push a tag edge-vX.Y.Z    build, check, publish to PyPI (the tag must equal the package version)
+#   push a tag vX.Y.Z         build, check, publish to PyPI. The same tag releases the desktop app
+#                             (desktop.yml); scripts/check-release-version.js refuses a tag that
+#                             is not the version of both. vX.Y.Z-test.1 builds and checks only.
 #   Run workflow (manual)     build, check, publish to TestPyPI: a dry run of the whole path
 #   pull request              build and check only, when the package or its build changes
 
 on:
   push:
-    tags: ['edge-v*']
+    tags: ['v[0-9]*']
   pull_request:
     paths:
       - 'edge_server/**'
@@ -36,16 +38,9 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
 
-      - name: The tag is the package's version
-        if: startsWith(github.ref, 'refs/tags/edge-v')
-        run: |
-          set -euo pipefail
-          tagged="${GITHUB_REF_NAME#edge-v}"
-          declared="$(python3 -c "import tomllib; print(tomllib.load(open('edge_server/pyproject.toml', 'rb'))['project']['version'])")"
-          if [ "$tagged" != "$declared" ]; then
-            echo "::error::The tag says $tagged, but edge_server/pyproject.toml says version = \"$declared\". Change one of them and tag again."
-            exit 1
-          fi
+      - name: The tag is the release's version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: node scripts/check-release-version.js "$GITHUB_REF_NAME"
 
       - name: Install workspace packages
         run: |
@@ -128,7 +123,8 @@ jobs:
           skip-existing: true
 
   pypi:
-    if: startsWith(github.ref, 'refs/tags/edge-v')
+    # A suffix (v0.2.0-test.1) is a desktop pre-release, and not a version PyPI takes.
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
     needs: build
     runs-on: ubuntu-latest
     environment:

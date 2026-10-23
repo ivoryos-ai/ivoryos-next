@@ -204,13 +204,15 @@ push touching `desktop/` attaches the installers to the workflow run as artifact
 publish download links, push a tag:
 
 ```bash
-git tag desktop-v0.1.0-test.1 && git push origin desktop-v0.1.0-test.1
+git tag v0.2.0-test.1 && git push origin v0.2.0-test.1
 ```
 
 That creates a GitHub **pre-release** with the Windows `.exe`, macOS (Apple silicon) `.dmg` and
-Linux `.AppImage`. A tag without a suffix (`desktop-v0.2.0`) is a full release, which is what
-installed apps update to; the version comes from the tag, so `package.json`'s `version` does not
-need editing.
+Linux `.AppImage`. A tag without a suffix (`v0.2.0`) is a full release, which is what installed
+apps update to, and the same tag publishes `ivoryos-edge` to PyPI (`docs/development.md`, section
+7). The tag must be the `version` in `package.json` and in `edge_server/pyproject.toml`
+(`scripts/check-release-version.js`), apart from a pre-release's suffix. Releases up to 0.1.1 were
+tagged `desktop-v<version>`.
 
 **Signing.** Tagged builds are signed: the macOS app with a Developer ID and notarized by Apple,
 the Windows installer and app through Azure Trusted Signing (the AppImage is not signed). The
