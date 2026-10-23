@@ -41,12 +41,35 @@ except ImportError:  # pragma: no cover - SDK v1, or the extra isn't installed
             file=sys.stderr,
         )
         raise SystemExit(1)
+from mcp.types import ToolAnnotations
 
 IVORYOS_URL = os.environ.get("IVORYOS_URL", "http://localhost:8080").rstrip("/")
 SOURCE = os.environ.get("IVORYOS_AGENT_SOURCE", "mcp:claude-desktop")
 TIMEOUT = float(os.environ.get("IVORYOS_TIMEOUT", "30"))
 
 server = MCPServer("ivoryos")
+
+
+# Every tool either only reads or files a proposal a person must accept (nothing an agent posts
+# takes effect), and clients, Anthropic's Connectors Directory among them, are told which with a
+# title and hints. Register tools through these two, never bare server.tool():
+# tests/automated/test_mcp_tool_annotations.py fails on a tool without them. Every tool reaches
+# only this deck, so none is open-world.
+def _reads(title):
+    return _tool(title, readOnlyHint=True)
+
+
+def _proposes(title):
+    """A proposal only adds a pending entry (not destructive), and each call files another one
+    (not idempotent)."""
+    return _tool(title, readOnlyHint=False, destructiveHint=False, idempotentHint=False)
+
+
+def _tool(title, **hints):
+    # The title goes both on the tool (MCP 2025-06-18) and in its annotations (2025-03-26), so a
+    # client on either protocol version shows it.
+    annotations = ToolAnnotations.model_validate({"title": title, "openWorldHint": False, **hints})
+    return server.tool(title=title, annotations=annotations)
 
 
 def _get(path, **params):
@@ -75,7 +98,7 @@ def _unwrap(response):
     return body
 
 
-@server.tool()
+@_reads("List the deck")
 def list_deck() -> dict:
     """List every instrument on this lab's deck with a one-line summary of each method.
 
@@ -86,34 +109,34 @@ def list_deck() -> dict:
     return _get("/api/agent/deck")
 
 
-@server.tool()
+@_reads("Describe an instrument")
 def describe_instrument(instrument: str) -> dict:
     """Full argument detail for every method on one instrument: types, defaults, allowed values
     for enums, and the individual result fields each method exposes."""
     return _get("/api/agent/deck", instrument=instrument)
 
 
-@server.tool()
+@_reads("Describe a method")
 def describe_method(instrument: str, method: str) -> dict:
     """The exact call shape of one method, including which result fields are numeric and can
     therefore be used as an optimization objective."""
     return _get(f"/api/agent/deck/{instrument}/{method}")
 
 
-@server.tool()
+@_reads("List saved workflows")
 def list_workflows() -> dict:
     """The protocols already saved in this lab's library, with their step counts."""
     return _get("/api/agent/workflows")
 
 
-@server.tool()
+@_reads("Read a saved workflow")
 def get_workflow(name: str) -> dict:
     """Read one saved workflow's full body — the starting point for modifying an existing
     protocol rather than writing a new one."""
     return _get(f"/api/agent/workflows/{name}")
 
 
-@server.tool()
+@_reads("Check a workflow")
 def validate_workflow(body: dict) -> dict:
     """Check a workflow body against the live deck without saving anything.
 
@@ -125,12 +148,13 @@ def validate_workflow(body: dict) -> dict:
     return _post("/api/agent/validate", {"body": body})
 
 
-@server.tool()
+@_proposes("Propose a workflow")
 def propose_workflow(name: str, body: dict, summary: str, allow_invalid: bool = False) -> dict:
-    """Put a workflow in front of the scientist for review. This does not save it.
+    """Put a workflow in front of the scientist for review. This files a proposal and saves
+    nothing until a person accepts it.
 
     It appears in IvoryOS as a pending proposal, shown as a diff against whatever is currently
-    saved under that name, and takes effect only if a person accepts it. Use `summary` to say
+    saved under that name. Use `summary` to say
     in plain language what the protocol does and, when modifying an existing one, what you
     changed and why — that text is what they read before the diff.
 
@@ -150,11 +174,11 @@ def propose_workflow(name: str, body: dict, summary: str, allow_invalid: bool = 
     return _post("/api/agent/propose", payload)
 
 
-@server.tool()
+@_proposes("Request a run")
 def request_run(name: str, summary: str, variables: dict | None = None) -> dict:
     """Ask for a saved workflow to be queued on the real hardware.
 
-    This does not start anything. It files a request that a person has to accept in IvoryOS —
+    This files a proposal and starts nothing until a person accepts it in IvoryOS —
     deliberately, because this moves liquid and applies heat. Say in `summary` why you believe
     it is ready to run, and tell the scientist you have asked rather than implying it started.
 
@@ -168,7 +192,7 @@ def request_run(name: str, summary: str, variables: dict | None = None) -> dict:
     return _post("/api/agent/request-run", payload)
 
 
-@server.tool()
+@_reads("Search run history")
 def search_runs(q: str = "", status: str = "all", limit: int = 20, offset: int = 0, sort: str = "newest") -> dict:
     """Find runs in this deck's history. Each word of `q` must match the run's name, its
     parameters (column names, values) or an instrument it used. `status` is completed, error,
@@ -176,7 +200,7 @@ def search_runs(q: str = "", status: str = "all", limit: int = 20, offset: int =
     return _get("/api/agent/runs", q=q, status=status, limit=limit, offset=offset, sort=sort)
 
 
-@server.tool()
+@_reads("Read a run's data")
 def get_run_data(run_id: int, max_rows: int = 200) -> dict:
     """One run as its datasheet, the table Data History shows: one row per sample or
     optimization trial, columns = inputs, typed-in answers and named outputs, each row's status
@@ -185,7 +209,7 @@ def get_run_data(run_id: int, max_rows: int = 200) -> dict:
     return _get(f"/api/agent/runs/{run_id}", max_rows=max_rows)
 
 
-@server.tool()
+@_reads("Compare runs")
 def compare_runs(run_ids: list[int], columns: list[str] | None = None) -> dict:
     """Several runs side by side: for each column they share (or the ones named), each run's
     count, min, max and mean, and which run did best when the column is an optimization
@@ -196,17 +220,17 @@ def compare_runs(run_ids: list[int], columns: list[str] | None = None) -> dict:
     return _post("/api/agent/runs/compare", payload)
 
 
-@server.tool()
+@_reads("Read the safety configuration")
 def get_safety() -> dict:
     """The deck's safety configuration (trays, states, limits, rules) and what the deck offers
     to it (each instrument's methods, arguments and readings). Read before proposing safety."""
     return _get("/api/agent/safety")
 
 
-@server.tool()
+@_proposes("Propose safety additions")
 def propose_safety(add: dict, summary: str, questions: list[str] | None = None, allow_invalid: bool = False) -> dict:
-    """Put safety additions in front of the scientist. Nothing is enforced until a person
-    accepts them on the Safety page.
+    """Put safety additions in front of the scientist. This files a proposal: nothing is
+    enforced until a person accepts it on the Safety page.
 
     `add` is {"states": {...}, "limits": [...], "rules": [...]} in the configuration's own
     format (see get_safety for what exists): a limit is {target, method, param, min?, max?,
@@ -223,7 +247,7 @@ def propose_safety(add: dict, summary: str, questions: list[str] | None = None, 
     return _post("/api/agent/propose-safety", payload)
 
 
-@server.tool()
+@_reads("List runs under way")
 def runs_under_way() -> dict:
     """The runs under way and queued, and the latest ones: what each is waiting on (a failed
     step, a question), and from which sample a run over a table can still change. Start here
@@ -232,7 +256,7 @@ def runs_under_way() -> dict:
     return _get("/api/agent/live")
 
 
-@server.tool()
+@_reads("Read a run's steps")
 def get_run_steps(run_id: int) -> dict:
     """One run's steps, to change it while it runs: every step with its id, status, sample and
     arguments (and which arguments come from a table column), the table of samples with the
@@ -241,11 +265,12 @@ def get_run_steps(run_id: int) -> dict:
     return _get(f"/api/agent/runs/{run_id}/steps")
 
 
-@server.tool()
+@_proposes("Propose new step values")
 def propose_step_fix(run_id: int, step_id: int, args: dict, summary: str,
                      scope: str = "later", retry: bool = True) -> dict:
     """Propose new values for a step of a run, usually the failed step the run waits on, so a
-    retry does not fail the same way. This does not change anything: a person applies it.
+    retry does not fail the same way. This files a proposal and changes nothing until a person
+    accepts it.
 
     `args` are only the arguments to change, {name: value}. `scope="later"` also changes every
     later run of the same step (the same step on the samples, or in the trials, still to come);
@@ -259,20 +284,21 @@ def propose_step_fix(run_id: int, step_id: int, args: dict, summary: str,
     return _post(f"/api/agent/runs/{run_id}/propose-step-fix", payload)
 
 
-@server.tool()
+@_proposes("Propose sample changes")
 def propose_sample_changes(run_id: int, samples: list, summary: str) -> dict:
     """Propose the samples of a run over a table as they should be, while it runs.
 
     `samples` is the whole table, one {column: value} per sample, in order: the samples already
     started (before `samples_that_can_change_from` in get_run_steps) exactly as they are, then the rest
-    changed, added or removed. Nothing changes until a person reviews them in the table and saves.
-    Say in `summary` what you changed and why.
+    changed, added or removed. This files a proposal: nothing changes until a person accepts it,
+    by reviewing the samples in the table and saving them. Say in `summary` what you changed and
+    why.
     """
     payload = {"samples": samples, "summary": summary, "source": SOURCE}
     return _post(f"/api/agent/runs/{run_id}/propose-samples", payload)
 
 
-@server.tool()
+@_reads("List proposals")
 def list_proposals(status: str = "pending") -> dict:
     """Check what you have already put forward and whether it was accepted or rejected.
 

@@ -33,8 +33,9 @@ test = [
 ]
 # Only needed to expose the deck to an MCP client such as Claude Desktop
 # (python -m ivoryos_edge.agent.mcp_server). The edge server itself never imports it.
+# 1.10 is the first SDK whose tool() takes a title, which every tool there carries.
 mcp = [
-    "mcp>=1.2.0"
+    "mcp>=1.10"
 ]
 # The assistant's Claude provider (agent/providers.py). Ollama and OpenAI-compatible endpoints
 # need nothing beyond httpx; Claude uses Anthropic's own SDK.
