@@ -276,12 +276,30 @@ jobs:
         id: kind
         run: |
           v="${GITHUB_REF_NAME#v}"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
           if [[ "$v" == *-* ]]; then echo "pre=true" >> "$GITHUB_OUTPUT"; else echo "pre=false" >> "$GITHUB_OUTPUT"; fi
 
       - uses: actions/download-artifact@v4
         with:
           path: installers
           merge-multiple: true
+
+      # Copies named without the version, so a link to releases/latest/download/IvoryOS-Setup.exe
+      # (the README, the docs' install page) always gets the newest release. The update feeds
+      # (latest*.yml) go on naming the versioned files, so updates are unaffected.
+      - name: Download names without the version
+        if: steps.kind.outputs.pre == 'false'
+        working-directory: installers
+        run: |
+          set -euo pipefail
+          one() {
+            local found=( $1 )
+            [ "${#found[@]}" -eq 1 ] && [ -e "${found[0]}" ] || { echo "::error::Expected one $1, found: ${found[*]}"; exit 1; }
+            cp "${found[0]}" "$2"
+          }
+          one 'IvoryOS-Setup-*.exe' IvoryOS-Setup.exe
+          one 'IvoryOS-*-arm64.dmg' IvoryOS-arm64.dmg
+          one 'IvoryOS-*.AppImage' IvoryOS.AppImage
 
       - uses: softprops/action-gh-release@v2
         with:
@@ -291,11 +309,13 @@ jobs:
           body: |
             The IvoryOS desktop launcher.
 
-            - **Windows**: run `IvoryOS-Setup-*.exe`. The installer is signed; if SmartScreen still
-              warns (it can for a newly signed app), choose More info -> Run anyway.
-            - **macOS (Apple silicon)**: open the .dmg and drag IvoryOS to Applications. The app is
-              signed and notarized by Apple.
-            - **Linux**: `chmod +x IvoryOS-*.AppImage` and run it.
+            - **Windows**: run [IvoryOS-Setup-${{ steps.kind.outputs.version }}.exe](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/IvoryOS-Setup-${{ steps.kind.outputs.version }}.exe).
+              The installer is signed; if SmartScreen still warns (it can for a newly signed app),
+              choose More info -> Run anyway.
+            - **macOS (Apple silicon)**: open [IvoryOS-${{ steps.kind.outputs.version }}-arm64.dmg](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/IvoryOS-${{ steps.kind.outputs.version }}-arm64.dmg)
+              and drag IvoryOS to Applications. The app is signed and notarized by Apple.
+            - **Linux**: download [IvoryOS-${{ steps.kind.outputs.version }}.AppImage](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/IvoryOS-${{ steps.kind.outputs.version }}.AppImage),
+              then `chmod +x IvoryOS-*.AppImage` and run it.
 
             First launch downloads Python (via the bundled uv), so it needs internet and takes a minute.
             Once installed, later versions arrive by themselves (Settings -> Updates). On macOS that

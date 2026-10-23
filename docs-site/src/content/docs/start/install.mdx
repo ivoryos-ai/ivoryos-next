@@ -14,30 +14,30 @@ Python workflow of your own: it manages Python, your decks and driver installs f
 
 <Steps>
 
-1. Download the installer for your computer from the
-   [Releases page](https://github.com/ivoryos-ai/ivoryos-next/releases).
+1. Download the installer for your computer (always the newest version):
 
    | Windows | macOS (Apple silicon) | Linux |
    |---|---|---|
-   | `IvoryOS-Setup-<version>.exe` | `IvoryOS-<version>-arm64.dmg` | `IvoryOS-<version>.AppImage` |
+   | [IvoryOS-Setup.exe](https://github.com/ivoryos-ai/ivoryos-next/releases/latest/download/IvoryOS-Setup.exe) | [IvoryOS-arm64.dmg](https://github.com/ivoryos-ai/ivoryos-next/releases/latest/download/IvoryOS-arm64.dmg) | [IvoryOS.AppImage](https://github.com/ivoryos-ai/ivoryos-next/releases/latest/download/IvoryOS.AppImage) |
 
-2. Open it. The app is not code-signed yet, so your computer warns the first time:
+   Release notes and earlier versions are on the
+   [Releases page](https://github.com/ivoryos-ai/ivoryos-next/releases).
+
+2. Open it:
 
    <Tabs syncKey="os">
      <TabItem label="Windows">
-       SmartScreen says "Windows protected your PC". Choose **More info**, then **Run anyway**.
+       Run the installer. It is signed. Windows can still show "Windows protected your PC" for a
+       newly signed app until it has built up a reputation: choose **More info**, then **Run anyway**.
      </TabItem>
      <TabItem label="macOS">
-       Open the `.dmg` and drag IvoryOS to Applications. If macOS says the app "is damaged" or
-       "can't be opened", run this once in Terminal:
-       ```bash
-       xattr -cr /Applications/IvoryOS.app
-       ```
+       Open the `.dmg` and drag IvoryOS to Applications. The app is signed and notarized by Apple,
+       so it opens like any other app.
      </TabItem>
      <TabItem label="Linux">
        Make the file executable and run it:
        ```bash
-       chmod +x IvoryOS-*.AppImage && ./IvoryOS-*.AppImage
+       chmod +x IvoryOS.AppImage && ./IvoryOS.AppImage
        ```
      </TabItem>
    </Tabs>
