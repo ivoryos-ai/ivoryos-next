@@ -172,7 +172,9 @@ installs only a signed app delivered as a `.zip`, so each release carries a `.zi
 `.dmg` (people download the `.dmg`; the updater fetches the `.zip`). Squirrel replaces the app
 where it stands, so a copy running outside Applications (straight from the `.dmg`, or from
 Downloads, which macOS runs from a read-only copy) only checks and links to the download, and
-Settings offers **Move to Applications** (`app.moveToApplicationsFolder()`).
+Settings offers **Move to Applications** (`app.moveToApplicationsFolder()`). On Windows the
+updater checks each download's signature through cmd.exe and PowerShell, which needs System32 on
+PATH; the app adds it back for itself when the machine's PATH has lost it (`src/windowsPath.js`).
 
 ## The contract with the edge
 
