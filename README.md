@@ -55,15 +55,18 @@ development.
 
 ### 1. Install
 
-Download the installer for your computer from the
-[Releases page](https://github.com/ivoryos-ai/ivoryos-next/releases):
+Download the installer for your computer (always the newest version):
 
 | Windows | macOS (Apple silicon) | Linux |
 |---|---|---|
-| `IvoryOS-Setup-<version>.exe` | `IvoryOS-<version>-arm64.dmg` | `IvoryOS-<version>.AppImage` |
+| [IvoryOS-Setup.exe](https://github.com/ivoryos-ai/ivoryos-next/releases/latest/download/IvoryOS-Setup.exe) | [IvoryOS-arm64.dmg](https://github.com/ivoryos-ai/ivoryos-next/releases/latest/download/IvoryOS-arm64.dmg) | [IvoryOS.AppImage](https://github.com/ivoryos-ai/ivoryos-next/releases/latest/download/IvoryOS.AppImage) |
 
-On macOS, open the `.dmg` and drag IvoryOS to Applications. On Linux, make the file executable
-(`chmod +x IvoryOS-*.AppImage`) and run it. The first launch downloads Python, so it needs an
+Release notes and earlier versions are on the
+[Releases page](https://github.com/ivoryos-ai/ivoryos-next/releases).
+
+On Windows, run the installer. On macOS, open the `.dmg` and drag IvoryOS to Applications. On
+Linux, make the file executable (`chmod +x IvoryOS.AppImage`) and run it. The Windows and macOS
+apps are signed (and notarized by Apple), so they open like any other app. The first launch downloads Python, so it needs an
 internet connection and takes about a minute. The app updates itself after that.
 
 ### 2. Try the example
