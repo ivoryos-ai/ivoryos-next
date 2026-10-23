@@ -694,6 +694,13 @@ parts worth knowing before touching any of it:
   agent save or dispatch directly — the single human gate is the entire safety argument for
   letting a model near a deck that moves liquid. Accepting re-validates, because the deck can
   change between a model writing something and a person reading it.
+- **Every MCP tool says whether it changes anything**, with a `title` and hints, which
+  Anthropic's Connectors Directory requires of every tool: register it through `_reads` or
+  `_proposes` (`agent/mcp_server.py`; `reads`/`proposes` in Cloud's `scripts/mcp-server.js`).
+  A tool that reads is `readOnlyHint: true`; one that files a proposal is `readOnlyHint: false,
+  destructiveHint: false` and says in its description that it files a proposal and changes
+  nothing until a person accepts it; none is open-world. `tests/automated/test_mcp_tool_annotations.py`
+  and Cloud's `src/lib/mcpTools.test.js` fail on a tool without them.
 - **`agent/validate.py` is the load-bearing piece**, not the prompt. It is what makes model
   output reviewable: unknown instrument/method (answered with the real list), missing or
   mistyped arguments, `"65 C"` where a float belongs, values outside an enum, `#variables`

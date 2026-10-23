@@ -22,7 +22,7 @@ jobs:
       run: |
         cd edge_server
         python -m pip install --upgrade pip
-        pip install -e ".[test]"
+        pip install -e ".[test,mcp]"
         
     - name: Run Pytest
       run: |

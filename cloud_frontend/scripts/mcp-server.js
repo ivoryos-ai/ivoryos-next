@@ -34,18 +34,31 @@ const text = (value) => ({ content: [{ type: 'text', text: JSON.stringify(value,
 
 const server = new McpServer({ name: 'ivoryos-cloud', version: '0.1.0' });
 
+// Every tool either only reads or files a proposal a person must accept, and tells clients which
+// (Anthropic's Connectors Directory among them) with a title and hints: register each with one of
+// these two, or src/lib/mcpTools.test.js fails. A proposal only adds a pending entry (not
+// destructive) and each call files another (not idempotent). Every tool reaches only this Cloud,
+// so none is open-world. The title is on the tool and in its annotations, for either protocol version.
+const reads = (title) => ({ title, annotations: { title, readOnlyHint: true, openWorldHint: false } });
+const proposes = (title) => ({
+  title, annotations: { title, readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+});
+
 server.registerTool('list_lab', {
+  ...reads('List the lab'),
   description: 'The devices in this Cloud workspace with their instruments, methods and saved workflows (lossy: what is needed to choose and call things). kind narrows it to one device or one platform (a device group).',
   inputSchema: { kind: z.enum(['all', 'device', 'platform']).optional(), id: z.string().optional() },
 }, async ({ kind, id }) => text(await api('GET', `/describe?kind=${kind || 'all'}${id ? `&id=${encodeURIComponent(id)}` : ''}`)));
 
 server.registerTool('validate_workflow', {
+  ...reads('Check a workflow'),
   description: 'Check a workflow spec against the real devices without filing it. A spec is {name, description, steps:[{id, device: "<device id>"|"cloud", instrument, method, args, outputs, after}]}; see list_lab for the conventions.',
   inputSchema: { spec: z.object({ name: z.string().optional(), description: z.string().optional(), steps: z.array(z.any()) }).passthrough() },
 }, async ({ spec }) => text(await api('POST', '/validate', { spec })));
 
 server.registerTool('propose_workflow', {
-  description: 'File a workflow spec for a person to review in the Orchestrator. Refused with the errors if it does not validate (fix and resend) unless allow_invalid. Nothing is saved or run until a person accepts it.',
+  ...proposes('Propose a workflow'),
+  description: 'Put a workflow spec in front of a person for review in the Orchestrator. This files a proposal and saves or runs nothing until a person accepts it. Refused with the errors if it does not validate (fix and resend) unless allow_invalid.',
   inputSchema: {
     spec: z.object({ name: z.string(), description: z.string().optional(), steps: z.array(z.any()) }).passthrough(),
     summary: z.string().describe('Plain language: what it does, which device does what, and anything left out.'),
@@ -55,6 +68,7 @@ server.registerTool('propose_workflow', {
 }, async ({ spec, summary, questions, allow_invalid }) => text(await api('POST', '/propose', { spec, summary, questions, allow_invalid, source: SOURCE })));
 
 server.registerTool('list_proposals', {
+  ...reads('List proposals'),
   description: 'Proposals filed in this workspace and their status (pending, accepted, rejected or all).',
   inputSchema: { status: z.enum(['pending', 'accepted', 'rejected', 'all']).optional() },
 }, async ({ status }) => text(await api('GET', `/proposals?status=${status || 'pending'}`)));
