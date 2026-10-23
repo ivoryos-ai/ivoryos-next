@@ -2,6 +2,7 @@
 name = "ivoryos-edge"
 version = "0.1.0"
 description = "IvoryOS Edge Server"
+readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 dependencies = [
@@ -18,12 +19,29 @@ dependencies = [
     "pandas",
 ]
 
+[project.urls]
+Homepage = "https://github.com/ivoryzh/ivoryos-next"
+Documentation = "https://ivoryzh.github.io/ivoryos-next/"
+Issues = "https://github.com/ivoryzh/ivoryos-next/issues"
+
 [project.scripts]
 ivoryos-edge = "ivoryos_edge.cli:main"
 
 [build-system]
 requires = ["setuptools>=77", "wheel"]
-build-backend = "setuptools.build_meta"
+# setuptools, refusing to build a wheel or sdist that has no web UI in it (build_backend.py).
+build-backend = "build_backend"
+backend-path = ["."]
+
+# ivoryos_edge alone (not build_backend.py beside it). The folders of its ui/ count as packages
+# too, which is what keeps setuptools from warning about each one holding data.
+[tool.setuptools.packages.find]
+include = ["ivoryos_edge", "ivoryos_edge.*"]
+
+[tool.setuptools.package-data]
+# The built web UI: frontend/out, copied in by `npm run build:edge` (scripts/build-edge.js) and
+# gitignored. The edge serves it, so the pages are always the version of the API they talk to.
+ivoryos_edge = ["ui/**/*"]
 
 [project.optional-dependencies]
 test = [

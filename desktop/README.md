@@ -190,9 +190,12 @@ cd frontend && npm run build          # the UI to bundle
 cd ../desktop && npm run dist          # prepare-resources + electron-builder
 ```
 
-`scripts/prepare-resources.js` copies this machine's `uv`, builds the edge wheel and copies the
-UI into `resources/`, which is bundled into the app. Build on each target OS, since `uv` is a
-native binary. `npm run dist:dir` builds an unpacked app for testing, and
+`scripts/prepare-resources.js` copies this machine's `uv` and the UI into `resources/`, which is
+bundled into the app, and builds the edge wheel with that same UI inside (`../scripts/build-edge.js`;
+a wheel without it is refused). The app's copy is the launcher page and what edges in the app's own
+environment serve; a script profile whose interpreter has an edge with a UI of its own (a project
+`.venv` from "Install IvoryOS here") serves that one, its own version. Build on each target OS,
+since `uv` is a native binary. `npm run dist:dir` builds an unpacked app for testing, and
 `<app> --smoke-test` checks a build on a clean machine.
 
 **Download links (CI).** `.github/workflows/desktop.yml` builds all three OSes on their own

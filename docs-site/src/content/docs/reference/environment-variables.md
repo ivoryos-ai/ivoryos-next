@@ -13,7 +13,7 @@ sidebar:
 | `IVORYOS_HOST` | `0.0.0.0` | interface to listen on |
 | `IVORYOS_DATA_DIR` | legacy locations | the data folder: database, workflows, safety config, Cloud pairing, schema dump. `IVORYOS_EDGE_HOME` is the same setting under its older name. |
 | `IVORYOS_ALLOWED_HOSTS` | this machine's names | extra host names the page may be reached by, comma separated; `*` disables the check |
-| `IVORYOS_FRONTEND_DIR` | `frontend/out` | the built interface to serve |
+| `IVORYOS_FRONTEND_DIR` | the package's own copy, else `frontend/out` in a checkout | the built interface to serve |
 | `IVORYOS_SUPERVISED` | unset | set by the desktop app: a restart exits with code 75 instead of re-executing |
 | `IVORYOS_CLOUD_URL` | the hosted Cloud | the Cloud to pair with |
 | `CLOUD_TOKEN`, `CLOUD_DEVICE_ID`, `CLOUD_PAUSED`, `CLOUD_SYNC_WORKFLOWS` | written to `.env` by pairing | the pairing; `CLOUD_SYNC_WORKFLOWS=always\|manual` is the workflow sync mode |

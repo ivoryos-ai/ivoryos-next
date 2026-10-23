@@ -48,6 +48,8 @@ A ready-made `Suzuki coupling screen` workflow ships in the workflow library wit
 
 The demo serves the built interface from `frontend/out` at http://localhost:8080, so build it
 once first (section 2). The server runs without auto-reload: restart it after a Python change.
+An edge installed from a wheel serves the copy of the interface inside the package instead
+(section 2); `IVORYOS_FRONTEND_DIR` overrides both.
 
 **Reaching it from other computers**: open it by this machine's IP address, its computer name, or a
 `.local` name. The edge answers only to names that are its own, so another website cannot trick a
@@ -76,6 +78,18 @@ Build the static export the edge serves (`frontend/out`); do this after any inte
 ```bash
 npm --prefix frontend run build
 ```
+
+**Building the edge package.** A wheel carries the interface inside it (`ivoryos_edge/ui/`), so
+`pip install` of it and `python my_deck.py` serve pages of the same version as the API, with no
+checkout and no desktop app. Build it from the repository root:
+```bash
+npm run build:edge
+```
+That builds `frontend/`, copies `frontend/out` into the package, writes the sdist and wheel to
+`edge_server/dist/` and removes the copy again. `-- --wheel` builds the wheel only,
+`-- --skip-frontend` packages `frontend/out` as already built, `-- --out-dir <folder>` puts them
+elsewhere. A bare `uv build edge_server` refuses to build without the interface
+(`edge_server/build_backend.py`); `pip install -e ./edge_server` needs none of this.
 
 ## 3. Desktop app (Electron)
 
@@ -237,6 +251,56 @@ git push origin desktop-v0.2.0
 Tagged builds are signed (the macOS app with a Developer ID and notarized, the Windows installer
 through Azure Trusted Signing; the AppImage is not signed). Branch builds are unsigned, so they
 warn on first open. `desktop/README.md` lists the secrets this needs.
+
+## 8. Publishing ivoryos-edge
+
+`.github/workflows/edge-pypi.yml` builds the package with `npm run build:edge` (section 2) and
+checks it on every run: the tag equals the version in `edge_server/pyproject.toml`, `twine check`
+passes, the wheel holds the interface, and a fresh environment with only the wheel installed
+serves both `/api/status` and the pages. Then:
+
+- a tag `edge-v0.1.0` publishes to PyPI;
+- **Run workflow** on the Actions page ("Edge package (PyPI)") publishes to TestPyPI, a dry run of
+  the whole path (a version already there is skipped, not an error);
+- a pull request that changes `edge_server/` or the build only builds and checks.
+
+It uses PyPI's trusted publishing, so no API token is stored in the repository. PyPI trusts this
+workflow file, in this repository, running in the named GitHub environment.
+
+**Once, before the first release.** On [pypi.org](https://pypi.org/manage/account/publishing/),
+signed in as the account that will own the project, add a pending publisher (GitHub):
+
+| Field | Value |
+|---|---|
+| PyPI project name | `ivoryos-edge` |
+| Owner | `ivoryzh` |
+| Repository name | `ivoryos-next` |
+| Workflow name | `edge-pypi.yml` |
+| Environment name | `pypi` |
+
+Do the same on [test.pypi.org](https://test.pypi.org/manage/account/publishing/) (a separate
+account) with environment `testpypi`. The project is created by its first upload. GitHub creates
+the two environments the first time the workflow uses them. To have a tag wait for a click before
+it uploads, add yourself as a required reviewer of `pypi` under Settings → Environments.
+
+**A release.** Set `version` in `edge_server/pyproject.toml`, merge, then tag the merged commit:
+
+```bash
+git tag edge-v0.1.0
+```
+```bash
+git push origin edge-v0.1.0
+```
+
+A tag that differs from the version is refused before anything is built. PyPI takes each version
+once, ever, even after it is deleted, so a mistake means the next version number. To try a
+TestPyPI upload:
+
+```bash
+pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ ivoryos-edge
+```
+
+The package's PyPI page is `edge_server/README.md`.
 
 ## Further reading
 

@@ -99,6 +99,10 @@ desktop/dist/
 # which the Python `build/` rule above would otherwise swallow.
 !desktop/build/
 
+# The web UI packaged into the edge's wheel: a copy of frontend/out, made by `npm run build:edge`
+# (scripts/build-edge.js) while it builds, not source.
+edge_server/ivoryos_edge/ui/
+
 # One edge per data folder (edge_server/ivoryos_edge/instance_lock.py)
 .ivoryos_edge.lock
 

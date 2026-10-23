@@ -81,6 +81,27 @@ test('the web Restart button (exit 75) keeps the profile running; a crash is rep
     assert.match(mgr.statusOf(p.id).logTail, /Traceback: boom/);
 });
 
+test('a script with its own interpreter is asked whether its edge carries a UI before the app’s is passed', async (t) => {
+    const home = tmp();
+    const asked = [];
+    let carries = true;
+    const mgr = new ProfileManager({ home, frontendDir: '/app/ui', getRuntime: async () => fakeRuntime({
+        python: path.join(home, 'launcher-python'),
+        hasOwnUi: async (python, opts) => { asked.push({ python, cwd: opts.cwd }); return carries; },
+    }) });
+    t.after(() => mgr.stopAll());
+    const port = await freePort();
+    const p = mgr.create({ kind: 'script', name: 'Project', script: FAKE, python: process.execPath, port });
+    await mgr.start(p.id);
+    assert.deepEqual(asked, [{ python: process.execPath, cwd: path.dirname(FAKE) }]);
+    assert.equal((await getJson(port, '/api/status')).frontendDir, undefined, 'serves the UI it carries');
+    await mgr.stop(p.id);
+
+    carries = false;
+    await mgr.start(p.id);
+    assert.equal((await getJson(port, '/api/status')).frontendDir, '/app/ui', 'none of its own: the app’s');
+});
+
 test('an invalid profile does not start, and says why', async () => {
     const mgr = new ProfileManager({ home: tmp(), getRuntime: async () => fakeRuntime() });
     const p = mgr.create({ kind: 'script', name: 'Missing', script: '/nowhere/demo.py' });

@@ -14,7 +14,7 @@ const path = require('node:path');
 
 const { EdgeSupervisor } = require('./supervisor');
 const {
-    loadProfiles, saveProfiles, withDefaults, validateProfile, commandFor, readDeckFile, writeDeckFile,
+    loadProfiles, saveProfiles, withDefaults, validateProfile, commandFor, usesOwnInterpreter, readDeckFile, writeDeckFile,
 } = require('./profiles');
 const { normalizeNotifications, changeNotifications } = require('./notifyPrefs');
 const { validateManifest, mergeIntoDeck } = require('./manifest');
@@ -325,7 +325,13 @@ class ProfileManager extends EventEmitter {
                 throw new Error(`Port ${profile.port} is in use by another program. Stop it, or give this profile another port.`);
             }
 
-            const cmd = commandFor(profile, { python: runtime.python, frontendDir: this.frontendDir, cloudUrl: this.store.cloudUrl || null, cloudComingSoon: this.cloudComingSoon });
+            const ctx = { python: runtime.python, frontendDir: this.frontendDir, cloudUrl: this.store.cloudUrl || null, cloudComingSoon: this.cloudComingSoon };
+            if (this.frontendDir && usesOwnInterpreter(profile, runtime.python)) {
+                // Asked of the edge the script will import: same variables, its own folder first.
+                const { env } = commandFor(profile, ctx);
+                ctx.edgeHasUi = await runtime.hasOwnUi(profile.python, { env, cwd: path.dirname(profile.script) });
+            }
+            const cmd = commandFor(profile, ctx);
             const supervisor = new EdgeSupervisor({ ...cmd, logFile: this.logFile(id) });
             this.running.set(id, { supervisor });
             supervisor.on('log', (line) => this.emit('log', id, line));
