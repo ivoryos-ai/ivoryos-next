@@ -44,11 +44,11 @@ export default defineConfig({
       favicon: '/favicon.ico',
       customCss: ['./src/styles/custom.css'],
       social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/ivoryzh/ivoryos-next' },
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/ivoryos-ai/ivoryos-next' },
         { icon: 'discord', label: 'Discord', href: 'https://discord.gg/3KdjhUmsYA' },
         { icon: 'external', label: 'Automation Hub', href: 'https://ivoryos.ai' },
       ],
-      editLink: { baseUrl: 'https://github.com/ivoryzh/ivoryos-next/edit/main/docs-site/' },
+      editLink: { baseUrl: 'https://github.com/ivoryos-ai/ivoryos-next/edit/main/docs-site/' },
       lastUpdated: true,
       sidebar: [
         { label: 'Start here', items: [{ autogenerate: { directory: 'start' } }] },

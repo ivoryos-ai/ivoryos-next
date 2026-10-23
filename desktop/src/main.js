@@ -931,7 +931,7 @@ async function importFromGit(profileId, provider, repoId, ref) {
 
 // --- IPC: what the launcher page may ask for ----------------------------------------------------
 
-const REPORT_REPO = 'ivoryzh/ivoryos-next';
+const REPORT_REPO = 'ivoryos-ai/ivoryos-next';
 const app_version = () => app.getVersion();
 /** What problem reports mask: the home folder (usually the person's name) and the user name. */
 function reportContext() {
@@ -1181,7 +1181,7 @@ function registerIpc() {
     });
     handle('update:open-page', () => {
         const u = updates.status();
-        return shell.openExternal(u.downloadUrl || u.releaseUrl || 'https://github.com/ivoryzh/ivoryos-next/releases');
+        return shell.openExternal(u.downloadUrl || u.releaseUrl || 'https://github.com/ivoryos-ai/ivoryos-next/releases');
     });
     handle('app:set-auto-update', (on) => { manager.setAutoUpdate(on); broadcast('launcher:changed'); });
     handle('app:set-window-pref', (key, on) => {

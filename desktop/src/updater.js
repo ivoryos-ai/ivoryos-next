@@ -16,7 +16,7 @@
 
 const { EventEmitter } = require('node:events');
 
-const REPO = 'ivoryzh/ivoryos-next';
+const REPO = 'ivoryos-ai/ivoryos-next';
 const RELEASES_PAGE = `https://github.com/${REPO}/releases`;
 const CHECK_EVERY_MS = 4 * 60 * 60 * 1000;
 // electron-updater's ways of saying the repository has no release yet.

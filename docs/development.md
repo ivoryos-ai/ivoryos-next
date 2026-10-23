@@ -273,7 +273,7 @@ signed in as the account that will own the project, add a pending publisher (Git
 | Field | Value |
 |---|---|
 | PyPI project name | `ivoryos-edge` |
-| Owner | `ivoryzh` |
+| Owner | `ivoryos-ai` |
 | Repository name | `ivoryos-next` |
 | Workflow name | `edge-pypi.yml` |
 | Environment name | `pypi` |

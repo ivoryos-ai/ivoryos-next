@@ -29,4 +29,4 @@ user names, keys, tokens and emails. You read and can edit the exact text; nothi
 be taken at the moment, the dialog offers **Copy** and a prefilled GitHub issue instead.
 
 For questions and ideas, the [Discord](https://discord.gg/3KdjhUmsYA); for bugs and requests,
-[GitHub issues](https://github.com/ivoryzh/ivoryos-next/issues).
+[GitHub issues](https://github.com/ivoryos-ai/ivoryos-next/issues).

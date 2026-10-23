@@ -95,7 +95,7 @@ test('the row: description first, title from it, redacted again, bounded', () =>
 });
 
 test('the GitHub fallback is a bounded, prefilled issue', () => {
-    const url = githubIssueUrl('ivoryzh/ivoryos-next', { title: 'T', body: 'z'.repeat(20_000) });
-    assert.ok(url.startsWith('https://github.com/ivoryzh/ivoryos-next/issues/new?'));
+    const url = githubIssueUrl('ivoryos-ai/ivoryos-next', { title: 'T', body: 'z'.repeat(20_000) });
+    assert.ok(url.startsWith('https://github.com/ivoryos-ai/ivoryos-next/issues/new?'));
     assert.ok(url.length < 8000);
 });

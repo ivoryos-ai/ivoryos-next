@@ -11,8 +11,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ivoryzh/ivoryos-next/releases"><b>Download</b></a> ·
-  <a href="https://ivoryzh.github.io/ivoryos-next/">Documentation</a> ·
+  <a href="https://github.com/ivoryos-ai/ivoryos-next/releases"><b>Download</b></a> ·
+  <a href="https://ivoryos-ai.github.io/ivoryos-next/">Documentation</a> ·
   <a href="https://ivoryos.ai">Automation Hub</a> ·
   <a href="https://discord.gg/3KdjhUmsYA">Discord</a>
 </p>
@@ -56,7 +56,7 @@ development.
 ### 1. Install
 
 Download the installer for your computer from the
-[Releases page](https://github.com/ivoryzh/ivoryos-next/releases):
+[Releases page](https://github.com/ivoryos-ai/ivoryos-next/releases):
 
 | Windows | macOS (Apple silicon) | Linux |
 |---|---|---|
@@ -115,8 +115,8 @@ elsewhere in the lab.
   to IvoryOS** on a deck's Log tab to include that deck's log. You read everything before it is
   sent, and keys, tokens and your home folder are masked.
 - **Questions and ideas**: [Discord](https://discord.gg/3KdjhUmsYA).
-- **Bugs and requests**: [GitHub issues](https://github.com/ivoryzh/ivoryos-next/issues).
-- **Documentation**: [ivoryzh.github.io/ivoryos-next](https://ivoryzh.github.io/ivoryos-next/)
+- **Bugs and requests**: [GitHub issues](https://github.com/ivoryos-ai/ivoryos-next/issues).
+- **Documentation**: [ivoryos-ai.github.io/ivoryos-next](https://ivoryos-ai.github.io/ivoryos-next/)
   covers every page of the app, bringing your instruments, safeguards, plugins and agents. The
   [desktop app guide](docs/desktop_launcher_guide.md) is the short version for decks, ports, logs
   and what to check when something goes wrong.
