@@ -44,8 +44,14 @@ const { OPTIMIZERS, selectionOf } = require('./optimizers');
 const { parseInstallLink } = require('./installLink');
 const { OriginOwners } = require('./originOwners');
 const { looksClassic } = require('./classicScript');
+const { repairWindowsPath } = require('./windowsPath');
 const os = require('node:os');
 const crypto = require('node:crypto');
+
+// Before anything runs a process: a Windows PATH without System32 fails every update's signature
+// check and much of what Python runs (windowsPath.js).
+const addedToPath = repairWindowsPath();
+if (addedToPath.length) console.warn(`[desktop] PATH was missing ${addedToPath.join(', ')}; added for this app`);
 
 const SMOKE_TEST = process.argv.includes('--smoke-test');
 // A release build does not offer Cloud yet: its sidebar row asks for early access instead, and the
