@@ -1,0 +1,146 @@
+name: Edge package (PyPI)
+
+# Builds ivoryos-edge, the Python package with its web UI inside (`npm run build:edge`), checks it,
+# and publishes it with PyPI's trusted publishing: no API token is stored in this repository. PyPI
+# trusts this workflow file, in this repository, running in the named environment, which is set up
+# once on pypi.org and test.pypi.org (docs/development.md, "Publishing ivoryos-edge").
+#
+#   push a tag edge-vX.Y.Z    build, check, publish to PyPI (the tag must equal the package version)
+#   Run workflow (manual)     build, check, publish to TestPyPI: a dry run of the whole path
+#   pull request              build and check only, when the package or its build changes
+
+on:
+  push:
+    tags: ['edge-v*']
+  pull_request:
+    paths:
+      - 'edge_server/**'
+      - 'scripts/build-edge.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/edge-pypi.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: The tag is the package's version
+        if: startsWith(github.ref, 'refs/tags/edge-v')
+        run: |
+          set -euo pipefail
+          tagged="${GITHUB_REF_NAME#edge-v}"
+          declared="$(python3 -c "import tomllib; print(tomllib.load(open('edge_server/pyproject.toml', 'rb'))['project']['version'])")"
+          if [ "$tagged" != "$declared" ]; then
+            echo "::error::The tag says $tagged, but edge_server/pyproject.toml says version = \"$declared\". Change one of them and tag again."
+            exit 1
+          fi
+
+      - name: Install workspace packages
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          # As in desktop.yml: a lockfile written on another OS can omit Linux's native binaries
+          # (npm/cli#4828), so install Tailwind's, lightningcss's and Next's at the installed versions.
+          version() {
+            node -p "const fs=require('fs');const d=['frontend/node_modules/$1','node_modules/$1'].find(x=>fs.existsSync(x+'/package.json'));if(!d)throw new Error('$1 is not installed');JSON.parse(fs.readFileSync(d+'/package.json','utf8')).version"
+          }
+          npm install --no-save --no-audit --no-fund \
+            "@tailwindcss/oxide-linux-x64-gnu@$(version @tailwindcss/oxide)" \
+            "lightningcss-linux-x64-gnu@$(version lightningcss)" \
+            "@next/swc-linux-x64-gnu@$(version next)"
+
+      # The web UI, copied into the package, then the sdist and the wheel (built from the sdist).
+      # edge_server/build_backend.py refuses either one without the UI in it.
+      - name: Build the package
+        run: npm run build:edge
+
+      - name: Check the package
+        run: |
+          set -euo pipefail
+          ls -l edge_server/dist
+          uvx twine check --strict edge_server/dist/*
+          python3 - <<'EOF'
+          import glob, zipfile
+          wheel, = glob.glob("edge_server/dist/*.whl")
+          names = zipfile.ZipFile(wheel).namelist()
+          assert "ivoryos_edge/ui/index.html" in names, f"{wheel} has no web UI"
+          print(f"{wheel}: {sum(n.startswith('ivoryos_edge/ui/') for n in names)} UI files")
+          EOF
+
+      # What a person gets from `pip install ivoryos-edge`: a fresh environment holding only the
+      # wheel, run from an empty folder, must serve the pages as well as the API.
+      - name: Start the edge from the wheel
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          uv venv -q --python 3.10 smoke
+          uv pip install -q --python smoke/bin/python "$GITHUB_WORKSPACE"/edge_server/dist/*.whl
+          unset IVORYOS_FRONTEND_DIR
+          smoke/bin/ivoryos-edge --data-dir "$RUNNER_TEMP/edge-data" --host 127.0.0.1 --port 8765 > edge.log 2>&1 &
+          edge=$!
+          trap 'kill $edge 2>/dev/null || true' EXIT
+          for _ in $(seq 60); do
+            curl -sf http://127.0.0.1:8765/api/status > /dev/null && break
+            kill -0 $edge 2>/dev/null || { cat edge.log; echo "::error::The edge stopped while starting"; exit 1; }
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8765/api/status > /dev/null || { cat edge.log; echo "::error::The edge did not answer /api/status"; exit 1; }
+          curl -sf http://127.0.0.1:8765/ | grep -qi '<html' || { cat edge.log; echo "::error::The edge from the wheel serves no pages at /"; exit 1; }
+          echo "The edge from the wheel serves the API and the pages."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ivoryos-edge-dist
+          path: edge_server/dist/
+          if-no-files-found: error
+
+  testpypi:
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/ivoryos-edge
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ivoryos-edge-dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist/
+          # A dry run of a version already on TestPyPI is not a failure: bump the version to upload anew.
+          skip-existing: true
+
+  pypi:
+    if: startsWith(github.ref, 'refs/tags/edge-v')
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/ivoryos-edge
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ivoryos-edge-dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/

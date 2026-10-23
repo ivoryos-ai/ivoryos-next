@@ -2,6 +2,7 @@
 name = "ivoryos-edge"
 version = "0.1.0"
 description = "IvoryOS Edge Server"
+readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 dependencies = [
@@ -17,6 +18,11 @@ dependencies = [
     "httpx>=0.28.1",
     "pandas",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ivoryzh/ivoryos-next"
+Documentation = "https://ivoryzh.github.io/ivoryos-next/"
+Issues = "https://github.com/ivoryzh/ivoryos-next/issues"
 
 [project.scripts]
 ivoryos-edge = "ivoryos_edge.cli:main"
