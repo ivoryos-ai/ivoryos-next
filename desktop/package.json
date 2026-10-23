@@ -67,7 +67,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "ivoryzh",
+        "owner": "ivoryos-ai",
         "repo": "ivoryos-next",
         "releaseType": "release"
       }

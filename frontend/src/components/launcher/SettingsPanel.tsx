@@ -45,7 +45,7 @@ export default function SettingsPanel({ api, snap }: {
             <Send className="w-3.5 h-3.5" /> Report a problem
           </Button>
           <Button onClick={() => window.open('https://discord.gg/3KdjhUmsYA', '_blank')}><MessageCircle className="w-3.5 h-3.5" /> Ask on Discord</Button>
-          <Button onClick={() => window.open('https://github.com/ivoryzh/ivoryos-next/issues', '_blank')}><ExternalLink className="w-3.5 h-3.5" /> GitHub issues</Button>
+          <Button onClick={() => window.open('https://github.com/ivoryos-ai/ivoryos-next/issues', '_blank')}><ExternalLink className="w-3.5 h-3.5" /> GitHub issues</Button>
         </div>
         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">A report carries your description and this app&apos;s version and Python environment. To include a deck&apos;s log, use <b>Send to IvoryOS</b> on that deck&apos;s Log tab. Keys, tokens and your home folder are masked, and you see the whole text before it is sent.</p>
       </Section>

@@ -11,6 +11,8 @@ IvoryOS is four pieces across **two separate repos on disk**. If you're picking 
 | **Cloud** | Meant to be: a dashboard that monitors and dispatches workflows across *multiple* Core instances (multiple physical labs) — the "connected lab" story. | *this* repo — `cloud_frontend/` | **Prototype / UI shell.** See the callout below — the polished orchestrator canvas does not yet actually reach a real Core instance. |
 | **Community** | Discord, the public gallery of shared workflows, news posts, driver requests. | Discord (external) + pages inside the Hub repo (`app/hub/gallery`, `app/news`, `components/landing/community.tsx`) | **Live.** |
 
+This repository is **`ivoryos-ai/ivoryos-next`** on GitHub, moved from `ivoryzh/ivoryos-next` on 2026-10-22. GitHub redirects the old name (git, web, API and release downloads), which is how installed desktop-v0.1.0 apps, built to look for updates at `ivoryzh/ivoryos-next`, still find new releases: never create a repository named `ivoryos-next` under `ivoryzh`, or that redirect stops. The docs moved from `ivoryzh.github.io/ivoryos-next` (not redirected) to `ivoryos-ai.github.io/ivoryos-next` until docs.ivoryos.ai is set up, and the PyPI trusted publisher is to be registered with owner `ivoryos-ai` (docs/development.md, "Publishing ivoryos-edge").
+
 ### The pipeline
 
 ```mermaid

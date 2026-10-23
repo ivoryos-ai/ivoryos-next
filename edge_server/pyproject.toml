@@ -20,9 +20,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/ivoryzh/ivoryos-next"
-Documentation = "https://ivoryzh.github.io/ivoryos-next/"
-Issues = "https://github.com/ivoryzh/ivoryos-next/issues"
+Homepage = "https://github.com/ivoryos-ai/ivoryos-next"
+Documentation = "https://ivoryos-ai.github.io/ivoryos-next/"
+Issues = "https://github.com/ivoryos-ai/ivoryos-next/issues"
 
 [project.scripts]
 ivoryos-edge = "ivoryos_edge.cli:main"
