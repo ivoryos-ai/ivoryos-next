@@ -1,7 +1,9 @@
 """How the edge finds and serves its built UI (server.py _frontend_dirs, UIFiles).
 
 Served with no caching header, a browser kept an edge's old page, and the old scripts it names,
-after the edge was updated, until a hard reload.
+after the edge was updated, until a hard reload. A 404 left the same way: starlette serves the
+build's 404.html outside file_response, so the answer to an old page asking for a chunk the new
+build no longer has could be kept too.
 
 An edge installed from a wheel looked only for frontend/out three folders above server.py, which
 exists in a source checkout and nowhere else, so `pip install` gave an API with no pages. It now
@@ -14,10 +16,12 @@ from ivoryos_edge import server
 from ivoryos_edge.server import UIFiles
 
 
-def _ui(tmp_path):
+def _ui(tmp_path, not_found_page=True):
     (tmp_path / "designer").mkdir()
     (tmp_path / "designer" / "index.html").write_text("<html>designer</html>")
     (tmp_path / "index.html").write_text("<html>home</html>")
+    if not_found_page:  # a Next export always writes one
+        (tmp_path / "404.html").write_text("<html>not found</html>")
     chunks = tmp_path / "_next" / "static" / "chunks"
     chunks.mkdir(parents=True)
     (chunks / "1abc.js").write_text("console.log(1)")
@@ -34,6 +38,28 @@ def test_pages_are_rechecked_and_named_scripts_are_kept(tmp_path):
     script = client.get("/_next/static/chunks/1abc.js")
     assert script.status_code == 200
     assert script.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+
+def test_a_missing_script_is_a_404_that_is_rechecked(tmp_path):
+    """An old page kept by a browser names scripts by content hash, and the new build has other
+    names: the 404 it gets must not be kept as that script, nor as missing once the page is new."""
+    client = _ui(tmp_path)
+    gone = client.get("/_next/static/chunks/does-not-exist.js")
+    assert gone.status_code == 404 and gone.headers["cache-control"] == "no-cache"
+    assert "not found" in gone.text, "the build's own 404 page, as before"
+    assert client.get("/no/such/page/").status_code == 404
+    assert client.get("/no/such/page/").headers["cache-control"] == "no-cache"
+    # The two answers that existed are unchanged.
+    script = client.get("/_next/static/chunks/1abc.js")
+    assert script.status_code == 200 and script.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert client.get("/designer/").headers["cache-control"] == "no-cache"
+
+
+def test_a_404_is_rechecked_without_a_404_page_too(tmp_path):
+    """A build with no 404.html: starlette raises, the app answers, and the header still goes."""
+    client = _ui(tmp_path, not_found_page=False)
+    gone = client.get("/_next/static/chunks/does-not-exist.js")
+    assert gone.status_code == 404 and gone.headers["cache-control"] == "no-cache"
 
 
 def test_an_unchanged_page_comes_back_as_a_304(tmp_path):
