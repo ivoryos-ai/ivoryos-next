@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
@@ -2555,11 +2556,30 @@ class UIFiles(StaticFiles):
     back as a cheap 304), as plugin pages are (PluginFiles). Without a caching header a browser
     guesses how long a page stays fresh, and after the edge was updated it went on loading the old
     page and the old scripts that page names, until a hard reload. Files under `_next/static/` are
-    named by their content, so a name never changes meaning: those are kept."""
+    named by their content, so a name never changes meaning: those are kept.
+
+    A 404 is rechecked too. Starlette answers a missing path with the build's `404.html` through a
+    plain FileResponse that bypasses `file_response`, so it left with no caching header, and a
+    browser could keep it as it kept a page. The usual missing path is a script an older page still
+    names (`/_next/static/chunks/<hash>.js`, a name this build no longer has), which must not be
+    remembered as that script, or as missing, once the page is current again. `immutable` is said
+    only of a file that exists, never of a 404 under `_next/static/`."""
+
+    async def get_response(self, path, scope):
+        try:
+            response = await super().get_response(path, scope)
+        except HTTPException as exc:
+            # No 404.html beside the pages: the app's own handler answers, with these headers.
+            if exc.status_code == 404:
+                exc.headers = {**(exc.headers or {}), "Cache-Control": "no-cache"}
+            raise
+        if response.status_code == 404 or "Cache-Control" not in response.headers:
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
     def file_response(self, full_path, stat_result, scope, status_code=200):
         response = super().file_response(full_path, stat_result, scope, status_code)
-        immutable = scope.get("path", "").startswith("/_next/static/")
+        immutable = status_code == 200 and scope.get("path", "").startswith("/_next/static/")
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable" if immutable else "no-cache"
         return response
 

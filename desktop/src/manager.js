@@ -179,6 +179,16 @@ class ProfileManager extends EventEmitter {
         this._save();
     }
 
+    /** The app version that last emptied the shared HTTP cache at startup (main.js says why). */
+    get cacheClearedFor() {
+        return this.store.cacheClearedFor || null;
+    }
+
+    setCacheClearedFor(version) {
+        this.store.cacheClearedFor = String(version);
+        this._save();
+    }
+
     /** Where decks pair with IvoryOS Cloud: the hosted service unless a lab runs its own. */
     /** 'system' | 'light' | 'dark': the app's one theme, applied to every page it shows. */
     get theme() {
