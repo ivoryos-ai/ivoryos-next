@@ -5,7 +5,7 @@ import { Check, ChevronsUpDown, Maximize2, PanelRight, PictureInPicture2, Plug, 
 import { API_BASE } from '@/config';
 import { HOME_HREF } from '@/homePage';
 import { setDockRight } from '@/dockRight';
-import { effectiveMode, isPanelPlugin, loadPanel, openInPanel, pluginPageHref, setPanel, usePanel, type PanelMode, type PanelState } from '@/pluginPanel';
+import { loadPanel, modeFor, pluginPageHref, setModeFor, setPanel, usePanel, type PanelMode, type PanelState } from '@/pluginPanel';
 import { usePageArea } from '@/usePageArea';
 
 type PluginInfo = { id: string; name: string; url: string; placement?: string };
@@ -42,24 +42,17 @@ export default function PluginPanelHost({ children }: { children: React.ReactNod
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
 
   useEffect(() => {
-    const saved = loadPanel();
+    loadPanel();
     if (onLauncher) return;
+    // Nothing opens by itself: a plugin is a page until it is put somewhere else.
     fetch(`${API_BASE}/api/plugins`)
       .then(r => r.json())
-      .then(d => {
-        const list: PluginInfo[] = d.plugins || [];
-        setPlugins(list);
-        // First visit, with plugins set to open beside the page: a panel plugin is meant to be
-        // seen, so open it. After that, a panel the person closed stays closed. As a page it is
-        // never opened by itself: that would send the person to the plugin instead of the deck.
-        const first = list.find(isPanelPlugin);
-        if (!saved.touched && saved.layout === 'side' && first) openInPanel(first.id, first.placement);
-      })
+      .then(d => setPlugins(d.plugins || []))
       .catch(() => {});
   }, [onLauncher]);
 
   const plugin = onLauncher ? undefined : plugins.find(p => p.id === panel.open);
-  const mode = effectiveMode(panel);
+  const mode = plugin ? modeFor(panel, plugin.id) : 'full';
   // As a page, only while its page is open; beside the page and in a window, always.
   const shown = !!plugin && (mode !== 'full' || panel.onPage === plugin.id);
   const docked = shown && mode === 'side';
@@ -141,12 +134,11 @@ function Panel({ plugin, choices, panel, mode, shown }: {
   // Leaving the page for another mode goes to the landing page: the plugin page itself would be
   // an empty area with the plugin beside it.
   const leavePage = () => { if (onPage) router.push(HOME_HREF); };
+  // Each choice is remembered for this plugin: it opens that way from the nav from then on.
   const asPage = () => router.push(pluginPageHref(plugin.id));
-  const beside = () => { setPanel({ mode: 'side' }); leavePage(); };
-  const asWindow = () => { setPanel({ mode: 'window' }); leavePage(); };
+  const beside = () => { setModeFor(plugin.id, 'side'); leavePage(); };
+  const asWindow = () => { setModeFor(plugin.id, 'window'); leavePage(); };
   const close = () => { setPanel({ open: null }); leavePage(); };
-  // Double-clicking a window's title bar puts it where plugins open by default.
-  const dock = () => { if (panel.layout === 'side') beside(); else asPage(); };
 
   // The window, kept reachable: a place saved on a larger screen must not strand it.
   const f = live ?? panel.float;
@@ -194,8 +186,8 @@ function Panel({ plugin, choices, panel, mode, shown }: {
     <div className={`fixed flex flex-col bg-white dark:bg-[#0d0d0d] ${chrome}`} style={box}>
       <div
         onMouseDown={mode === 'window' ? moveWindow : undefined}
-        onDoubleClick={mode === 'window' ? dock : undefined}
-        title={mode === 'window' ? `Drag to move; double-click to open ${panel.layout === 'side' ? 'beside the page' : 'as a page'}` : undefined}
+        onDoubleClick={mode === 'window' ? asPage : undefined}
+        title={mode === 'window' ? 'Drag to move; double-click to open as a page' : undefined}
         className={`shrink-0 flex items-center gap-1 pl-3 pr-1.5 border-b border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.03] ${mode === 'window' ? 'cursor-move select-none' : ''}`}
         style={{ height: HEADER }}
       >
@@ -237,16 +229,17 @@ function Panel({ plugin, choices, panel, mode, shown }: {
           <span className="min-w-0 truncate px-1 text-xs font-semibold text-gray-700 dark:text-gray-200">{plugin.name}</span>
         )}
         <span className="flex-1" />
-        {/* Where else to show it: a page is left through the nav, so it has no Close. */}
+        {/* Where else to show it, remembered for this plugin. A page is left through the nav, so
+            it has no Close. */}
         <div className="flex items-center" onMouseDown={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
           {mode !== 'full' && (
-            <button type="button" className={btn} title="Open as a page" onClick={asPage}><Maximize2 className="w-3.5 h-3.5" /></button>
+            <button type="button" className={btn} title="Open as a page (and from now on)" onClick={asPage}><Maximize2 className="w-3.5 h-3.5" /></button>
           )}
           {mode !== 'side' && (
-            <button type="button" className={btn} title="Open beside the page" onClick={beside}><PanelRight className="w-3.5 h-3.5" /></button>
+            <button type="button" className={btn} title="Open beside the page (and from now on)" onClick={beside}><PanelRight className="w-3.5 h-3.5" /></button>
           )}
-          {mode !== 'window' && panel.allowFloat && (
-            <button type="button" className={btn} title="Open in a window over the pages" onClick={asWindow}><PictureInPicture2 className="w-3.5 h-3.5" /></button>
+          {mode !== 'window' && (
+            <button type="button" className={btn} title="Open in a window over the pages (and from now on)" onClick={asWindow}><PictureInPicture2 className="w-3.5 h-3.5" /></button>
           )}
           {mode !== 'full' && (
             <button type="button" className={btn} title="Close" onClick={close}><X className="w-3.5 h-3.5" /></button>

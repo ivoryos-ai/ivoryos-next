@@ -6,45 +6,36 @@ import { useSyncExternalStore } from 'react';
  * once in the root layout so it survives navigation), the nav's plugin entries, which open plugins
  * into it, and the `/plugin` page. Saved per browser in localStorage.
  *
- * Three ways to show a plugin:
- * - `full`: a page of its own. The `/plugin?id=` route is that page; the panel covers the page
- *   area while the route is open (`onPage`) and stays mounted, hidden, when you leave, so the
- *   plugin keeps running and is back at once. The nav treats it as a page: its entry is the
- *   current page, and clicking Instruments goes to Instruments. (It used to be an overlay over
- *   whatever page was open, so the nav still worked underneath and seemed to do nothing.)
+ * Three ways to show a plugin, chosen on the panel's own header (or the nav entry's right-click
+ * menu) and **remembered per plugin**: a plugin opens from the nav the way it was last shown.
+ * - `full`: a page of its own, the default. The `/plugin?id=` route is that page; the panel
+ *   covers the page area while the route is open (`onPage`) and stays mounted, hidden, when you
+ *   leave, so the plugin keeps running and is back at once. The nav treats it as a page: its
+ *   entry is the current page, and clicking Instruments goes to Instruments. (It used to be an
+ *   overlay over whatever page was open, so the nav still worked underneath and seemed to do
+ *   nothing.)
  * - `side`: beside the page, docked on the right; the page shrinks to make room.
- * - `window`: floating over the pages, dragged and resized, only when `allowFloat` is on.
- *
- * Two settings (the Settings page) decide the defaults: `layout` is how a plugin opens from the
- * nav, and `allowFloat` whether the window is offered at all. Defaults: a page, no window.
+ * - `window`: floating over the pages, dragged and resized.
  */
 export type PanelMode = 'full' | 'side' | 'window';
-export type PanelLayout = 'full' | 'side';
 export type FloatRect = { x: number; y: number; w: number; h: number };
 
 export type PanelState = {
   /** The plugin shown, or null when the panel is closed. */
   open: string | null;
-  mode: PanelMode;
-  /** How a plugin opens from the nav (a setting). */
-  layout: PanelLayout;
-  /** Whether a plugin may be shown in a floating window (a setting). */
-  allowFloat: boolean;
+  /** How each plugin opens, by id; absent means a page. */
+  modes: Record<string, PanelMode>;
   /** The window's place and size. An x below 0 means "not placed yet": the right-hand side. */
   float: FloatRect;
   /** The docked panel's width, in px. */
   sideWidth: number;
-  /** Set once anything has been saved: the first visit opens a panel plugin beside the page by
-   * default (when that is the layout), later visits respect a panel the person closed. */
-  touched: boolean;
   /** The plugin the `/plugin` page is showing now (set by that page, never saved). */
   onPage: string | null;
 };
 
 const KEY = 'ivoryos_plugin_panel';
 export const DEFAULT_PANEL: PanelState = {
-  open: null, mode: 'full', layout: 'full', allowFloat: false,
-  float: { x: -1, y: 96, w: 420, h: 560 }, sideWidth: 420, touched: false, onPage: null,
+  open: null, modes: {}, float: { x: -1, y: 96, w: 420, h: 560 }, sideWidth: 420, onPage: null,
 };
 
 let state: PanelState = DEFAULT_PANEL;
@@ -64,16 +55,16 @@ export function loadPanel(): PanelState {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
     if (saved && typeof saved === 'object') {
-      const layout: PanelLayout = saved.layout === 'side' ? 'side' : 'full';
+      const modes: Record<string, PanelMode> = {};
+      if (saved.modes && typeof saved.modes === 'object') {
+        Object.entries(saved.modes).forEach(([id, m]) => { if (isMode(m)) modes[id] = m; });
+      }
       state = {
         ...state,
         open: typeof saved.open === 'string' ? saved.open : null,
-        mode: isMode(saved.mode) ? saved.mode : layout,
-        layout,
-        allowFloat: !!saved.allowFloat,
+        modes,
         float: { ...DEFAULT_PANEL.float, ...(saved.float || {}) },
         sideWidth: typeof saved.sideWidth === 'number' ? saved.sideWidth : DEFAULT_PANEL.sideWidth,
-        touched: !!saved.touched,
       };
     }
   } catch { /* private window or bad JSON: defaults */ }
@@ -87,18 +78,19 @@ function save() {
 }
 
 export function setPanel(patch: Partial<Omit<PanelState, 'onPage'>>) {
-  state = { ...state, ...patch, touched: true };
+  state = { ...state, ...patch };
   save();
   emit();
 }
 
-/** The two settings; a window no longer allowed goes back to the layout. */
-export function setPanelSettings(patch: Partial<Pick<PanelState, 'layout' | 'allowFloat'>>) {
-  const next = { ...state, ...patch };
-  if (!next.allowFloat && next.mode === 'window') next.mode = next.layout;
-  state = next;
-  save();
-  emit();
+/** How this plugin opens, and is shown while open. */
+export function modeFor(s: PanelState, id: string): PanelMode {
+  return s.modes[id] ?? 'full';
+}
+
+/** Remember how this plugin opens; it is shown that way at once if it is the one open. */
+export function setModeFor(id: string, mode: PanelMode) {
+  setPanel({ modes: { ...state.modes, [id]: mode } });
 }
 
 /** Told by the `/plugin` page which plugin it shows; null when it is left. */
@@ -109,27 +101,21 @@ export function setPluginPage(id: string | null) {
 }
 
 /**
- * Show a plugin in the panel, in `mode` or the layout chosen in Settings. A window is only given
- * when allowed. A `panel-left` plugin's window starts on the left, the first time it is placed.
+ * Show a plugin in the panel, in `mode` (remembered for it from then on) or the way it was last
+ * shown. A `panel-left` plugin's window starts on the left, the first time it is placed.
  */
 export function openInPanel(id: string, placement?: string, mode?: PanelMode) {
   const unplaced = state.float.x < 0;
-  const wanted = mode ?? state.layout;
   setPanel({
     open: id,
-    mode: wanted === 'window' && !state.allowFloat ? state.layout : wanted,
+    ...(mode ? { modes: { ...state.modes, [id]: mode } } : {}),
     ...(unplaced && placement === 'panel-left' ? { float: { ...state.float, x: 24 } } : {}),
   });
 }
 
-/** The mode the panel is drawn in now: a window is never drawn once it is no longer allowed. */
-export function effectiveMode(s: PanelState): PanelMode {
-  return s.mode === 'window' && !s.allowFloat ? s.layout : s.mode;
-}
-
 /** Whether this plugin is on screen: as a page only while its page is open. */
 export function isShowing(s: PanelState, id: string) {
-  return s.open === id && (effectiveMode(s) !== 'full' || s.onPage === id);
+  return s.open === id && (modeFor(s, id) !== 'full' || s.onPage === id);
 }
 
 export function usePanel(): PanelState {

@@ -8,9 +8,8 @@ import { isShowing, openInPanel, pluginPageHref, setPanel, usePanel } from '@/pl
 export type PluginMenuAt = { plugin: { id: string; name: string; placement?: string }; x: number; y: number };
 
 /**
- * A plugin entry's right-click menu in the nav: where to show it this time, whatever Settings
- * says a plain click does. Any plugin can open as a page, beside the page (PluginPanel) or, when
- * Settings allows it, in a window over the pages.
+ * A plugin entry's right-click menu in the nav: where to show it, remembered for that plugin
+ * (pluginPanel.ts). Any plugin can open as a page, beside the page or in a window over the pages.
  */
 export default function PluginMenu({ at, onClose }: { at: PluginMenuAt; onClose: () => void }) {
   const router = useRouter();
@@ -57,11 +56,9 @@ export default function PluginMenu({ at, onClose }: { at: PluginMenuAt; onClose:
       <button type="button" role="menuitem" className={item} onClick={pick(() => { openInPanel(plugin.id, plugin.placement, 'side'); leavePage(); })}>
         <PanelRight className="w-3.5 h-3.5" /> Open beside the page
       </button>
-      {panel.allowFloat && (
-        <button type="button" role="menuitem" className={item} onClick={pick(() => { openInPanel(plugin.id, plugin.placement, 'window'); leavePage(); })}>
-          <PictureInPicture2 className="w-3.5 h-3.5" /> Open in a window
-        </button>
-      )}
+      <button type="button" role="menuitem" className={item} onClick={pick(() => { openInPanel(plugin.id, plugin.placement, 'window'); leavePage(); })}>
+        <PictureInPicture2 className="w-3.5 h-3.5" /> Open in a window
+      </button>
       {showing && (
         <button type="button" role="menuitem" className={item} onClick={pick(() => { setPanel({ open: null }); leavePage(); })}>
           <X className="w-3.5 h-3.5" /> Close

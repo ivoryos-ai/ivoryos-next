@@ -10,7 +10,7 @@ import { Settings, LayoutDashboard, Library, Workflow, Play, Table2, Settings2, 
 import { INPUT_PROMPT_EVENT, isPromptMinimized, promptKey, setPromptMinimized } from '@/inputPrompt';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { effectiveMode, isPanelPlugin, isShowing, openInPanel, pluginPageHref, setPanel, usePanel } from '@/pluginPanel';
+import { modeFor, openInPanel, pluginPageHref, setPanel, usePanel } from '@/pluginPanel';
 import { inDesktopApp, useNavPlacement, TopNavBar, TopNavBrand, TopNavItem, TopNavButton, TopNavIconLink, TopNavDivider, topNavPill, BRAND_MARK , notify } from '@ivoryos/shared-ui';
 import { lastRunTabHref, runTabForPath, samePath } from './RunTabs';
 import RunDecision from './RunDecision';
@@ -156,19 +156,17 @@ export default function Sidebar() {
 
   /**
    * What a plugin's nav entry does (pluginPanel.ts). Showing beside the page or in a window, it
-   * closes it. Otherwise it opens the plugin the way Settings says: as a page (a link, lit while
-   * that page is open, as any page's entry is) or beside the page. A `tab` plugin is always a page.
+   * closes it. Otherwise it opens the plugin the way it was last shown: as a page (a link, lit
+   * while that page is open, as any page's entry is), beside the page or in a window.
    */
   const pluginAction = (p: { id: string; name: string; placement?: string }) => {
-    const onPanel = panel.open === p.id && effectiveMode(panel) !== 'full';
-    if (onPanel) return { kind: 'close' as const, active: true, title: `Close ${p.name}` };
-    if (panel.layout === 'full' || !isPanelPlugin(p)) {
-      return { kind: 'page' as const, href: pluginPageHref(p.id), active: panel.onPage === p.id, title: `Open ${p.name} (right-click: beside the page${panel.allowFloat ? ' or in a window' : ''})` };
-    }
-    return { kind: 'beside' as const, active: isShowing(panel, p.id), title: `Open ${p.name} beside the page (right-click: as a page${panel.allowFloat ? ' or in a window' : ''})` };
+    const mode = modeFor(panel, p.id);
+    if (panel.open === p.id && mode !== 'full') return { kind: 'close' as const, active: true, title: `Close ${p.name}` };
+    if (mode === 'full') return { kind: 'page' as const, href: pluginPageHref(p.id), active: panel.onPage === p.id, title: `Open ${p.name} (right-click: beside the page or in a window)` };
+    return { kind: 'open' as const, active: false, title: `Open ${p.name} ${mode === 'side' ? 'beside the page' : 'in a window'} (right-click for the other ways)` };
   };
-  const pluginClick = (p: { id: string; name: string; placement?: string }, kind: 'close' | 'beside') =>
-    kind === 'close' ? setPanel({ open: null }) : openInPanel(p.id, p.placement, 'side');
+  const pluginClick = (p: { id: string; name: string; placement?: string }, kind: 'close' | 'open') =>
+    kind === 'close' ? setPanel({ open: null }) : openInPanel(p.id, p.placement);
 
   const pluginItem = (p: { id: string; name: string; placement?: string }) => {
     const action = pluginAction(p);
@@ -247,9 +245,8 @@ export default function Sidebar() {
             <span className={`w-2 h-2 rounded-full shrink-0 ring-[3px] ${cloudOn ? 'bg-emerald-500 ring-emerald-500/20' : 'bg-red-500 ring-red-500/20'}`} />
             <span className="hidden sm:inline">Cloud</span>
           </Link>}
-          {/* Theme and layout follow the desktop app, so inside it the gear is only shown when
-              there is something else to set: how plugins open. */}
-          {(!desktop || plugins.length > 0) && <TopNavIconLink link={Link} href="/settings" label="Settings" icon={<Settings className="w-4 h-4 shrink-0" />} active={isOn('/settings')} />}
+          {/* Its settings are theme and layout, which inside the desktop app follow the app. */}
+          {!desktop && <TopNavIconLink link={Link} href="/settings" label="Settings" icon={<Settings className="w-4 h-4 shrink-0" />} active={isOn('/settings')} />}
         </>
       }
     >
