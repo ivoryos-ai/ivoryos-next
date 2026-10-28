@@ -1,12 +1,13 @@
 "use client";
 import React, { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Check, ChevronsUpDown, Maximize2, PanelRight, PictureInPicture2, Plug, X } from 'lucide-react';
+import { Check, ChevronsUpDown, PictureInPicture2, PanelRightClose, Plug, Settings2, X } from 'lucide-react';
 import { API_BASE } from '@/config';
 import { HOME_HREF } from '@/homePage';
 import { setDockRight } from '@/dockRight';
-import { loadPanel, modeFor, pluginPageHref, setModeFor, setPanel, usePanel, type PanelMode, type PanelState } from '@/pluginPanel';
+import { loadPanel, modeFor, pluginPageHref, prefsFor, setPanel, usePanel, type PanelMode, type PanelState } from '@/pluginPanel';
 import { usePageArea } from '@/usePageArea';
+import { PluginChoices } from './PluginMenu';
 
 type PluginInfo = { id: string; name: string; url: string; placement?: string };
 type Rect = { x: number; y: number; w: number; h: number };
@@ -44,7 +45,7 @@ export default function PluginPanelHost({ children }: { children: React.ReactNod
   useEffect(() => {
     loadPanel();
     if (onLauncher) return;
-    // Nothing opens by itself: a plugin is a page until it is put somewhere else.
+    // Nothing opens by itself: a plugin is a page until its check marks say otherwise.
     fetch(`${API_BASE}/api/plugins`)
       .then(r => r.json())
       .then(d => setPlugins(d.plugins || []))
@@ -105,7 +106,24 @@ function useDrag() {
   return { start, overlay };
 }
 
+/** A header dropdown that closes on a click elsewhere (including into the plugin's own page,
+ * which blurs this window), on Escape, and when told to. */
+function useOpenMenu() {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    window.addEventListener('mousedown', close);
+    window.addEventListener('blur', close);
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('mousedown', close); window.removeEventListener('blur', close); window.removeEventListener('keydown', onKey); };
+  }, [open]);
+  return [open, setOpen] as const;
+}
+
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi));
+const MENU = 'absolute top-full mt-1 z-10 w-52 py-1 rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#1a1a1a] shadow-xl';
 
 function Panel({ plugin, choices, panel, mode, shown }: {
   plugin: PluginInfo; choices: PluginInfo[]; panel: PanelState; mode: PanelMode; shown: boolean;
@@ -117,28 +135,19 @@ function Panel({ plugin, choices, panel, mode, shown }: {
   // While dragging, the live geometry is held here and saved once, on release.
   const [live, setLive] = useState<Rect | null>(null);
   const [liveWidth, setLiveWidth] = useState<number | null>(null);
-  // The list of plugins to switch to, open under the name.
-  const [picking, setPicking] = useState(false);
-  useEffect(() => {
-    if (!picking) return;
-    const close = () => setPicking(false);
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
-    // A click into the plugin's own page blurs this window; a click on this page is a mousedown.
-    window.addEventListener('mousedown', close);
-    window.addEventListener('blur', close);
-    window.addEventListener('keydown', onKey);
-    return () => { window.removeEventListener('mousedown', close); window.removeEventListener('blur', close); window.removeEventListener('keydown', onKey); };
-  }, [picking]);
+  // The list of plugins to switch to, open under the name; the check marks, under the gear.
+  const [picking, setPicking] = useOpenMenu();
+  const [settingsOpen, setSettingsOpen] = useOpenMenu();
+  const prefs = prefsFor(panel, plugin.id);
 
   const onPage = panel.onPage === plugin.id;
-  // Leaving the page for another mode goes to the landing page: the plugin page itself would be
-  // an empty area with the plugin beside it.
+  // Leaving the page for the window goes to the landing page: the plugin page itself would be an
+  // empty area with the window over it.
   const leavePage = () => { if (onPage) router.push(HOME_HREF); };
-  // Each choice is remembered for this plugin: it opens that way from the nav from then on.
-  const asPage = () => router.push(pluginPageHref(plugin.id));
-  const beside = () => { setModeFor(plugin.id, 'side'); leavePage(); };
-  const asWindow = () => { setModeFor(plugin.id, 'window'); leavePage(); };
-  const close = () => { setPanel({ open: null }); leavePage(); };
+  const popOut = () => { setPanel({ windowed: true }); leavePage(); };
+  // Back where its check marks put it.
+  const dock = () => { setPanel({ windowed: false }); if (prefs.layout === 'full') router.push(pluginPageHref(plugin.id)); };
+  const close = () => { setPanel({ open: null, windowed: false }); leavePage(); };
 
   // The window, kept reachable: a place saved on a larger screen must not strand it.
   const f = live ?? panel.float;
@@ -181,13 +190,14 @@ function Panel({ plugin, choices, panel, mode, shown }: {
   const chrome = mode === 'full' ? 'z-[140]'
     : mode === 'side' ? 'z-[140] border-l border-gray-200 dark:border-white/15'
       : 'z-[150] border border-gray-200 dark:border-white/15 rounded-xl overflow-hidden shadow-2xl';
+  const stop = { onMouseDown: (e: React.MouseEvent) => e.stopPropagation(), onDoubleClick: (e: React.MouseEvent) => e.stopPropagation() };
 
   return (
     <div className={`fixed flex flex-col bg-white dark:bg-[#0d0d0d] ${chrome}`} style={box}>
       <div
         onMouseDown={mode === 'window' ? moveWindow : undefined}
-        onDoubleClick={mode === 'window' ? asPage : undefined}
-        title={mode === 'window' ? 'Drag to move; double-click to open as a page' : undefined}
+        onDoubleClick={mode === 'window' ? dock : undefined}
+        title={mode === 'window' ? `Drag to move; double-click to put it back ${prefs.layout === 'side' ? 'beside the page' : 'on its page'}` : undefined}
         className={`shrink-0 flex items-center gap-1 pl-3 pr-1.5 border-b border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/[0.03] ${mode === 'window' ? 'cursor-move select-none' : ''}`}
         style={{ height: HEADER }}
       >
@@ -195,7 +205,7 @@ function Panel({ plugin, choices, panel, mode, shown }: {
         {/* The switcher is the name itself, its mark right beside it: a dropdown stretched across
             the bar put its arrow next to the window buttons, where it read as one of them. */}
         {choices.length > 1 ? (
-          <div className="relative min-w-0" onMouseDown={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+          <div className="relative min-w-0" {...stop}>
             <button
               type="button"
               onClick={() => setPicking(o => !o)}
@@ -208,14 +218,14 @@ function Panel({ plugin, choices, panel, mode, shown }: {
               <ChevronsUpDown className="w-3 h-3 shrink-0 text-gray-400" />
             </button>
             {picking && (
-              <div role="menu" className="absolute left-0 top-full mt-1 z-10 w-56 max-h-64 overflow-y-auto py-1 rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-[#1a1a1a] shadow-xl">
+              <div role="menu" className={`${MENU} left-0 w-56 max-h-64 overflow-y-auto`}>
                 {choices.map(c => (
                   <button
                     key={c.id}
                     type="button"
                     role="menuitem"
-                    // As a page, another plugin is another page.
-                    onClick={() => { if (mode === 'full') router.push(pluginPageHref(c.id)); else setPanel({ open: c.id }); setPicking(false); }}
+                    // Another plugin is shown its own way: a page is a page.
+                    onClick={() => { if (modeFor({ ...panel, open: c.id, windowed: false }, c.id) === 'full') router.push(pluginPageHref(c.id)); else { setPanel({ open: c.id, windowed: false }); leavePage(); } setPicking(false); }}
                     className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-white/10"
                   >
                     <Check className={`w-3.5 h-3.5 shrink-0 ${c.id === plugin.id ? '' : 'invisible'}`} />
@@ -229,18 +239,25 @@ function Panel({ plugin, choices, panel, mode, shown }: {
           <span className="min-w-0 truncate px-1 text-xs font-semibold text-gray-700 dark:text-gray-200">{plugin.name}</span>
         )}
         <span className="flex-1" />
-        {/* Where else to show it, remembered for this plugin. A page is left through the nav, so
-            it has no Close. */}
-        <div className="flex items-center" onMouseDown={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
-          {mode !== 'full' && (
-            <button type="button" className={btn} title="Open as a page (and from now on)" onClick={asPage}><Maximize2 className="w-3.5 h-3.5" /></button>
+        <div className="flex items-center" {...stop}>
+          {/* This plugin's check marks (PluginChoices): how it opens, and whether it may float. */}
+          <div className="relative">
+            <button type="button" className={`${btn} ${settingsOpen ? 'bg-gray-100 dark:bg-white/10' : ''}`} title="How this plugin opens" aria-haspopup="menu" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(o => !o)}>
+              <Settings2 className="w-3.5 h-3.5" />
+            </button>
+            {settingsOpen && (
+              <div role="menu" className={`${MENU} right-0`}>
+                <PluginChoices plugin={plugin} />
+              </div>
+            )}
+          </div>
+          {prefs.float && mode !== 'window' && (
+            <button type="button" className={btn} title="Pop out into a window over the pages" onClick={popOut}><PictureInPicture2 className="w-3.5 h-3.5" /></button>
           )}
-          {mode !== 'side' && (
-            <button type="button" className={btn} title="Open beside the page (and from now on)" onClick={beside}><PanelRight className="w-3.5 h-3.5" /></button>
+          {mode === 'window' && (
+            <button type="button" className={btn} title={`Put it back ${prefs.layout === 'side' ? 'beside the page' : 'on its page'}`} onClick={dock}><PanelRightClose className="w-3.5 h-3.5" /></button>
           )}
-          {mode !== 'window' && (
-            <button type="button" className={btn} title="Open in a window over the pages (and from now on)" onClick={asWindow}><PictureInPicture2 className="w-3.5 h-3.5" /></button>
-          )}
+          {/* A page is left through the nav, so it has no Close. */}
           {mode !== 'full' && (
             <button type="button" className={btn} title="Close" onClick={close}><X className="w-3.5 h-3.5" /></button>
           )}

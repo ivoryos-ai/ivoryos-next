@@ -4,7 +4,7 @@ import { API_BASE } from '@/config';
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
-import { openInPanel, setPluginPage } from '@/pluginPanel';
+import { openInPanel, setPluginPage, setPrefs } from '@/pluginPanel';
 import Sidebar from '@/components/Sidebar';
 
 /**
@@ -21,7 +21,9 @@ function PluginContent() {
 
   useEffect(() => {
     if (!pluginId) { setFound(false); return; }
-    openInPanel(pluginId, undefined, 'full');
+    // Being here is the choice: the plugin is a page from now on.
+    setPrefs(pluginId, { layout: 'full' });
+    openInPanel(pluginId);
     setPluginPage(pluginId);
     return () => setPluginPage(null);
   }, [pluginId]);

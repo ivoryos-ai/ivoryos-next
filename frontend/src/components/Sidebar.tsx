@@ -10,7 +10,7 @@ import { Settings, LayoutDashboard, Library, Workflow, Play, Table2, Settings2, 
 import { INPUT_PROMPT_EVENT, isPromptMinimized, promptKey, setPromptMinimized } from '@/inputPrompt';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { modeFor, openInPanel, pluginPageHref, setPanel, usePanel } from '@/pluginPanel';
+import { modeFor, openInPanel, pluginPageHref, prefsFor, setPanel, usePanel } from '@/pluginPanel';
 import { inDesktopApp, useNavPlacement, TopNavBar, TopNavBrand, TopNavItem, TopNavButton, TopNavIconLink, TopNavDivider, topNavPill, BRAND_MARK , notify } from '@ivoryos/shared-ui';
 import { lastRunTabHref, runTabForPath, samePath } from './RunTabs';
 import RunDecision from './RunDecision';
@@ -156,14 +156,13 @@ export default function Sidebar() {
 
   /**
    * What a plugin's nav entry does (pluginPanel.ts). Showing beside the page or in a window, it
-   * closes it. Otherwise it opens the plugin the way it was last shown: as a page (a link, lit
-   * while that page is open, as any page's entry is), beside the page or in a window.
+   * closes it. Otherwise it opens the plugin the way its check marks say: as a page (a link, lit
+   * while that page is open, as any page's entry is) or beside the page.
    */
   const pluginAction = (p: { id: string; name: string; placement?: string }) => {
-    const mode = modeFor(panel, p.id);
-    if (panel.open === p.id && mode !== 'full') return { kind: 'close' as const, active: true, title: `Close ${p.name}` };
-    if (mode === 'full') return { kind: 'page' as const, href: pluginPageHref(p.id), active: panel.onPage === p.id, title: `Open ${p.name} (right-click: beside the page or in a window)` };
-    return { kind: 'open' as const, active: false, title: `Open ${p.name} ${mode === 'side' ? 'beside the page' : 'in a window'} (right-click for the other ways)` };
+    if (panel.open === p.id && modeFor(panel, p.id) !== 'full') return { kind: 'close' as const, active: true, title: `Close ${p.name}` };
+    if (prefsFor(panel, p.id).layout === 'full') return { kind: 'page' as const, href: pluginPageHref(p.id), active: panel.onPage === p.id, title: `Open ${p.name} (right-click: how it opens)` };
+    return { kind: 'open' as const, active: false, title: `Open ${p.name} beside the page (right-click: how it opens)` };
   };
   const pluginClick = (p: { id: string; name: string; placement?: string }, kind: 'close' | 'open') =>
     kind === 'close' ? setPanel({ open: null }) : openInPanel(p.id, p.placement);

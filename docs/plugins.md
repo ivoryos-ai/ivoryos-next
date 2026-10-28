@@ -457,12 +457,12 @@ unclear which deck instrument a patched class corresponds to.
 
 - Python plugins (`Plugin`, `observe`, `publish`, deck-file and script registration) are in
   the edge and tested.
-- Panels are drawn (`frontend/src/components/PluginPanel.tsx`): a plugin opens **as a page** of
-  its own (the default; the nav treats it as a page), **beside the page** (docked on the right,
-  resizable, in view while you move around) or **in a window** over the pages, dragged and
-  resized. The buttons on the panel's own header, or right-clicking the plugin in the nav, switch
-  between them, and the choice is remembered for that plugin: it opens the same way from the nav
-  from then on, per browser. The panel sits in the root layout,
+- Panels are drawn (`frontend/src/components/PluginPanel.tsx`). Each plugin has three check
+  marks, under the gear on the panel's header or on its nav entry's right-click menu, kept per
+  plugin and per browser: **As a page** (the default; a page of its own, which the nav treats as
+  a page) or **Beside the page** (docked on the right, resizable, in view while you move around),
+  and **Floating window**, which allows popping it out over the pages, dragged and resized, from
+  the header or the right-click menu. The panel sits in the root layout,
   around the pages, and is one element in every mode, so neither moving between pages nor
   changing mode ever reloads it: it keeps receiving updates the whole time, and a plugin left as a
   page is hidden, not stopped.
