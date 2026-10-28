@@ -192,7 +192,7 @@ export function AutoFillToggle({ on, onToggle, title }: { on: boolean; onToggle:
       title={title ?? (on
         ? '#auto is on: dropped steps fill every field with #<field name>. Click to turn off.'
         : 'Turn on #auto: dropped steps fill every field with #<field name>, ready to configure.')}
-      className={`shrink-0 px-2 py-0.5 rounded-md border font-mono text-[11px] font-semibold transition-colors ${on
+      className={`shrink-0 h-8 px-2 rounded-md border font-mono text-[11px] font-semibold transition-colors ${on
         ? 'bg-accent border-accent text-on-accent'
         : 'bg-white border-gray-200 text-gray-500 hover:text-gray-800 dark:bg-white/5 dark:border-white/10 dark:text-gray-400 dark:hover:text-gray-200'}`}
     >
@@ -216,7 +216,7 @@ export function FoldAllToggle({ folded, onToggle, what = 'instrument' }: { folde
       aria-pressed={folded}
       aria-label={title}
       title={title}
-      className="shrink-0 flex items-center justify-center w-7 h-[26px] rounded-md border bg-white border-gray-200 text-gray-500 hover:text-gray-800 dark:bg-white/5 dark:border-white/10 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+      className="shrink-0 flex items-center justify-center w-8 h-8 rounded-md border bg-white border-gray-200 text-gray-500 hover:text-gray-800 dark:bg-white/5 dark:border-white/10 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
     >
       {folded ? <ChevronsUpDown className="w-3.5 h-3.5" /> : <ChevronsDownUp className="w-3.5 h-3.5" />}
     </button>

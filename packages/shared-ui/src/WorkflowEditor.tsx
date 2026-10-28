@@ -2541,9 +2541,9 @@ const HOLD_TO_SWITCH_MS = 500;
                   placeholder="Search steps..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:border-accent transition-colors"
+                  className="w-full h-8 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg pl-8 pr-3 text-xs focus:outline-none focus:border-accent transition-colors"
                 />
-                <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-gray-400" />
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
              </div>
              <AutoFillToggle on={autoFillVariables} onToggle={toggleAutoFillVariables} />
              {(() => {
