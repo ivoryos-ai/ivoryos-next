@@ -457,13 +457,14 @@ unclear which deck instrument a patched class corresponds to.
 
 - Python plugins (`Plugin`, `observe`, `publish`, deck-file and script registration) are in
   the edge and tested.
-- Panels are drawn (`frontend/src/components/PluginPanel.tsx`): a `panel-left`/`panel-right`
-  plugin opens in a window over the pages (on that side the first time it is placed), which can be
-  dragged and resized, or switched to full size over the page area with the nav still in sight
-  (Esc or the same button for the window again). Neither size moves the page underneath. Clicking
-  the plugin in the nav opens or closes it; right-clicking any plugin there offers the window, full
-  size or a page of its own, so a tab plugin can be kept in the window too ("Open in a window" on
-  its page does the same). The choice is remembered per browser. The panel sits in the root
-  layout, around the pages, and is one element in both sizes, so neither moving between pages nor
-  changing size ever reloads it: it keeps receiving updates the whole time.
+- Panels are drawn (`frontend/src/components/PluginPanel.tsx`): a plugin opens **as a page** of
+  its own (the default; the nav treats it as a page), **beside the page** (docked on the right,
+  resizable, in view while you move around) or, when the edge's Settings page allows it, **in a
+  window** over the pages, dragged and resized. Settings chooses how a plugin opens from the nav
+  (a page or beside the page; a `tab` plugin is always a page) and whether the window is offered;
+  right-clicking a plugin in the nav, or the buttons on the panel's own header, give the other
+  ways for this time. The choice is remembered per browser. The panel sits in the root layout,
+  around the pages, and is one element in every mode, so neither moving between pages nor
+  changing mode ever reloads it: it keeps receiving updates the whole time, and a plugin left as a
+  page is hidden, not stopped.
 - Legacy Flask blueprints are not run by the edge; they are converted as above.
