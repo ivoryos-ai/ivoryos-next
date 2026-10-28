@@ -1,6 +1,6 @@
 "use client";
 import React from 'react';
-import { ChevronDown, ChevronRight, GitBranch, GripVertical, Hourglass, MessageSquareText, Repeat, StickyNote, Variable } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, GitBranch, GripVertical, Hourglass, MessageSquareText, Repeat, StickyNote, Variable } from 'lucide-react';
 
 /**
  * The pieces of a designer's toolbox, shared by the edge Designer (WorkflowEditor) and Cloud's
@@ -197,6 +197,28 @@ export function AutoFillToggle({ on, onToggle, title }: { on: boolean; onToggle:
         : 'bg-white border-gray-200 text-gray-500 hover:text-gray-800 dark:bg-white/5 dark:border-white/10 dark:text-gray-400 dark:hover:text-gray-200'}`}
     >
       #auto
+    </button>
+  );
+}
+
+/**
+ * Fold or open every repeated group at once (each instrument's methods on the edge, each device
+ * on Cloud), beside the `#auto` switch. A deck with several instruments of twenty methods each
+ * made the palette a long scroll; folded, it reads as one line per instrument, each opened as
+ * needed. `folded` is whether every such group is folded now, which decides what the click does.
+ */
+export function FoldAllToggle({ folded, onToggle, what = 'instrument' }: { folded: boolean; onToggle: () => void; what?: string }) {
+  const title = folded ? `Open every ${what}` : `Fold every ${what}: one line each, opened as needed`;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={folded}
+      aria-label={title}
+      title={title}
+      className="shrink-0 flex items-center justify-center w-7 h-[26px] rounded-md border bg-white border-gray-200 text-gray-500 hover:text-gray-800 dark:bg-white/5 dark:border-white/10 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+    >
+      {folded ? <ChevronsUpDown className="w-3.5 h-3.5" /> : <ChevronsDownUp className="w-3.5 h-3.5" />}
     </button>
   );
 }
