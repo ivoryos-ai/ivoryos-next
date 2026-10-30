@@ -64,6 +64,29 @@ function requirementFor(pkg) {
     return target;
 }
 
+const PACKAGE_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?(?:\[[A-Za-z0-9._-]+(?:\s*,\s*[A-Za-z0-9._-]+)*\])?$/;
+const VERSION_SPEC = /^(?:(?:===|==|!=|~=|<=|>=|<|>)\s*[A-Za-z0-9.*+!_-]+(?:\s*,\s*(?:===|==|!=|~=|<=|>=|<|>)\s*[A-Za-z0-9.*+!_-]+)*)?$/;
+
+/**
+ * What a module's current version pins beside its own package (`module_versions.requires`,
+ * {"pylabrobot": "==1.0.0b1"}), as requirements installed in the same resolution. A pre-release
+ * pinned there has to be named in the install: uv takes one only for a package the install names
+ * itself, so `plr-ivoryos==1.0.0b1` alone was refused for the `pylabrobot==1.0.0b1` it depends on.
+ * An entry that is not a package name with a version spec is left out, with a warning.
+ */
+function pinnedRequirements(requires) {
+    const requirements = [];
+    const warnings = [];
+    if (!requires || typeof requires !== 'object' || Array.isArray(requires)) return { requirements, warnings };
+    for (const [pkg, spec] of Object.entries(requires)) {
+        const name = String(pkg).trim();
+        const version = spec === null || spec === undefined ? '' : String(spec).trim();
+        if (PACKAGE_NAME.test(name) && VERSION_SPEC.test(version)) requirements.push(`${name}${version}`);
+        else warnings.push(`Not installed, not a package and a version: ${`${name} ${version}`.trim()}`);
+    }
+    return { requirements, warnings };
+}
+
 /** One form value as the deck argument it stands for; undefined means "leave it out". */
 function argValue(def, value) {
     if (def.type === 'object') {
@@ -109,7 +132,10 @@ function parsePythonCommand(command) {
     return { calls: [{ method, ...(Object.keys(args).length ? { args } : {}) }] };
 }
 
-/** One Hub module plus the person's settings, as a deck instrument and its package. */
+/**
+ * One Hub module plus the person's settings, as a deck instrument and its packages: the module's
+ * own, then what its current version pins beside it (`module.requires`, see pinnedRequirements).
+ */
 function moduleToDeckEntry(module, name, connection = {}) {
     const warnings = [];
     const args = {};
@@ -129,6 +155,8 @@ function moduleToDeckEntry(module, name, connection = {}) {
     const { calls, warning } = parsePythonCommand(module.python_command);
     if (warning) warnings.push(warning);
     const requirement = requirementFor(module.pip_name);
+    const pinned = pinnedRequirements(module.requires);
+    warnings.push(...pinned.warnings);
     return {
         instrument: {
             name,
@@ -138,7 +166,7 @@ function moduleToDeckEntry(module, name, connection = {}) {
             ...(calls && calls.length ? { calls } : {}),
             hub: { moduleId: module.id, name: module.name, init_args: module.init_args || [], connection: module.connection || [] },
         },
-        packages: requirement ? [requirement] : [],
+        packages: [...(requirement ? [requirement] : []), ...pinned.requirements],
         warnings,
     };
 }
@@ -451,7 +479,23 @@ class HubCatalog {
             throw new HubError('Instrument names use letters, digits and underscores, starting with a letter.');
         }
         const { module } = await this.module(moduleId);
-        return moduleToDeckEntry(module, String(name), connection || {});
+        return moduleToDeckEntry({ ...module, requires: await this._requires(module.id) }, String(name), connection || {});
+    }
+
+    /**
+     * What a module's current version pins beside its package (`module_versions.requires`), or {}.
+     * A Hub database without module versions (landing-page-supabase
+     * supabase_migrations/20261014_module_versions_and_parts.sql) has nothing to pin.
+     */
+    async _requires(moduleId) {
+        try {
+            const [row] = await this._get('module_versions', `select=requires&module_id=eq.${Number(moduleId)}&is_current=is.true`);
+            return (row && row.requires) || {};
+        } catch (e) {
+            // PGRST205 / 42P01: no such table.
+            if (['PGRST205', '42P01'].includes(e.code)) return {};
+            throw e;
+        }
     }
 
     async platforms() {
@@ -555,6 +599,6 @@ function PLUGIN_FIELDS_WITH_API(catalog) {
 
 module.exports = {
     HubCatalog, HubError, DECK_FORMAT,
-    requirementFor, argValue, parsePythonCommand, moduleToDeckEntry, pluginToDeckEntry, toEdgeWorkflow, instrumentsUsed, templateSummary,
+    requirementFor, pinnedRequirements, argValue, parsePythonCommand, moduleToDeckEntry, pluginToDeckEntry, toEdgeWorkflow, instrumentsUsed, templateSummary,
     builtInStep,
 };
