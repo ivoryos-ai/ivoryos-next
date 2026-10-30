@@ -10,7 +10,7 @@ import {
   ChevronDown, ChevronUp, ChevronRight, PanelRightOpen, Hourglass, MessageSquareText,
   GitBranch, AlertTriangle, AlertCircle, CheckCircle2, LayoutGrid, X, EyeOff, GripVertical, Workflow, Wrench,
 } from 'lucide-react';
-import { LIBRARY_INSTRUMENT, issuesLabel, SuggestInput, LOGIC_TOOLS, ToolChip, ToolboxGroupHeader, ToolboxGroupTitle, ToolboxInstrumentHeader, AutoFillToggle } from '@ivoryos/shared-ui';
+import { LIBRARY_INSTRUMENT, issuesLabel, SuggestInput, LOGIC_TOOLS, ToolChip, ToolboxGroupHeader, ToolboxGroupTitle, ToolboxInstrumentHeader, AutoFillToggle, FoldAllToggle } from '@ivoryos/shared-ui';
 import {
   CLOUD_LOGIC as CLOUD_LOGIC_SCHEMAS, IF_OPERATORS, isCloudLogicNode, isDeviceNode, isStartNode, blankParamsOf,
   logicProblemsOf, buildGraph,
@@ -646,6 +646,14 @@ export default function CloudWorkflowEditor({
     try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next)); } catch { }
     return next;
   });
+  // Everything at once (FoldAllToggle beside #auto): Logic and every device fold to one line each.
+  const foldAll = (folded: boolean) => setCollapsedGroups(prev => {
+    const next: Record<string, boolean> = { ...prev, 'cloud-logic': folded };
+    cloudDevices.forEach(d => { next[`device:${d.id}`] = folded; });
+    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next)); } catch { }
+    return next;
+  });
+  const allFolded = cloudDevices.length > 0 && !!collapsedGroups['cloud-logic'] && cloudDevices.every(d => !!collapsedGroups[`device:${d.id}`]);
 
   const toggleToolbox = (key: string) => {
     setExpandedToolbox(prev => ({ ...prev, [key]: !prev[key] }));
@@ -1019,6 +1027,7 @@ export default function CloudWorkflowEditor({
                       ? '#auto is on: dropped cards fill every field with #<field name>. Click to turn off.'
                       : 'Turn on #auto: dropped cards fill every field with #<field name>, ready to configure in the run panel.'}
                   />
+                  {cloudDevices.length > 1 && <FoldAllToggle folded={allFolded} onToggle={() => foldAll(!allFolded)} what="group" />}
                 </div>
               );
             })()}

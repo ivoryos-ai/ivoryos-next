@@ -24,13 +24,16 @@ import { ExtraArguments } from './ExtraArguments';
 import { WorkflowPeek, type WorkflowPeekTarget } from './WorkflowPeek';
 import { WorkflowDiff } from './WorkflowDiff';
 import { SuggestInput } from './SuggestInput';
-import { AutoFillToggle, LOGIC_TOOLS, ToolChip, ToolboxGroupHeader, ToolboxGroupTitle, ToolboxInstrumentHeader, logicStepLook } from './Toolbox';
+import { AutoFillToggle, FoldAllToggle, LOGIC_TOOLS, ToolChip, ToolboxGroupHeader, ToolboxGroupTitle, ToolboxInstrumentHeader, logicStepLook } from './Toolbox';
 import { FLOW_CONTROL_INSTRUMENTS, SET_VARIABLE_TYPES, isSetVariable, setVariableReads, wholeReference, withoutReferenceMarks } from './flowControl';
 import { fieldGuard, guardHint, guardProblem, guardSuggestions, unitOf } from './safety';
 import { formatReference, referenceCount, referenceStart, referencesProblem, wellChoices, type TrayChoice } from './labware';
 import { TrayPicker } from './TrayPicker';
 import { addedObject, defaultParams, isOptionalObject, objectGiven } from './objectArgs';
 import { isNumericType, isBoolType, containerKind, containerProblem, containerExample, parseContainerText } from './paramTypes';
+
+/** The toolbox groups folded away, per browser. */
+const FOLDED_TOOLBOX_KEY = 'ivoryos_toolbox_folded';
 
 // One named variable bound to one addressable leaf of a step's return value. `path` is the
 // dotted pointer the backend's introspection published in `schema.return_paths`
@@ -223,7 +226,7 @@ export default function WorkflowEditor({
   activePhaseRef.current = activePhase;
   const canvasScrollRef = useRef<HTMLDivElement>(null);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const HOLD_TO_SWITCH_MS = 500;
+const HOLD_TO_SWITCH_MS = 500;
   const switchPhase = (id: PhaseId) => {
     setActivePhase(id);
     // A list the pointer has not scrolled starts at its top; scrolling the container mid-drag is
@@ -1253,9 +1256,27 @@ export default function WorkflowEditor({
     setExpandedToolbox(prev => ({ ...prev, [instName]: !prev[instName] }));
   };
   // Toolbox groups (Logic, Workflows, Instruments, each instrument) start open; this records the
-  // ones folded away. `expandedToolbox` is the opposite, for things that start closed.
+  // ones folded away, per browser (read after mount, AGENTS.md section 11). `expandedToolbox` is
+  // the opposite, for things that start closed.
   const [foldedToolbox, setFoldedToolbox] = useState<Record<string, boolean>>({});
-  const toggleFold = (key: string) => setFoldedToolbox(prev => ({ ...prev, [key]: !prev[key] }));
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(FOLDED_TOOLBOX_KEY) || 'null');
+      if (saved && typeof saved === 'object') setFoldedToolbox(saved);
+    } catch { /* starts open */ }
+  }, []);
+  const rememberFolds = (next: Record<string, boolean>) => {
+    try { localStorage.setItem(FOLDED_TOOLBOX_KEY, JSON.stringify(next)); } catch { /* not kept */ }
+    return next;
+  };
+  const toggleFold = (key: string) => setFoldedToolbox(prev => rememberFolds({ ...prev, [key]: !prev[key] }));
+  // Everything at once (FoldAllToggle beside #auto): Logic, Workflows and every instrument fold
+  // to one line each, under an open Instruments heading, and open again together.
+  const foldAll = (names: string[], folded: boolean) => setFoldedToolbox(prev => {
+    const next: Record<string, boolean> = { ...prev, logic: folded, workflows: folded, instruments: false };
+    names.forEach(n => { next[`inst:${n}`] = folded; });
+    return rememberFolds(next);
+  });
 
   const removeBlock = (index: number, listId: string) => {
     const list = Array.from(getSequenceList(listId));
@@ -2519,11 +2540,18 @@ export default function WorkflowEditor({
                   placeholder="Search steps..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:border-accent transition-colors"
+                  className="w-full h-8 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg pl-8 pr-3 text-xs focus:outline-none focus:border-accent transition-colors"
                 />
-                <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-gray-400" />
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
              </div>
              <AutoFillToggle on={autoFillVariables} onToggle={toggleAutoFillVariables} />
+             {(() => {
+               const names = Object.keys(instruments).filter(k => k !== LIBRARY_INSTRUMENT && !FLOW_CONTROL_INSTRUMENTS.includes(k));
+               // Workflows starts folded when nothing is saved (see its header below).
+               const workflowsFolded = foldedToolbox.workflows ?? Object.keys(instruments[LIBRARY_INSTRUMENT] || {}).length === 0;
+               const allFolded = !!foldedToolbox.logic && workflowsFolded && names.every(n => !!foldedToolbox[`inst:${n}`]);
+               return names.length > 1 ? <FoldAllToggle folded={allFolded} onToggle={() => foldAll(names, !allFolded)} what="group" /> : null;
+             })()}
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 pt-2">
