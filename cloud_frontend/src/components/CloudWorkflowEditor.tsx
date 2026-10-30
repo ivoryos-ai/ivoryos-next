@@ -646,14 +646,14 @@ export default function CloudWorkflowEditor({
     try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next)); } catch { }
     return next;
   });
-  // Every device at once (FoldAllToggle beside #auto): folded, the palette is one line per device.
-  const foldDevices = (folded: boolean) => setCollapsedGroups(prev => {
-    const next = { ...prev };
+  // Everything at once (FoldAllToggle beside #auto): Logic and every device fold to one line each.
+  const foldAll = (folded: boolean) => setCollapsedGroups(prev => {
+    const next: Record<string, boolean> = { ...prev, 'cloud-logic': folded };
     cloudDevices.forEach(d => { next[`device:${d.id}`] = folded; });
     try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next)); } catch { }
     return next;
   });
-  const allDevicesFolded = cloudDevices.length > 0 && cloudDevices.every(d => !!collapsedGroups[`device:${d.id}`]);
+  const allFolded = cloudDevices.length > 0 && !!collapsedGroups['cloud-logic'] && cloudDevices.every(d => !!collapsedGroups[`device:${d.id}`]);
 
   const toggleToolbox = (key: string) => {
     setExpandedToolbox(prev => ({ ...prev, [key]: !prev[key] }));
@@ -1027,7 +1027,7 @@ export default function CloudWorkflowEditor({
                       ? '#auto is on: dropped cards fill every field with #<field name>. Click to turn off.'
                       : 'Turn on #auto: dropped cards fill every field with #<field name>, ready to configure in the run panel.'}
                   />
-                  {cloudDevices.length > 1 && <FoldAllToggle folded={allDevicesFolded} onToggle={() => foldDevices(!allDevicesFolded)} what="device" />}
+                  {cloudDevices.length > 1 && <FoldAllToggle folded={allFolded} onToggle={() => foldAll(!allFolded)} what="group" />}
                 </div>
               );
             })()}

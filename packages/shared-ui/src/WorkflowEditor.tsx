@@ -1270,12 +1270,11 @@ const HOLD_TO_SWITCH_MS = 500;
     return next;
   };
   const toggleFold = (key: string) => setFoldedToolbox(prev => rememberFolds({ ...prev, [key]: !prev[key] }));
-  // Every instrument at once (FoldAllToggle beside #auto): folded, the palette is one line per
-  // instrument. The groups above them (Logic, Workflows, Instruments) are left as they are.
-  const foldInstruments = (names: string[], folded: boolean) => setFoldedToolbox(prev => {
-    const next = { ...prev };
+  // Everything at once (FoldAllToggle beside #auto): Logic, Workflows and every instrument fold
+  // to one line each, under an open Instruments heading, and open again together.
+  const foldAll = (names: string[], folded: boolean) => setFoldedToolbox(prev => {
+    const next: Record<string, boolean> = { ...prev, logic: folded, workflows: folded, instruments: false };
     names.forEach(n => { next[`inst:${n}`] = folded; });
-    if (!folded) next.instruments = false;
     return rememberFolds(next);
   });
 
@@ -2548,8 +2547,10 @@ const HOLD_TO_SWITCH_MS = 500;
              <AutoFillToggle on={autoFillVariables} onToggle={toggleAutoFillVariables} />
              {(() => {
                const names = Object.keys(instruments).filter(k => k !== LIBRARY_INSTRUMENT && !FLOW_CONTROL_INSTRUMENTS.includes(k));
-               const allFolded = names.length > 0 && names.every(n => !!foldedToolbox[`inst:${n}`]);
-               return names.length > 1 ? <FoldAllToggle folded={allFolded} onToggle={() => foldInstruments(names, !allFolded)} /> : null;
+               // Workflows starts folded when nothing is saved (see its header below).
+               const workflowsFolded = foldedToolbox.workflows ?? Object.keys(instruments[LIBRARY_INSTRUMENT] || {}).length === 0;
+               const allFolded = !!foldedToolbox.logic && workflowsFolded && names.every(n => !!foldedToolbox[`inst:${n}`]);
+               return names.length > 1 ? <FoldAllToggle folded={allFolded} onToggle={() => foldAll(names, !allFolded)} what="group" /> : null;
              })()}
           </div>
 

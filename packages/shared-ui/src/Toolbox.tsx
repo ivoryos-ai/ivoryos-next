@@ -202,12 +202,12 @@ export function AutoFillToggle({ on, onToggle, title }: { on: boolean; onToggle:
 }
 
 /**
- * Fold or open every repeated group at once (each instrument's methods on the edge, each device
- * on Cloud), beside the `#auto` switch. A deck with several instruments of twenty methods each
- * made the palette a long scroll; folded, it reads as one line per instrument, each opened as
- * needed. `folded` is whether every such group is folded now, which decides what the click does.
+ * Fold or open every group at once (Logic, Workflows and each instrument on the edge; Logic and
+ * each device on Cloud), beside the `#auto` switch. A deck with several instruments of twenty
+ * methods each made the palette a long scroll; folded, it reads as one line per group, each
+ * opened as needed. `folded` is whether every group is folded now, which decides what the click does.
  */
-export function FoldAllToggle({ folded, onToggle, what = 'instrument' }: { folded: boolean; onToggle: () => void; what?: string }) {
+export function FoldAllToggle({ folded, onToggle, what = 'group' }: { folded: boolean; onToggle: () => void; what?: string }) {
   const title = folded ? `Open every ${what}` : `Fold every ${what}: one line each, opened as needed`;
   return (
     <button
