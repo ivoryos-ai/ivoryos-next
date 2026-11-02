@@ -127,6 +127,7 @@ def test_a_deck_file_plugin_gets_the_objects_the_deck_built(tmp_path):
         listing = httpx.get(f"http://127.0.0.1:{port}/api/plugins").json()
         mine = next(p for p in listing["plugins"] if p["id"] == "shaker_view")
         assert (mine["url"], mine["placement"], mine["kind"]) == ("/plugins/shaker_view/", "panel-right", "python")
+        assert mine["modes"] == ["page", "side", "window"]   # all three unless the plugin says otherwise
         assert listing["errors"][0]["plugin"] == "missing_module:plugin"   # reported, not fatal
         page = httpx.get(f"http://127.0.0.1:{port}/plugins/shaker_view/")
         assert "Shaker view" in page.text
@@ -137,6 +138,15 @@ def test_a_deck_file_plugin_gets_the_objects_the_deck_built(tmp_path):
     finally:
         proc.kill()
         proc.wait()
+
+
+def test_a_plugin_says_which_modes_people_may_switch_between():
+    assert Plugin("A").describe()["modes"] == ["page", "side", "window"]
+    assert Plugin("A", modes=["side", "window"]).describe()["modes"] == ["side", "window"]
+    assert Plugin("A", modes="side").describe()["modes"] == ["side"]
+    for bad in ([], "floating", ["page", "tab"]):
+        with pytest.raises(ValueError, match="modes"):
+            Plugin("A", modes=bad)
 
 
 def test_a_script_plugin_that_imports_the_script_does_not_rebuild_it(tmp_path):

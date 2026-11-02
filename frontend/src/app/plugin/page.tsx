@@ -2,9 +2,9 @@
 import { API_BASE } from '@/config';
 
 import { useState, useEffect, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
-import { openInPanel, setPluginPage, setPrefs } from '@/pluginPanel';
+import { modeFor, pageToReturnTo, setMode, setPanel, setPluginPage, usePanel, type PanelPlugin } from '@/pluginPanel';
 import Sidebar from '@/components/Sidebar';
 
 /**
@@ -14,36 +14,45 @@ import Sidebar from '@/components/Sidebar';
  * the plugin as the current page, and draws the frame around it.
  */
 function PluginContent() {
+  const router = useRouter();
+  const panel = usePanel();
   const searchParams = useSearchParams();
   const pluginId = searchParams.get('id');
 
-  const [found, setFound] = useState<boolean | null>(null);
+  const [plugin, setPlugin] = useState<PanelPlugin | null | undefined>(undefined);
 
   useEffect(() => {
-    if (!pluginId) { setFound(false); return; }
-    // Being here is the choice: the plugin is a page from now on.
-    setPrefs(pluginId, { layout: 'full' });
-    openInPanel(pluginId);
+    if (!pluginId) { setPlugin(null); return; }
+    // Being here is the choice: the plugin is a page from now on, if its developer allows one.
+    setMode(pluginId, 'page');
+    setPanel({ open: pluginId });
     setPluginPage(pluginId);
     return () => setPluginPage(null);
   }, [pluginId]);
 
   useEffect(() => {
-    setFound(null);
+    setPlugin(undefined);
     fetch(`${API_BASE}/api/plugins`)
       .then(res => res.json())
-      .then(data => setFound(!!(data.plugins || []).find((p: any) => p.id === pluginId)))
-      .catch(err => { console.error(err); setFound(false); });
+      .then(data => setPlugin((data.plugins || []).find((p: any) => p.id === pluginId) ?? null))
+      .catch(err => { console.error(err); setPlugin(null); });
   }, [pluginId]);
+
+  // This page exists only while its plugin is shown as a page: switched to the side or a window,
+  // closed, replaced by another plugin, or not allowed to be a page, it goes back.
+  useEffect(() => {
+    if (!plugin || plugin.id !== pluginId) return;
+    if (panel.open !== plugin.id || modeFor(panel, plugin) !== 'page') router.replace(pageToReturnTo());
+  }, [plugin, pluginId, panel, router]);
 
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-[#0a0a0a] text-gray-900 dark:text-white font-sans overflow-hidden">
       <Sidebar />
       {/* The panel draws over this; what is here shows only while it loads or when there is nothing to draw. */}
       <main className="flex-1 flex items-center justify-center overflow-hidden bg-white dark:bg-[#0a0a0a]">
-        {found === null
+        {plugin === undefined
           ? <Loader2 className="w-8 h-8 animate-spin text-gray-700 dark:text-gray-200" />
-          : found ? null : <div className="text-gray-500 dark:text-gray-400">Plugin not found or inactive.</div>}
+          : plugin ? null : <div className="text-gray-500 dark:text-gray-400">Plugin not found or inactive.</div>}
       </main>
     </div>
   );

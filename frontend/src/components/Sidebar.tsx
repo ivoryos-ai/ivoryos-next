@@ -5,17 +5,16 @@ import { HOME_HREF, HOME_PAGE_SHOWN } from '@/homePage';
 import { toggleAssistant, useAssistant } from '@/assistant';
 import { useWaitingProposals } from '@/components/useWaitingProposals';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Settings, LayoutDashboard, Library, Workflow, Play, Table2, Settings2, Plug, Gauge, Menu, HandHelping, Minimize2, ShieldCheck, Sparkles } from 'lucide-react';
 import { INPUT_PROMPT_EVENT, isPromptMinimized, promptKey, setPromptMinimized } from '@/inputPrompt';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { modeFor, openInPanel, pluginPageHref, prefsFor, setPanel, usePanel } from '@/pluginPanel';
+import { modeFor, openInPanel, pluginPageHref, setPanel, usePanel, type PanelPlugin } from '@/pluginPanel';
 import { inDesktopApp, useNavPlacement, TopNavBar, TopNavBrand, TopNavItem, TopNavButton, TopNavIconLink, TopNavDivider, topNavPill, BRAND_MARK , notify } from '@ivoryos/shared-ui';
 import { lastRunTabHref, runTabForPath, samePath } from './RunTabs';
 import RunDecision from './RunDecision';
 import RunNotifier from './RunNotifier';
-import PluginMenu, { type PluginMenuAt } from './PluginMenu';
 
 // The theme is not chosen here: every page follows one setting (ThemeSync in the root layout; in
 // the desktop app, the app's own Settings). See packages/shared-ui/src/theme.tsx.
@@ -32,13 +31,6 @@ export default function Sidebar() {
   const [runHref, setRunHref] = useState('/execution');
   const pathname = usePathname();
   const panel = usePanel();
-  // A plugin entry's right-click menu: a page, beside the page or a window (PluginMenu).
-  const [pluginMenu, setPluginMenu] = useState<PluginMenuAt | null>(null);
-  const closePluginMenu = useCallback(() => setPluginMenu(null), []);
-  const menuFor = (p: PluginMenuAt['plugin']) => (e: React.MouseEvent) => {
-    e.preventDefault();
-    setPluginMenu({ plugin: p, x: e.clientX, y: e.clientY });
-  };
   // Sidebar or top bar (shared-ui navPlacement.tsx): the same entries, laid out along the other axis.
   const [placement] = useNavPlacement();
   // Inside the desktop app the top bar leaves out the wordmark. Read after mount, like the rest.
@@ -156,25 +148,25 @@ export default function Sidebar() {
 
   /**
    * What a plugin's nav entry does (pluginPanel.ts). Showing beside the page or in a window, it
-   * closes it. Otherwise it opens the plugin the way its check marks say: as a page (a link, lit
-   * while that page is open, as any page's entry is) or beside the page.
+   * closes it. Otherwise it opens the plugin the way it was last shown: as a page (a link, lit
+   * while that page is open, as any page's entry is), beside the page or in a window.
    */
-  const pluginAction = (p: { id: string; name: string; placement?: string }) => {
-    if (panel.open === p.id && modeFor(panel, p.id) !== 'full') return { kind: 'close' as const, active: true, title: `Close ${p.name}` };
-    if (prefsFor(panel, p.id).layout === 'full') return { kind: 'page' as const, href: pluginPageHref(p.id), active: panel.onPage === p.id, title: `Open ${p.name} (right-click: how it opens)` };
-    return { kind: 'open' as const, active: false, title: `Open ${p.name} beside the page (right-click: how it opens)` };
+  const pluginAction = (p: PanelPlugin & { name: string }) => {
+    const mode = modeFor(panel, p);
+    if (panel.open === p.id && mode !== 'page') return { kind: 'close' as const, active: true, title: `Close ${p.name}` };
+    if (mode === 'page') return { kind: 'page' as const, href: pluginPageHref(p.id), active: panel.onPage === p.id, title: `Open ${p.name}` };
+    return { kind: 'open' as const, active: false, title: `Open ${p.name} ${mode === 'side' ? 'beside the page' : 'in a window'}` };
   };
-  const pluginClick = (p: { id: string; name: string; placement?: string }, kind: 'close' | 'open') =>
-    kind === 'close' ? setPanel({ open: null }) : openInPanel(p.id, p.placement);
+  const pluginClick = (p: PanelPlugin, kind: 'close' | 'open') =>
+    kind === 'close' ? setPanel({ open: null }) : openInPanel(p);
 
-  const pluginItem = (p: { id: string; name: string; placement?: string }) => {
+  const pluginItem = (p: PanelPlugin & { name: string }) => {
     const action = pluginAction(p);
     if (action.kind === 'page') return navItem(action.href, p.name, <Plug className="w-5 h-5 shrink-0" />, [], action.active);
     return (
       <button
         type="button"
         onClick={() => pluginClick(p, action.kind)}
-        onContextMenu={menuFor(p)}
         title={action.title}
         className={`w-[calc(100%-1.5rem)] flex items-center py-3 rounded-lg overflow-hidden mx-3 text-left ${
           action.active
@@ -264,17 +256,13 @@ export default function Sidebar() {
       <TopNavItem link={Link} href="/instruments" label="Instruments" icon={<Gauge className="w-4 h-4 shrink-0" />} active={isOn('/instruments')} labelFrom="sm" />
       <TopNavItem link={Link} href="/safety" label="Safety" icon={<ShieldCheck className="w-4 h-4 shrink-0" />} active={isOn('/safety')} labelFrom="sm" />
       {plugins.length > 0 && <TopNavDivider />}
-      {/* A plugin opens as a page, beside the page or in a window (pluginPanel.ts); right-click
-          any of them for the other ways (PluginMenu). */}
+      {/* A plugin opens as a page, beside the page or in a window (pluginPanel.ts); the buttons on
+          its own header switch between them. */}
       {plugins.map(p => {
         const action = pluginAction(p);
-        return (
-          <span key={p.id} className="contents" onContextMenu={menuFor(p)}>
-            {action.kind === 'page'
-              ? <TopNavItem link={Link} href={action.href} label={p.name} title={action.title} icon={<Plug className="w-4 h-4 shrink-0" />} active={action.active} labelFrom="lg" />
-              : <TopNavButton onClick={() => pluginClick(p, action.kind)} title={action.title} label={p.name} icon={<Plug className="w-4 h-4 shrink-0" />} active={action.active} />}
-          </span>
-        );
+        return action.kind === 'page'
+          ? <TopNavItem key={p.id} link={Link} href={action.href} label={p.name} title={action.title} icon={<Plug className="w-4 h-4 shrink-0" />} active={action.active} labelFrom="lg" />
+          : <TopNavButton key={p.id} onClick={() => pluginClick(p, action.kind)} title={action.title} label={p.name} icon={<Plug className="w-4 h-4 shrink-0" />} active={action.active} />;
       })}
     </TopNavBar>
   );
@@ -283,7 +271,6 @@ export default function Sidebar() {
     <>
     <RunDecision />
     <RunNotifier />
-    {pluginMenu && <PluginMenu at={pluginMenu} onClose={closePluginMenu} />}
     {waitingRun && !promptMinimized && (
       // Above the floating run card and the queue drawer, as RunDecision is; dimmed, not blurred.
       <div className="fixed inset-0 z-[10050] flex items-center justify-center bg-black/25 p-4">
@@ -375,9 +362,9 @@ export default function Sidebar() {
                 {isExpanded && <div className="px-4 mb-2 text-[10px] font-bold tracking-wider uppercase text-gray-400">Plugins</div>}
                 <div className="space-y-2">
                     {plugins.map(p => (
-                        <div key={p.id} onContextMenu={menuFor(p)}>
-                            {/* As a page, beside the page or in a window (pluginPanel.ts);
-                                right-click for the other ways (PluginMenu). */}
+                        <div key={p.id}>
+                            {/* As a page, beside the page or in a window (pluginPanel.ts); the
+                                buttons on its own header switch between them. */}
                             {pluginItem(p)}
                         </div>
                     ))}

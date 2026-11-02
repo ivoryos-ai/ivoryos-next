@@ -41,6 +41,7 @@ from typing import Any, Callable, Iterable
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 PLACEMENTS = ("tab", "panel-left", "panel-right")
+MODES = ("page", "side", "window")
 
 
 def _slug(name: str) -> str:
@@ -54,18 +55,24 @@ class Plugin:
     id         URL segment; defaults to a slug of the name. Keep it stable: it is the address.
     page       folder holding index.html (and its assets). Relative paths are resolved against
                the file that creates the Plugin, so `page="static"` means "beside this file".
-    placement  "tab" (a full page, the default), "panel-left" or "panel-right" (a side panel
-               beside every page, for live visualization).
+    placement  how it opens the first time: "tab" (a page of its own, the default), "panel-right"
+               (beside the page) or "panel-left" (a window, starting on the left).
+    modes      the ways people may show it, switched from its header: any of "page", "side" and
+               "window". All three by default; list fewer when a plugin only works one way.
     icon       an optional lucide icon name for the sidebar.
     """
 
     def __init__(self, name: str, *, id: str | None = None, page: str | None = None,
-                 placement: str = "tab", icon: str | None = None):
+                 placement: str = "tab", modes: Iterable[str] | str = MODES, icon: str | None = None):
         if placement not in PLACEMENTS:
             raise ValueError(f"placement must be one of {PLACEMENTS}, not {placement!r}")
+        modes = [modes] if isinstance(modes, str) else list(modes)
+        if not modes or set(modes) - set(MODES):
+            raise ValueError(f"modes must be some of {MODES}, not {modes!r}")
         self.name = name
         self.id = id or _slug(name)
         self.placement = placement
+        self.modes = modes
         self.icon = icon
         if page is not None and not os.path.isabs(page):
             caller = inspect.stack()[1].filename
@@ -179,7 +186,7 @@ class Plugin:
 
     def describe(self) -> dict:
         return {"id": self.id, "name": self.name, "url": f"/plugins/{self.id}/", "placement": self.placement,
-                "icon": self.icon, "kind": "python"}
+                "modes": self.modes, "icon": self.icon, "kind": "python"}
 
 
 def _observed(original: Callable, instrument: str, method: str, callback: Callable, plugin_id: str,

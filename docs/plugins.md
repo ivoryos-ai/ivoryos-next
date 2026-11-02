@@ -53,7 +53,8 @@ from ivoryos_edge.plugins import Plugin
 plugin = Plugin(
     "Shaker view",            # shown in the sidebar
     page="page",              # folder with index.html, relative to this file
-    placement="panel-right",  # "tab" (default), or "panel-left"/"panel-right": opens in a window over the pages
+    placement="panel-right",  # how it opens first: "tab" (a page, default), "panel-right" (beside the page),
+                              # "panel-left" (a window, starting on the left)
     icon="activity",          # optional lucide icon name
 )
 
@@ -77,11 +78,26 @@ it stable: it is the plugin's address.
 Because the page and its API share a prefix, **the page reaches its API with relative URLs**
 (`fetch("api/state")`) and never needs to know the host or port.
 
+### Page, side or window
+
+People switch a plugin between three modes with the buttons on its header, from whichever one it
+is in: **page** (a page of its own in the nav), **side** (docked beside whatever page is open) and
+**window** (floating over the pages). The plugin keeps running across a switch, and the last mode
+used is how it opens next time, per browser.
+
+`placement` sets the mode it opens in the first time. All three are allowed unless you pass
+`modes`, which you only need when a plugin cannot work some way:
+
+```python
+Plugin("Shaker view", page="page", modes=["side", "window"])  # never a full page
+Plugin("Plate map", page="page", modes="page")                # a page only: no buttons on the header
+```
+
 ### The API in full
 
 | | |
 |---|---|
-| `Plugin(name, *, id=None, page=None, placement="tab", icon=None)` | create one, at module level |
+| `Plugin(name, *, id=None, page=None, placement="tab", modes=("page", "side", "window"), icon=None)` | create one, at module level |
 | `plugin.router` | a FastAPI `APIRouter`: `@plugin.router.get(...)`, `.post`, `.websocket` |
 | `plugin.instrument(name)` | the live instrument; a clear error listing what *is* loaded if the name is wrong |
 | `plugin.instruments` | the deck's whole `{name: object}` mapping (the deck's own dict, not a copy) |
