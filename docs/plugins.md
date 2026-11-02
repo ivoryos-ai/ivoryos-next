@@ -53,7 +53,8 @@ from ivoryos_edge.plugins import Plugin
 plugin = Plugin(
     "Shaker view",            # shown in the sidebar
     page="page",              # folder with index.html, relative to this file
-    placement="panel-right",  # "tab" (default), or "panel-left"/"panel-right": opens in a window over the pages
+    placement="panel-right",  # how it opens first: "tab" (a page, default), "panel-right" (beside the page),
+                              # "panel-left" (a window, starting on the left)
     icon="activity",          # optional lucide icon name
 )
 
@@ -77,11 +78,26 @@ it stable: it is the plugin's address.
 Because the page and its API share a prefix, **the page reaches its API with relative URLs**
 (`fetch("api/state")`) and never needs to know the host or port.
 
+### Page, side or window
+
+People switch a plugin between three modes with the buttons on its header, from whichever one it
+is in: **page** (a page of its own in the nav), **side** (docked beside whatever page is open) and
+**window** (floating over the pages). The plugin keeps running across a switch, and the last mode
+used is how it opens next time, per browser.
+
+`placement` sets the mode it opens in the first time. All three are allowed unless you pass
+`modes`, which you only need when a plugin cannot work some way:
+
+```python
+Plugin("Shaker view", page="page", modes=["side", "window"])  # never a full page
+Plugin("Plate map", page="page", modes="page")                # a page only: no buttons on the header
+```
+
 ### The API in full
 
 | | |
 |---|---|
-| `Plugin(name, *, id=None, page=None, placement="tab", icon=None)` | create one, at module level |
+| `Plugin(name, *, id=None, page=None, placement="tab", modes=("page", "side", "window"), icon=None)` | create one, at module level |
 | `plugin.router` | a FastAPI `APIRouter`: `@plugin.router.get(...)`, `.post`, `.websocket` |
 | `plugin.instrument(name)` | the live instrument; a clear error listing what *is* loaded if the name is wrong |
 | `plugin.instruments` | the deck's whole `{name: object}` mapping (the deck's own dict, not a copy) |
@@ -457,13 +473,13 @@ unclear which deck instrument a patched class corresponds to.
 
 - Python plugins (`Plugin`, `observe`, `publish`, deck-file and script registration) are in
   the edge and tested.
-- Panels are drawn (`frontend/src/components/PluginPanel.tsx`): a `panel-left`/`panel-right`
-  plugin opens in a window over the pages (on that side the first time it is placed), which can be
-  dragged and resized, or switched to full size over the page area with the nav still in sight
-  (Esc or the same button for the window again). Neither size moves the page underneath. Clicking
-  the plugin in the nav opens or closes it; right-clicking any plugin there offers the window, full
-  size or a page of its own, so a tab plugin can be kept in the window too ("Open in a window" on
-  its page does the same). The choice is remembered per browser. The panel sits in the root
-  layout, around the pages, and is one element in both sizes, so neither moving between pages nor
-  changing size ever reloads it: it keeps receiving updates the whole time.
+- Panels are drawn (`frontend/src/components/PluginPanel.tsx`). Each plugin has three check
+  marks, under the gear on the panel's header or on its nav entry's right-click menu, kept per
+  plugin and per browser: **As a page** (the default; a page of its own, which the nav treats as
+  a page) or **Beside the page** (docked on the right, resizable, in view while you move around),
+  and **Floating window**, which allows popping it out over the pages, dragged and resized, from
+  the header or the right-click menu. The panel sits in the root layout,
+  around the pages, and is one element in every mode, so neither moving between pages nor
+  changing mode ever reloads it: it keeps receiving updates the whole time, and a plugin left as a
+  page is hidden, not stopped.
 - Legacy Flask blueprints are not run by the edge; they are converted as above.
