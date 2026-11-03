@@ -151,6 +151,18 @@ def test_a_container_already_held_as_one_is_cast_too():
     assert cast_value(typing.Set[int], ["1", "1"]) == {1}
 
 
+def test_the_builtin_spelling_is_cast_like_typings():
+    # Python 3.10 calls `list[int]` a class, so it once read as a driver's own type and the
+    # text went through uncast; CI runs 3.10.
+    assert cast_value(list[int], "[1, 2]") == [1, 2]
+    assert cast_value(dict[int, str], '{"1": "pump"}') == {1: "pump"}
+    assert cast_value(tuple[int, str], '[1, "a"]') == (1, "a")
+    assert cast_value(set[int], '["1", 1]') == {1}
+    assert cast_value(typing.Optional[list[float]], "1, 2.5") == [1.0, 2.5]
+    with pytest.raises(CastError):
+        cast_value(list[int], "[1, 2.5]")
+
+
 def test_text_that_is_not_a_container_is_left_to_the_driver():
     store = SettingsStore()
     # A wells selection on a Sequence[str] only starts like a list.

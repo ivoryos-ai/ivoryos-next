@@ -1520,7 +1520,9 @@ def _knows(annotation) -> bool:
         return True
     import dataclasses
     import enum
-    if isinstance(annotation, type):
+    # `dict[int, str]` is not a class, though Python 3.10 says it is: taken for one, it was
+    # "a type the driver reads" and reached the driver as the text typed.
+    if isinstance(annotation, type) and not isinstance(annotation, types.GenericAlias):
         if issubclass(annotation, enum.Enum) or dataclasses.is_dataclass(annotation):
             return True
         try:
