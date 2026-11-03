@@ -191,13 +191,17 @@ export function flattenSavedBody(body: SavedWorkflowBody | undefined): SavedBloc
 /** `#var` placeholders a saved body exposes for its caller to fill in. */
 export function scanDynamicParams(body: SavedWorkflowBody | undefined): Record<string, any> {
   const params: Record<string, any> = {};
+  const walk = (value: any, type: string) => {
+    if (typeof value === 'string' && value.startsWith('#')) {
+      params[value.substring(1)] = { type, required: true };
+    } else if (value && typeof value === 'object') {
+      // Inside a dict or an object: the type recorded is the whole argument's, so not this value's.
+      Object.values(value).forEach((v) => walk(v, 'str'));
+    }
+  };
   flattenSavedBody(body).forEach((b: any) => {
     Object.entries(b.args || b.params || {}).forEach(([key, value]) => {
-      if (typeof value === 'string' && value.startsWith('#')) {
-        const paramName = value.substring(1);
-        const paramType = (b.arg_types && b.arg_types[key]) || 'str';
-        params[paramName] = { type: paramType, required: true };
-      }
+      walk(value, (b.arg_types && b.arg_types[key]) || 'str');
     });
   });
   return params;
@@ -307,20 +311,18 @@ export function detachLink(
   // Carry the caller's filled-in #var values into the now-inlined blocks, so detaching a
   // configured step doesn't quietly discard its configuration.
   const callerParams = block.params || {};
-  return copied.map(b => ({
-    ...b,
-    params: Object.fromEntries(
-      Object.entries(b.params || {}).map(([key, value]) => {
-        if (typeof value === 'string' && value.startsWith('#')) {
-          const varName = value.substring(1);
-          if (callerParams[varName] !== undefined && callerParams[varName] !== '') {
-            return [key, callerParams[varName]];
-          }
-        }
-        return [key, value];
-      })
-    ),
-  }));
+  const filled = (value: any): any => {
+    if (typeof value === 'string' && value.startsWith('#')) {
+      const supplied = callerParams[value.substring(1)];
+      return supplied !== undefined && supplied !== '' ? supplied : value;
+    }
+    if (Array.isArray(value)) return value.map(filled);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, filled(v)]));
+    }
+    return value;
+  };
+  return copied.map(b => ({ ...b, params: filled(b.params || {}) }));
 }
 
 // --- diffing ------------------------------------------------------------------------------------

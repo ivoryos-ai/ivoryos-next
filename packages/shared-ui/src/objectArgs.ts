@@ -22,7 +22,9 @@ export const objectGiven = (value: unknown): value is Record<string, unknown> =>
  * A new step's arguments, from its method's schema: each argument's default, or, with
  * `useVariables` (the toolbox's #auto switch), `#<name>` for every one, so a step dropped in for an
  * optimization is wired up at once. A required object argument is built from its fields the same
- * way; an optional one is left out (see above), so #auto does not ask for its fields either.
+ * way; an optional one is left out (see above), so #auto does not ask for its fields either. Nor
+ * does it make a dict one `#name`: a dict is written in its own table, a `#name` per value that
+ * should vary, and a column holding a whole dict per row helps nobody.
  */
 export function defaultParams(schemaParams: Record<string, any> | undefined, useVariables: boolean): Record<string, any> {
   const result: Record<string, any> = {};
@@ -30,7 +32,7 @@ export function defaultParams(schemaParams: Record<string, any> | undefined, use
   for (const [key, param] of Object.entries(schemaParams)) {
     if (param?.is_object && param?.fields) {
       if (!isOptionalObject(param)) result[key] = defaultParams(param.fields, useVariables);
-    } else if (useVariables) {
+    } else if (useVariables && !param?.is_mapping) {
       result[key] = `#${key}`;
     } else if (param?.default !== undefined && param.default !== null) {
       // A default of None is left out, so the driver uses it: written in, the field held null

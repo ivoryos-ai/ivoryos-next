@@ -234,6 +234,19 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
         recursion_ok = _depth < MAX_OBJECT_DEPTH and id(annotation) not in _seen
         child_seen = _seen | {id(annotation)}
 
+        # A TypedDict says what its keys are, so it is an object with fields, like a dataclass,
+        # not a dict of anything (it subclasses dict, so _container_shape took it for one);
+        # whether a key may be left out is what its key sets say, as for a declared **kwargs.
+        declared_keys = _declared_kwargs_fields(annotation) if isinstance(annotation, type) else None
+        if declared_keys is not None:
+            is_object = True
+            container = {}
+            param_type = annotation.__name__
+            if recursion_ok:
+                for key, (key_annotation, key_required) in declared_keys.items():
+                    fields[key] = extract_type_info(key_annotation, inspect.Parameter.empty, _depth + 1, child_seen)
+                    fields[key]["required"] = key_required
+
         # Check for Dataclass
         import dataclasses
         if dataclasses.is_dataclass(annotation):

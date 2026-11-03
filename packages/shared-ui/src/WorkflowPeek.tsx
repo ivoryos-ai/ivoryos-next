@@ -66,10 +66,14 @@ function stepCount(body: SavedWorkflowBody | null) {
 }
 
 /** Substitute the caller's values for `#var` placeholders, matching what expansion will do. */
-function resolved(value: any, params: Record<string, any>) {
+function resolved(value: any, params: Record<string, any>): any {
   if (typeof value === 'string' && value.startsWith('#')) {
     const supplied = params[value.substring(1)];
     if (supplied !== undefined && supplied !== '') return supplied;
+  }
+  if (Array.isArray(value)) return value.map((v) => resolved(v, params));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, resolved(v, params)]));
   }
   return value;
 }

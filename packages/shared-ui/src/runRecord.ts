@@ -11,6 +11,15 @@
 import { readNamedOutput } from './returnValues';
 
 /**
+ * An argument by its `_vars` key: its name, or dotted into a dict or an object for a `#name` inside
+ * one (`gains.kp`). Undefined when it is not there.
+ */
+const argumentAt = (params: any, path: string): any => {
+  if (params && path in params) return params[path];
+  return path.split('.').reduce((at: any, part) => (at !== null && typeof at === 'object' ? at[part] : undefined), params);
+};
+
+/**
  * Which phase a logged step ran in. Everything carries `_phase` since `expand_workflow_blocks`
  * stamps it; a step without one predates that and was part of the main body.
  */
@@ -179,7 +188,8 @@ export function formatRun(r: any): FormattedRun {
         for (const s of iterSteps) {
           const vars = s.parameters?._vars || {};
           const arg = Object.keys(vars).find((a) => vars[a] === name);
-          if (arg !== undefined && arg in s.parameters) return s.parameters[arg];
+          const found = arg === undefined ? undefined : argumentAt(s.parameters, arg);
+          if (found !== undefined) return found;
         }
         const step = iterSteps.find((s: any) => s.parameters && name in (s.parameters || {}));
         return step ? step.parameters[name] : '';

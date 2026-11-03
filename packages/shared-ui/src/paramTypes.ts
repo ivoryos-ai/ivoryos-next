@@ -9,10 +9,12 @@
  * contained "int", so `Dict[str, int]` got a number box on the Instruments page and
  * `List[int]` an "expects a number" warning in the Designer: a dict could not be typed at all.
  *
- * A dict or a list is typed as text and stays text in the step (`{"offset": 1.5}`, or Python's
- * own `{'offset': 1.5}`): the edge parses it at the call and casts what is inside
- * (`cast_value`), the same way for a value typed in a step, a table cell or a Cloud field.
- * `containerProblem` reads it the same way, so what passes here runs.
+ * A list is typed as text and stays text in the step (`[1, 2]`); a dict is written in its own
+ * field (DictInput) and held as an object, so a `#name` as one of its values is a reference, and
+ * text from a step written before that (`{"offset": 1.5}`, or Python's `{'offset': 1.5}`) still
+ * reads. The edge parses text at the call and casts what is inside (`cast_value`), the same way
+ * for a value typed in a step, a table cell or a Cloud field. `containerProblem` reads both the
+ * same way, so what passes here runs.
  */
 
 /** The type's name with the wrapping a form does not care about taken off: `<class 'float'>`
@@ -107,6 +109,9 @@ export const parseContainerText = (text: string): unknown => {
 const valueProblem = (info: unknown, value: unknown): string | null => {
   const entry = asInfo(info);
   if (!entry || value === null || value === undefined) return null;
+  // A `#name` inside a dict or a list is a reference, checked once the run puts a value there
+  // (a dict's value that varies per sample or per trial, DictInput).
+  if (typeof value === 'string' && /^#\w+$/.test(value.trim())) return null;
   if (isNumericType(entry)) {
     if (typeof value === 'boolean' || value === '' || typeof value === 'object' || isNaN(Number(value))) return `is not a number (${entry.type})`;
     return null;

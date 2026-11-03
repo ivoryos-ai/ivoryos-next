@@ -41,6 +41,25 @@ def _params(step: Any) -> dict:
     return params if isinstance(params, dict) else {}
 
 
+_NOT_THERE = object()
+
+
+def _at_path(params: dict, path: str) -> Any:
+    """An argument by its `_vars` key: its name, or dotted into a dict or an object for a `#name`
+    inside one (`gains.kp`)."""
+    if path in params:
+        return params[path]
+    current: Any = params
+    for part in path.split("."):
+        if isinstance(current, list) and part.isdigit() and int(part) < len(current):
+            current = current[int(part)]
+        elif isinstance(current, dict) and part in current:
+            current = current[part]
+        else:
+            return _NOT_THERE
+    return current
+
+
 def _suggested_value(name: str, steps: list) -> Any:
     """The value a trial's steps were given for search-space parameter `name`. The argument is
     rarely called what the #variable is (`#catalyst_ml` feeds `volume_ml`), which is what a step's
@@ -50,8 +69,10 @@ def _suggested_value(name: str, steps: list) -> Any:
         params = _params(step)
         vars_ = params.get("_vars") if isinstance(params.get("_vars"), dict) else {}
         arg = next((a for a, n in vars_.items() if n == name), None)
-        if arg is not None and arg in params:
-            return params[arg]
+        if arg is not None:
+            found = _at_path(params, arg)
+            if found is not _NOT_THERE:
+                return found
     step = next((s for s in steps if name in _params(s)), None)
     return _params(step)[name] if step is not None else ""
 

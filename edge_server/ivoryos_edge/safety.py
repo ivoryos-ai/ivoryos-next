@@ -249,9 +249,9 @@ def _position_text(value) -> str:
 def check_value(constraint: dict, value, trays: dict) -> List[Tuple[str, str]]:
     """Why `value` breaks `constraint`: (the value as shown, the reason), one per offending value.
 
-    A list is checked element by element (`wells: List[str]`). Nothing given and '#references'
-    are skipped: the first is somebody else's error, the second is checked again once the run has
-    put a real value there.
+    A list is checked element by element (`wells: List[str]`), a dict by its values (`gains:
+    Dict[str, float]`). Nothing given and '#references' are skipped: the first is somebody else's
+    error, the second is checked again once the run has put a real value there.
     """
     problems = []
     # A list is checked element by element, unless the choices themselves are lists or tuples
@@ -259,6 +259,8 @@ def check_value(constraint: dict, value, trays: dict) -> List[Tuple[str, str]]:
     choice_values = [c.get("value") for c in constraint.get("choices") or []]
     whole = any(isinstance(v, (list, tuple)) for v in choice_values)
     values = value if isinstance(value, (list, tuple)) and not whole else [value]
+    if isinstance(value, dict):
+        values = list(value.values())
     for item in values:
         if item is None or item == "" or _is_reference(item):
             continue

@@ -97,6 +97,8 @@ Same in both today and kept: text-valued Enums, an Enum with an alias, an untouc
 | C3 | Enum values inside a dict | the members | proposed (NextGen marked better) | Legacy bug #8. |
 | C4 | `Tuple[float, float]` | a tuple | proposed (NextGen marked better) | Legacy gives a list, in a workflow even for the untouched default (legacy bug #9). |
 | C5 | A dict typed as JSON or as a Python literal; a dict default; keys with spaces, quotes or `#`; an `Optional` dict left blank (None) | same in both today | kept | |
+| C5a | `Dict[str, float]` with a value `#ki`, a column or a search-space entry holding `0.25` | `{'ki': 0.25}` | NextGen, 2026-11-03 (issue 61) | The dict field (`DictInput`) keeps the dict as an object, so the `#name` is found, typed by `value_type` and substituted; as text it stayed text. A key is never a reference (C5). |
+| C5b | A `TypedDict` | a dict, each key cast by its own type; a required key missing is refused | NextGen, 2026-11-03 | Was passed through as it came. |
 | C6 | `List[str]` typed without brackets, `a, b` | `['a', 'b']` | agreed | `List[int]` typed `1, 2` gives `[1, 2]`: split on commas, each element cast by the element type. Bracketed JSON works as before. |
 | C7 | Bare `list` (no element type) | the literal if it parses, else split on commas | proposed | |
 

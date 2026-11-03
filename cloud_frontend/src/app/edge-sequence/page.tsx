@@ -25,7 +25,7 @@ import {
   getReturnLeaves,
   blankChoiceOf,
 } from '@ivoryos/shared-ui';
-import { isNumericType, containerProblem } from '@ivoryos/shared-ui';
+import { isNumericType, containerProblem, holdsReference } from '@ivoryos/shared-ui';
 
 export default function DesignerPage() {
   const [deviceId, setDeviceId] = useState<string | null>(null);
@@ -653,7 +653,7 @@ export default function DesignerPage() {
                 {(() => {
                   const allBlocks = [...prepSequence, ...sequence, ...cleanupSequence];
                   const hasDynamicParams = allBlocks.some(block => 
-                    Object.values(block.params).some(val => typeof val === 'string' && val.startsWith('#'))
+                    holdsReference(block.params)
                   );
                   return (
                     <>

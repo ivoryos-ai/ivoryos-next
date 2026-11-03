@@ -21,6 +21,8 @@ import {
 } from './workflowBody';
 import { confirmDialog, notify, promptDialog } from './dialogs';
 import { ExtraArguments } from './ExtraArguments';
+import { DictInput } from './DictInput';
+import { compactValue, dictProblems, readDictValue } from './dictArgs';
 import { WorkflowPeek, type WorkflowPeekTarget } from './WorkflowPeek';
 import { WorkflowDiff } from './WorkflowDiff';
 import { SuggestInput } from './SuggestInput';
@@ -1676,6 +1678,11 @@ const HOLD_TO_SWITCH_MS = 500;
                           // `<None>` (the ∅ button) is a value, the driver gets None, whatever the type.
                           if (blankChoiceOf(val)) continue;
 
+                          // A dict: text that is not one, and keys or values its type cannot take.
+                          if (pData?.is_mapping) {
+                              dictProblems(val, pData).forEach(p => blockWarnings.push(`'${fullKey}': ${p}`));
+                          }
+
                           // Blank means the default where there is one (None for an Optional, which
                           // the schema marks not required), '' for a text argument (T9); anything
                           // else left blank is missing.
@@ -1696,7 +1703,8 @@ const HOLD_TO_SWITCH_MS = 500;
 
                           // A dict or a list typed as text the edge could not read, or holding a key,
                           // value or item of the wrong type (paramTypes.ts).
-                          const containerIssue = isDynamicRef ? null : containerProblem(pData, val);
+                          // A dict said its own above, entry by entry.
+                          const containerIssue = isDynamicRef || pData?.is_mapping ? null : containerProblem(pData, val);
                           if (containerIssue) {
                               blockWarnings.push(`'${fullKey}' ${containerIssue}`);
                               continue;
@@ -1718,7 +1726,7 @@ const HOLD_TO_SWITCH_MS = 500;
                           const refused = isFlowBlock ? null : guardProblem(
                               fieldGuard(statusData?.safety, block.instrument, block.method, fullKey), guarded, statusData?.safety);
                           if (refused) {
-                              blockWarnings.push(`'${fullKey}' = ${guarded} ${refused} (safety guard)`);
+                              blockWarnings.push(`'${fullKey}' = ${compactValue(guarded)} ${refused} (safety guard)`);
                           }
 
                           // Wells that are not on the worktable (`plate[A13]`, a plate that is not
@@ -1911,12 +1919,14 @@ const HOLD_TO_SWITCH_MS = 500;
                                       opens the card on that field. */}
                                   {(() => {
                                     const valueAt = (path: string) => path.split('.').reduce((acc: any, part: string) => (acc && acc[part] !== undefined ? acc[part] : undefined), block.params);
+                                    // A dict reads as written in its field, `{kp: 1.5, ki: #ki}`; a list as JSON.
+                                    const asValue = (v: object) => (Array.isArray(v) ? JSON.stringify(v) : compactValue(v));
                                     const shown = (v: any, pData?: any) => {
-                                      if (typeof v === 'object' && v !== null) return JSON.stringify(v);
+                                      if (typeof v === 'object' && v !== null) return asValue(v);
                                       // A dict or list typed as text reads as the value it is, not as a quoted string.
                                       if (typeof v === 'string' && containerKind(pData)) {
                                         const parsed = parseContainerText(v);
-                                        if (parsed !== undefined) return JSON.stringify(parsed);
+                                        if (parsed !== undefined) return asValue(parsed as object);
                                       }
                                       const t = String(v);
                                       return t === '' || /\s/.test(t) ? `"${t}"` : t;
@@ -1926,7 +1936,12 @@ const HOLD_TO_SWITCH_MS = 500;
                                     type Arg = { key: string; name: string; text: string; tone: 'set' | 'var' | 'default' | 'missing' | 'empty'; unit?: string };
                                     const args: Arg[] = [];
                                     const add = (key: string, name: string, pData: any) => {
-                                      const v = valueAt(key);
+                                      let v = valueAt(key);
+                                      // A dict saved as text (before the table, or imported) reads as one.
+                                      if (pData?.is_mapping && typeof v === 'string') {
+                                        const read = readDictValue(v);
+                                        if (read.kind === 'dict') v = read.value;
+                                      }
                                       const unit = isFlowBlock ? undefined
                                         : unitOf(fieldGuard(statusData?.safety, block.instrument, block.method, key), pData?.unit);
                                       if (typeof v === 'string' && v.trim() === '#') args.push({ key, name, text: '#?', tone: 'missing' });
@@ -2359,6 +2374,30 @@ const HOLD_TO_SWITCH_MS = 500;
 
                                                 const displayType = (pData.type || '').replace(/<class '([^']+)'>/, '$1').replace('typing.', '');
                                                 const val = paramKey.split('.').reduce((acc: any, part: string) => acc && acc[part] !== undefined ? acc[part] : undefined, paramsObj);
+                                                // A dict is written as it reads, `{kp: 1.5, ki: #ki}`, a
+                                                // `#name` per value that should vary (DictInput).
+                                                if (pData.is_mapping) {
+                                                    return (
+                                                        <DictInput
+                                                            key={paramKey}
+                                                            id={paramFieldId(lId, bId, paramKey)}
+                                                            info={pData}
+                                                            quiet
+                                                            value={val !== undefined ? val : pData.default}
+                                                            suggestions={availableVars.map((v: string) => ({ value: `#${v}`, label: 'earlier step' }))}
+                                                            onChange={(next) => handleParamChange(bId, paramKey, next, pData.type || '', lId)}
+                                                            label={(
+                                                                <>
+                                                                  <label htmlFor={paramFieldId(lId, bId, paramKey)} className="whitespace-nowrap text-gray-600 dark:text-gray-300" title={displayType || undefined}>
+                                                                    {paramName}
+                                                                    {pData.required && <span className="text-red-500/80 ml-0.5">*</span>}
+                                                                  </label>
+                                                                  <span className="text-gray-400 dark:text-gray-500">=</span>
+                                                                </>
+                                                            )}
+                                                        />
+                                                    );
+                                                }
                                                 // A dict or list held as a value (a workflow an assistant wrote, an imported one) is edited as its JSON.
                                                 const fieldText = (v: any) => (typeof v === 'object' && v !== null ? JSON.stringify(v) : v);
                                                 const actualVal = val !== undefined ? fieldText(val) : (pData.default !== undefined && pData.default !== null ? String(fieldText(pData.default)) : '');
