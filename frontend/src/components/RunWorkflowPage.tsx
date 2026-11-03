@@ -23,7 +23,7 @@ import {
   toWireBlock, useDocumentTheme, runtimeVarNames, splitRepeatedLinks, mainOnlyLinks,
   TrayPicker, guardHint, guardProblem, guardSuggestions, guardsFor, trayForGuards, unitOf, SuggestInput,
   formatReference, referenceStart, rowListVariables, RunConfigError, isRowActive, fitRowsToColumns,
-  blankChoicesFor, blankChoiceOf, BlankChoiceField, BlankChoiceOptions,
+  blankChoicesFor, blankChoiceOf, BlankChoiceField, BlankChoiceOptions, choiceLabels,
   type FieldGuard, type FieldRef, type BlankChoices } from '@ivoryos/shared-ui';
 import Link from 'next/link';
 import { useQueueBusy } from '@/queueBusy';
@@ -373,7 +373,10 @@ export default function RunWorkflowPage({ mode, stage }: {
 
                     if (pData?.type) vTypes[varName] = pData.type;
                     if (pData?.unit) vUnits[varName] = String(pData.unit);
-                    if (pData?.options) vOptions[varName] = pData.options;
+                    // A column with fixed choices offers them as a workflow stores them (an
+                    // Enum member's name, a Literal option as written).
+                    const labels = choiceLabels(pData);
+                    if (labels) vOptions[varName] = labels;
                     const ref: FieldRef = { instrument: scanningBlock.instrument, method: scanningBlock.method, param: `${prefix}${k}` };
                     // A wells column holds `plate[A1]` per row (shared-ui labware.ts): it gets a
                     // picker for the instrument's plates, and is checked against them as it is typed.

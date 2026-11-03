@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, RefreshCcw, Save, Table2 } from 'lucide-react';
-import { changedArguments, fieldText } from '@ivoryos/shared-ui';
+import { changedArguments, choiceLabels, fieldText } from '@ivoryos/shared-ui';
 import { loadStepEdit, saveStepEdit, type StepEditInfo, type StepEditScope } from '@/runEdits';
 import { liveEditHref } from '@/queuedEdit';
 import { withBase } from '@/config';
@@ -86,8 +86,8 @@ export default function StepEditor({ runId, stepId, run, retry, cancelLabel = 'B
         {names.length === 0 && <p className="text-sm text-gray-500">This step takes no arguments.</p>}
         {names.map(name => {
           const decl = declared[name] || {};
-          const options: any[] | null = Array.isArray(decl.options) ? decl.options
-            : String(decl.type || '').toLowerCase() === 'bool' ? ['True', 'False'] : null;
+          const options: any[] | null = choiceLabels(decl)
+            ?? (String(decl.type || '').toLowerCase() === 'bool' ? ['True', 'False'] : null);
           const value = texts[name] ?? '';
           const changed = value !== fieldText(info.args[name]) && !(value === '' && info.args[name] === undefined);
           return (

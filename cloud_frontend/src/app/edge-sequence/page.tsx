@@ -23,6 +23,7 @@ import {
   FLOW_CONTROL_PALETTE,
   workflowOutputs,
   getReturnLeaves,
+  blankChoiceOf,
 } from '@ivoryos/shared-ui';
 import { isNumericType, containerProblem } from '@ivoryos/shared-ui';
 
@@ -516,7 +517,7 @@ export default function DesignerPage() {
               { title: 'Wrong parameter type', tone: 'error' });
             return false;
           }
-          if (isNumericType(param) && isNaN(Number(val))) {
+          if (isNumericType(param) && !blankChoiceOf(val) && isNaN(Number(val))) {
             await notify(`Parameter '${key}' in ${block.instrument}.${block.method} expects a number (or '#variable'), got '${val}'`,
                          { title: 'Wrong parameter type', tone: 'error' });
             return false;

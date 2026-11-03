@@ -2,7 +2,7 @@
 title: "Return values and #variables"
 description: How a step's result is saved, read by later steps, and offered to the optimizer.
 sidebar:
-  order: 5
+  order: 6
 ---
 
 A driver method rarely returns one number. It returns a reading, a report, a dictionary. IvoryOS

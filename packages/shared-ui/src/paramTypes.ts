@@ -52,6 +52,17 @@ export const isBoolType = (info: unknown): boolean => {
   return bareTypeName(info) === 'bool';
 };
 
+/** `str` or `Optional[str]`, and not a list, a dict, an object or a field with choices: blank
+ *  in a field is '' for it (docs/argument_casting_ground_truth.md T9). */
+export const isTextType = (info: unknown): boolean => {
+  const entry = asInfo(info);
+  if (entry) {
+    if (entry.is_mapping || entry.is_list || entry.is_object || entry.options || entry.choices) return false;
+    return isTextType(entry.type);
+  }
+  return bareTypeName(info) === 'str';
+};
+
 export type ContainerKind = 'mapping' | 'list';
 
 /** A dict or a list field, from the schema's own flag, or from the type's name for a schema
@@ -101,8 +112,12 @@ const valueProblem = (info: unknown, value: unknown): string | null => {
     return null;
   }
   if (isBoolType(entry) && typeof value !== 'boolean' && !/^(true|false)$/i.test(String(value))) return 'is not true or false';
-  if (Array.isArray(entry.options) && entry.options.length && !entry.options.map(String).includes(String(value))) {
-    return `is not one of ${entry.options.map(String).join(', ')}`;
+  // A choice by its label (an Enum member's name, what a workflow stores) or by its value.
+  const labels: string[] = Array.isArray(entry.choices) ? entry.choices.map((c: any) => String(c.label))
+    : Array.isArray(entry.options) ? entry.options.map(String) : [];
+  const accepted = Array.isArray(entry.choices) ? entry.choices.flatMap((c: any) => [String(c.label), String(c.value)]) : labels;
+  if (labels.length && !accepted.includes(String(value))) {
+    return `is not one of ${labels.join(', ')}`;
   }
   return containerProblem(entry, value);
 };

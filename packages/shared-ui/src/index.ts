@@ -54,6 +54,7 @@ export { isOptionalObject, objectGiven, defaultParams, addedObject } from './obj
 export {
   RunConfigError, resolveBlockParams, resolveFixedBlock, toWireBlock, rowListArgumentsOf,
   NONE_VALUE, DEFAULT_VALUE, blankChoiceOf, blankChoicesFor, acceptsNone, hasDefault,
+  choiceLabels, choiceSuggestions,
 } from './runConfig';
 export type { ResolveOptions, ResolvedStep, BlankChoice, BlankChoices } from './runConfig';
 export { BlankChoiceField, BlankChoiceOptions, blankLabel } from './BlankChoice';
@@ -107,5 +108,5 @@ export type { TrayChoice, RowUnit } from './labware';
 export { TrayPicker } from './TrayPicker';
 export type { TrayPickerProps } from './TrayPicker';
 export { fieldText, parseField, changedArguments } from './stepEdits';
-export { bareTypeName, isNumericType, isBoolType, containerKind, parseContainerText, containerProblem, containerExample } from './paramTypes';
+export { bareTypeName, isNumericType, isBoolType, isTextType, containerKind, parseContainerText, containerProblem, containerExample } from './paramTypes';
 export type { ContainerKind } from './paramTypes';

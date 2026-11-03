@@ -52,7 +52,10 @@ def test_optional_is_cast_as_its_inner_type():
     assert cast_value(Union[int, None], "2") == 2
     assert cast_value(eval("float | None"), "1.5") == 1.5
     assert cast_value(Optional[float], None) is None
-    assert cast_value(Union[int, str], "2") == "2"     # a real choice of types is left alone
+    # A real choice of types is tried arm by arm, str last since it takes anything: "2" is the
+    # int, "two" the text (docs/argument_casting_ground_truth.md, P3-P5 for the number case).
+    assert cast_value(Union[int, str], "2") == 2
+    assert cast_value(Union[int, str], "two") == "two"
 
 
 def test_the_schema_and_the_cast_agree(tmp_path, monkeypatch):

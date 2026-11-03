@@ -110,6 +110,7 @@ edge_server/ivoryos_edge/ui/
 # and .env -- which holds its Cloud pairing token -- live here at runtime (IVORYOS_EDGE_HOME).
 example/flow_lab/.edges/
 example/liquid_handler/.edge/
+example/.edge-cases/
 # The simulated real decks, kept local: their drivers, workflows, and the database, experiment
 # folders and HPLC files each simulation writes as it runs.
 example/cryspy/

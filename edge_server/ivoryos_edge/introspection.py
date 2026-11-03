@@ -169,6 +169,7 @@ def type_name(annotation) -> str:
 def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _seen=None):
     param_type = "Any"
     options = None
+    choices = None
     is_object = False
     is_numeric = False
     fields = {}
@@ -193,7 +194,10 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
         # Check for Enum
         import enum
         if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
-            options = [e.value for e in annotation]
+            # Published values, not the members' own (which may be objects JSON cannot hold).
+            # choices_of keeps the real ones for the cast; the schema gets a copy it can carry.
+            options = [_published_value(e.value) for e in annotation]
+            choices = [{"label": c["label"], "value": _published_value(c["value"])} for c in choices_of(annotation)]
             param_type = annotation.__name__
 
         # Check for Literal
@@ -201,6 +205,7 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
             # Need to handle Literal which might be typing.Literal or typing_extensions.Literal
             if getattr(get_origin(annotation), '__name__', '') == 'Literal' or get_origin(annotation) is getattr(typing, 'Literal', None):
                 options = list(get_args(annotation))
+                choices = choices_of(annotation)
                 param_type = "Literal"
         except Exception:
             pass
@@ -281,6 +286,7 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
                     inner = extract_type_info(args[0], inspect.Parameter.empty, _depth, _seen)
                     if inner.get("options") is not None:
                         options = inner["options"]
+                        choices = inner.get("choices")
                         param_type = inner["type"]
                     elif inner.get("is_object"):
                         is_object = True
@@ -301,14 +307,22 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
             except Exception:
                 pass
 
+    # Required means "something must be given": a parameter with no default, unless it is an
+    # Optional, where nothing given is None (the ground truth's P9). "Has no default" used to be
+    # the whole rule, which made every form ask for an `Optional[float]` with no default.
     param_data = {
         "type": param_type,
-        "required": default == inspect.Parameter.empty
+        "required": default == inspect.Parameter.empty and not nullable
     }
     if nullable:
         param_data["optional"] = True
     if options is not None:
         param_data["options"] = options
+    if choices is not None:
+        # `[{label, value}]`: an Enum member's name and value, a Literal option's spelling and
+        # the option itself. A workflow stores the label (a value may be nothing a person can
+        # type or JSON can hold); `options` stays for readers that predate this.
+        param_data["choices"] = choices
     if is_object:
         param_data["is_object"] = True
         param_data["fields"] = fields
@@ -320,7 +334,12 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
     if default != inspect.Parameter.empty:
         import enum
         if isinstance(default, enum.Enum):
-            param_data["default"] = default.value
+            # The member's name: what a workflow stores for an Enum (E6), so a field showing the
+            # default shows a choice that can be picked, and the value may be nothing JSON holds.
+            param_data["default"] = default.name
+        elif choices is not None and (found := match_choice(choices, default)) is not None:
+            # A Literal's default as the label a workflow stores ("1.0", not the 1 JSON makes of it).
+            param_data["default"] = found["label"]
         else:
             param_data["default"] = default
 
@@ -1035,113 +1054,540 @@ def inspect_device_module(device_instance):
 
     return schema
 
-def cast_value(annotation, val):
-    if annotation == inspect.Parameter.empty or val is None:
+# --- Casting: text in, the driver's types out --------------------------------------------------
+#
+# docs/argument_casting_ground_truth.md is the contract, tests/fixtures/casting_ground_truth.json
+# the rows, tests/automated/test_casting_ground_truth.py the proof. The rule in one sentence: the
+# annotation decides what the driver gets, the decision is made here at call time, and a value
+# that cannot be the annotated type is refused with a message, never truncated and never passed
+# through as text. `cast_value` used to be `try: annotation(val) except: return val`, which turned
+# `int` given 2.5 into 2 and left `Union[int, float]`, every Enum picked from a <select> (text
+# "3" is not `Speed(3)`), every Literal and every typed container as the text the form sent.
+
+# The two bracketed markers a page may write where a value goes (shared-ui runConfig.ts
+# NONE_VALUE / DEFAULT_VALUE). Bracketed so no real value collides. The pages resolve them before
+# a run is built (None becomes JSON null); the edge resolves them again here for a value that
+# arrives without the resolver: a CSV posted by an agent, a Cloud payload, a test. There is no
+# marker for an empty string: a blank text field with no default is '' (T9), and an empty string
+# over a non-empty default cannot be asked for (an `<empty>` marker was considered and dropped as
+# too rare to be worth a third button).
+NONE_MARKER = "<None>"
+DEFAULT_MARKER = "<default>"
+_MARKERS = (NONE_MARKER, DEFAULT_MARKER)
+
+# The concrete list types the cast builds; the abstract spellings are _SEQUENCE_ORIGINS above.
+_LIST_ORIGINS = (list, tuple, set, frozenset)
+
+
+class CastError(ValueError):
+    """A value that cannot be the annotated type: what the step's error and a refused run say.
+
+    `shown` is the value as the person wrote it, `why` the reason, `parameter` the argument's
+    name once cast_arguments knows it. str() reads "value = '2.5' is not a whole number (int)".
+    """
+
+    def __init__(self, value, why: str, type_label: str = "", parameter: str = None):
+        self.value = value
+        self.why = why
+        self.type_label = type_label
+        self.parameter = parameter
+        super().__init__(why)
+
+    @property
+    def shown(self) -> str:
+        return _shown(self.value)
+
+    def __str__(self) -> str:
+        where = f"{self.parameter} = " if self.parameter else ""
+        kind = f" ({self.type_label})" if self.type_label else ""
+        return f"{where}{self.shown} {self.why}{kind}"
+
+
+def _shown(value) -> str:
+    if isinstance(value, str):
+        return f"'{value}'"
+    try:
+        import json
+        return json.dumps(value)
+    except (TypeError, ValueError):
+        return repr(value)
+
+
+def _refuse(value, why: str, annotation) -> CastError:
+    """The refusal for `value`, with the one special case every number and choice shares: the
+    typed word None is never None (None is the <None> marker), and the message says where to
+    find it rather than only that 'None' is not a number."""
+    label = type_name(annotation) if annotation is not inspect.Parameter.empty else ""
+    if isinstance(value, str) and value.strip() == "None":
+        return CastError(value, "is text here; to send None, choose None", label)
+    return CastError(value, why, label)
+
+
+def _nullable(annotation) -> bool:
+    """`Optional[X]` / `X | None` / a Union with a None arm."""
+    annotation = _split_annotated(annotation)[0]
+    return _is_union(annotation) and type(None) in get_args(annotation)
+
+
+def _is_text_type(annotation) -> bool:
+    annotation = _split_annotated(annotation)[0]
+    if annotation is inspect.Parameter.empty or annotation is typing.Any or annotation is str:
+        return True
+    if _is_union(annotation):
+        arms = [a for a in get_args(annotation) if a is not type(None)]
+        return len(arms) == 1 and _is_text_type(arms[0])
+    return False
+
+
+def _is_literal(annotation) -> bool:
+    origin = get_origin(annotation)
+    return origin is getattr(typing, "Literal", None) or getattr(origin, "__name__", "") == "Literal"
+
+
+def _parse_text(text: str):
+    """A JSON or Python literal written as text, or _UNPARSED. How a dict, a bracketed list or a
+    tuple arrives from a form: `{"a": 1}` and `{'a': 1}` both read."""
+    stripped = text.strip()
+    if not stripped or stripped[0] not in "[{(\"'" and not stripped[0].isalnum() and stripped[0] not in "-+.":
+        return _UNPARSED
+    import json
+    try:
+        return json.loads(stripped)
+    except ValueError:
+        pass
+    import ast
+    try:
+        return ast.literal_eval(stripped)
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+        return _UNPARSED
+
+
+_UNPARSED = object()
+
+
+def _split_items(text: str) -> list:
+    """`a, b` -> ['a', 'b']: the unbracketed way to write a list in a cell."""
+    return [item.strip() for item in text.split(",")] if text.strip() else []
+
+
+def _items_of(annotation, val, what: str = "a list") -> list:
+    """The elements a list-like annotation is given: a list or tuple as is, text parsed as a
+    literal when it is one, else split on commas."""
+    if isinstance(val, (list, tuple, set, frozenset)):
+        return list(val)
+    if isinstance(val, str):
+        parsed = _parse_text(val)
+        if isinstance(parsed, (list, tuple, set, frozenset)):
+            return list(parsed)
+        return _split_items(val)
+    raise _refuse(val, f"is not {what}", annotation)
+
+
+def _published_value(value):
+    """A choice's value as the schema carries it: what JSON can hold, or a description.
+
+    An Enum's values are whatever the driver chose: a dataclass of settings, a `ctypes` pointer,
+    a callable, a vendor object. The member's **name** is what a workflow stores and what the cast
+    resolves (resolve_member), so the value only has to be shown. Published raw, one such Enum
+    stopped the schema being written to disk, recorded as a deck version or sent to Cloud, and
+    `/api/status` showed `{}` for every option. Scalars pass as they are, a dataclass as its
+    fields, a container element by element, a nested Enum member by its name, anything else as
+    its repr.
+    """
+    import dataclasses
+    import enum
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, enum.Enum):
+        return value.name
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_published_value(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _published_value(v) for k, v in value.items()}
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return {f.name: _published_value(getattr(value, f.name)) for f in dataclasses.fields(value)}
+    return repr(value)
+
+
+def match_choice(choices, value):
+    """The entry of `choices` (`[{label, value}]`, as the schema publishes an Enum's or a Literal's
+    options) that `value` names, or None. A workflow stores the label (an Enum member's name, a
+    Literal option's spelling); an older workflow or Cloud may hold the value itself; a form sends
+    the value's text; JavaScript writes 1.0 as 1. Each of those must find its option.
+    The guard and the agent validator compare through this too, never through str()."""
+    if value is None:
+        return None
+    text = value.strip() if isinstance(value, str) else None
+    for choice in choices:
+        option = choice["value"]
+        if _same_value(option, value):
+            return choice
+    if text is not None:
+        for choice in choices:
+            if str(choice.get("label", "")) == text:
+                return choice
+        for choice in choices:
+            option = choice["value"]
+            if not isinstance(option, bool) and str(option) == text:
+                return choice
+        number = _number_of(text)
+        if number is not None:
+            for choice in choices:
+                option = choice["value"]
+                if isinstance(option, (int, float)) and not isinstance(option, bool) and option == number:
+                    return choice
+    return None
+
+
+def _same_value(option, value) -> bool:
+    if isinstance(option, bool) or isinstance(value, bool):
+        return isinstance(option, bool) and isinstance(value, bool) and option is value
+    if isinstance(option, (int, float)) and isinstance(value, (int, float)):
+        return option == value
+    if isinstance(option, (list, tuple)) and isinstance(value, (list, tuple)):
+        return list(option) == list(value)
+    return type(option) is type(value) and option == value
+
+
+def _number_of(text: str):
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def choices_of(annotation):
+    """`[{label, value}]` for an Enum (label: the member's name) or a Literal (label: the option
+    as written), else None, with the **real** values: what resolve_member / resolve_option match
+    against. extract_type_info publishes a copy run through _published_value."""
+    import enum
+    annotation = _split_annotated(annotation)[0]
+    if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
+        return [{"label": member.name, "value": member.value} for member in annotation]
+    if _is_literal(annotation):
+        return [{"label": str(option), "value": option} for option in get_args(annotation)]
+    return None
+
+
+def resolve_member(enum_cls, val):
+    """The member of `enum_cls` that `val` names: the member itself, then its **name**, then its
+    value, then its value as text (legacy IvoryOS's find_member order, E4/E5 in the ground truth:
+    with `Tricky.ON = "OFF"`, "ON" is Tricky.ON). Refused with the choices listed otherwise."""
+    if isinstance(val, enum_cls):
         return val
+    if isinstance(val, str):
+        name = val.strip()
+        if name in enum_cls.__members__:
+            return enum_cls.__members__[name]
+    try:
+        return enum_cls(val)
+    except Exception:
+        pass
+    found = match_choice(choices_of(enum_cls), val)
+    if found is not None:
+        return enum_cls.__members__[found["label"]]
+    names = ", ".join(m.name for m in enum_cls)
+    raise _refuse(val, f"is not one of its choices ({names})", enum_cls)
+
+
+def resolve_option(annotation, val):
+    """The option of a `Literal[...]` that `val` names, as the option object itself."""
+    found = match_choice(choices_of(annotation), val)
+    if found is None:
+        labels = ", ".join(str(o) for o in get_args(annotation))
+        raise _refuse(val, f"is not one of its choices ({labels})", annotation)
+    return found["value"]
+
+
+def _cast_int(annotation, val):
+    if isinstance(val, bool):
+        raise _refuse(val, "is not a whole number", annotation)
+    if isinstance(val, int):
+        return val
+    if isinstance(val, float):
+        if val.is_integer():
+            return int(val)
+        raise _refuse(val, "is not a whole number", annotation)
+    if isinstance(val, str):
+        text = val.strip()
+        try:
+            return int(text)
+        except ValueError:
+            pass
+        number = _number_of(text)
+        if number is None or number != number:
+            raise _refuse(val, "is not a number", annotation)
+        if number.is_integer():
+            return int(number)
+        raise _refuse(val, "is not a whole number", annotation)
+    raise _refuse(val, "is not a whole number", annotation)
+
+
+def _cast_float(annotation, val):
+    if isinstance(val, bool):
+        raise _refuse(val, "is not a number", annotation)
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, str):
+        number = _number_of(val.strip())
+        if number is None or number != number:
+            raise _refuse(val, "is not a number", annotation)
+        return number
+    raise _refuse(val, "is not a number", annotation)
+
+
+def _cast_bool(annotation, val):
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        text = val.strip().lower()
+        if text == "true":
+            return True
+        if text == "false":
+            return False
+    raise _refuse(val, "is not True or False", annotation)
+
+
+def _cast_union(annotation, val):
+    arms = [a for a in get_args(annotation) if a is not type(None)]
+    nullable = len(arms) < len(get_args(annotation))
+    if nullable and isinstance(val, str) and val.strip() == "":
+        return None
+    if len(arms) == 1:
+        return cast_value(arms[0], val)
+    plain = {_split_annotated(a)[0] for a in arms}
+    if plain == {int, float}:
+        # A number written with a decimal point (or an exponent) is a float, one without is an
+        # int; a value already typed keeps its type.
+        if isinstance(val, bool):
+            raise _refuse(val, "is not a number", annotation)
+        if isinstance(val, (int, float)):
+            return val
+        if isinstance(val, str):
+            text = val.strip()
+            if _number_of(text) is None or _number_of(text) != _number_of(text):
+                raise _refuse(val, "is not a number", annotation)
+            return _cast_float(annotation, val) if any(c in text for c in ".eE") else _cast_int(annotation, val)
+        raise _refuse(val, "is not a number", annotation)
+    # Arms in order, the first that takes the value; str last, since it takes anything.
+    ordered = sorted(arms, key=lambda a: 1 if _split_annotated(a)[0] is str else 0)
+    for arm in ordered:
+        try:
+            return cast_value(arm, val)
+        except CastError:
+            continue
+    raise _refuse(val, f"is not one of {type_name(annotation)}", annotation)
+
+
+def cast_value(annotation, val):
+    """`val` (text from a form or a cell, or a value JSON already typed) as the Python object a
+    parameter annotated `annotation` takes. Raises CastError when it cannot be one.
+
+    None and the <None> marker are None for every type (<default> is cast_arguments' business:
+    it needs the parameter).
+    An untyped parameter gets the text as typed. Everything else is read by the annotation:
+    numbers (a whole number for int, never truncated), bool from True/False in any case, an
+    Enum by member, name, value or text of value, a Literal by its label or value, lists from
+    brackets or commas with each element cast, dicts from a JSON or Python literal with keys and
+    values cast, dataclasses and Pydantic models from a dict or its text, and Optional / Union
+    by their arms (Union[int, float] by the decimal point).
+    """
+    if val is None:
+        return None
+    if isinstance(val, str) and val == NONE_MARKER:
+        return None
 
     # `Annotated[float, Unit("mL")]` casts as a float: the markers describe the value, the type
     # underneath is what the driver takes. A method's parameters arrive here already stripped
     # (_resolve_hints); a dataclass's fields do not.
     annotation = _split_annotated(annotation)[0]
 
-    # Optional[X] / Union[X, None]: cast as X, the same unwrapping extract_type_info does for the
-    # schema. Without it the form offered a float field for `note: Optional[float]` and the
-    # driver received the text "1.5".
-    if get_origin(annotation) is typing.Union or type(annotation).__name__ == "UnionType":  # X | None too
-        arms = [a for a in get_args(annotation) if a is not type(None)]
-        if len(arms) == 1:
-            return cast_value(arms[0], val)
+    if annotation is inspect.Parameter.empty or annotation is typing.Any:
         return val
 
-    # A dict or a list: parsed from text when that is how it arrived (a form field, a table
-    # cell), then its keys, values or items cast by their own annotations, as the schema promised
-    # (`Dict[str, float]` with `{"a": "1.5"}` reaches the driver as {"a": 1.5}; `Dict[int, str]`
-    # gets its JSON keys back as ints). Before, the text itself reached the driver, and a bare
-    # `list` got `list("[1, 2]")`: the characters.
-    shape = _container_shape(annotation)
-    if shape is not None:
-        return _cast_container(shape, annotation, val)
+    # A type the edge cannot build (a driver's own class, PyLabRobot's Well, a Sequence of them)
+    # is the driver's to read: the value goes through as it came, text included, as it always
+    # did. Only what this function knows how to make is held to the rule.
+    if not _knows(annotation):
+        return val
+
+    if _is_union(annotation):
+        return _cast_union(annotation, val)
+
+    if isinstance(val, str) and val.strip() == "" and annotation is not str:
+        raise CastError(val, "is missing a value", type_name(annotation))
+
+    origin = get_origin(annotation)
+
+    if _is_literal(annotation):
+        return resolve_option(annotation, val)
 
     import dataclasses
-    if dataclasses.is_dataclass(annotation) and isinstance(val, dict):
+    if dataclasses.is_dataclass(annotation) and isinstance(annotation, type):
+        data = _parse_text(val) if isinstance(val, str) else val
+        if isinstance(data, annotation):
+            return data
+        if not isinstance(data, dict):
+            raise _refuse(val, f"is not a {annotation.__name__} (a dict of its fields)", annotation)
         kwargs = {}
         for f in dataclasses.fields(annotation):
-            if f.name in val:
-                kwargs[f.name] = cast_value(f.type, val[f.name])
-        return annotation(**kwargs)
-        
+            if f.name in data:
+                kwargs[f.name] = _cast_field(f.name, _resolve_field_type(annotation, f.name, f.type), data[f.name])
+        try:
+            return annotation(**kwargs)
+        except TypeError as e:
+            raise _refuse(val, f"does not make a {annotation.__name__}: {e}", annotation)
+
     try:
         from pydantic import BaseModel
-        if isinstance(annotation, type) and issubclass(annotation, BaseModel) and isinstance(val, dict):
-            return annotation(**val)
     except ImportError:
-        pass
-        
-    if isinstance(annotation, type):
-        import enum
-        if issubclass(annotation, enum.Enum):
-            try:
-                return annotation(val)
-            except Exception:
-                pass
-        if annotation == bool and isinstance(val, str):
-            return val.lower() == 'true'
+        BaseModel = None
+    if BaseModel is not None and isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        data = _parse_text(val) if isinstance(val, str) else val
+        if isinstance(data, annotation):
+            return data
+        if not isinstance(data, dict):
+            raise _refuse(val, f"is not a {annotation.__name__} (a dict of its fields)", annotation)
         try:
-            return annotation(val)
-        except Exception:
-            return val
-    return val
+            return annotation(**data)
+        except Exception as e:
+            raise _refuse(val, f"does not make a {annotation.__name__}: {e}", annotation)
 
-def _cast_container(shape, annotation, val):
-    given = val
-    if isinstance(val, str):
-        given = parse_container_text(val)
-        if given is None:
-            # Not a dict or list written as text (a wells selection, `plate[A1:H1]`, is typed
-            # Sequence[str] by some drivers): the driver gets the text, as before.
+    if origin in (dict,) or annotation is dict or (origin is not None and _abc_name(origin) in ("Mapping", "MutableMapping")):
+        data = _parse_text(val) if isinstance(val, str) else val
+        if not isinstance(data, dict):
+            raise _refuse(val, "is not a dict", annotation)
+        key_type, value_type = (get_args(annotation) + (inspect.Parameter.empty, inspect.Parameter.empty))[:2]
+        return {cast_value(key_type, k): cast_value(value_type, v) for k, v in data.items()}
+
+    if origin is tuple or annotation is tuple:
+        items = _items_of(annotation, val, "a tuple")
+        args = get_args(annotation)
+        if not args:
+            return tuple(items)
+        if len(args) == 2 and args[1] is Ellipsis:
+            return tuple(cast_value(args[0], item) for item in items)
+        if len(items) != len(args):
+            raise _refuse(val, f"has {len(items)} items where {len(args)} are expected", annotation)
+        return tuple(cast_value(a, item) for a, item in zip(args, items))
+
+    if origin in _LIST_ORIGINS or annotation in _LIST_ORIGINS or (origin is not None and origin in _SEQUENCE_ORIGINS):
+        args = get_args(annotation)
+        if (isinstance(val, str) and "," not in val and _parse_text(val) is _UNPARSED
+                and (not args or args[0] in (str, inspect.Parameter.empty))):
+            # One word, no comma, no bracket, for a list of text: left as the text. A wells
+            # selection (`plate[A1:H1]`) is typed `Sequence[str]` by some drivers and must reach
+            # them whole, and a lone word is as likely a value the driver reads itself as a list
+            # of one. `a, b` is still a list (ground truth C6).
             return val
-    kind = shape[0]
-    if kind == "mapping":
-        if not isinstance(given, dict):
-            return val
-        _, key_ann, value_ann = shape
-        return {cast_value(key_ann, k): cast_value(value_ann, v) for k, v in given.items()}
-    if isinstance(given, dict) or not isinstance(given, (list, tuple, set, frozenset)):
-        return val
-    _, item_ann, fixed = shape
-    items = list(given)
-    if fixed is not None:
-        casted = [cast_value(a, v) for a, v in zip(fixed, items)] + items[len(fixed):]
-    else:
-        casted = [cast_value(item_ann, v) for v in items]
-    origin = get_origin(annotation) or annotation
-    if origin is frozenset:
-        return frozenset(casted)
-    if origin in (set, _abc.Set, _abc.MutableSet):
-        return set(casted)
-    if origin is tuple:
-        return tuple(casted)
-    return casted
+        items = _items_of(annotation, val)
+        if args and args[0] is not Ellipsis:
+            items = [cast_value(args[0], item) for item in items]
+        container = origin if origin in _LIST_ORIGINS else (annotation if annotation in _LIST_ORIGINS else list)
+        return container(items)
+
+    import enum
+    if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
+        return resolve_member(annotation, val)
+
+    if annotation is bool:
+        return _cast_bool(annotation, val)
+    if annotation is int:
+        return _cast_int(annotation, val)
+    if annotation is float:
+        return _cast_float(annotation, val)
+    if annotation is str:
+        return val if isinstance(val, str) else str(val)
+
+    return val  # unreachable: _knows() said yes to one of the branches above
+
+
+def _abc_name(origin) -> str:
+    return getattr(origin, "__name__", "")
+
+
+def _knows(annotation) -> bool:
+    """Whether cast_value can make this type from text: the builtin scalars, Enum, Literal, a
+    dataclass or Pydantic model, and Optional/Union, list, tuple, set and dict of those."""
+    annotation = _split_annotated(annotation)[0]
+    if annotation is inspect.Parameter.empty or annotation is typing.Any:
+        return True
+    if annotation in (str, int, float, bool, list, tuple, dict, set, frozenset):
+        return True
+    if _is_union(annotation):
+        return all(a is type(None) or _knows(a) for a in get_args(annotation))
+    if _is_literal(annotation):
+        return True
+    import dataclasses
+    import enum
+    # `dict[int, str]` is not a class, though Python 3.10 says it is: taken for one, it was
+    # "a type the driver reads" and reached the driver as the text typed.
+    if isinstance(annotation, type) and not isinstance(annotation, types.GenericAlias):
+        if issubclass(annotation, enum.Enum) or dataclasses.is_dataclass(annotation):
+            return True
+        try:
+            from pydantic import BaseModel
+            return issubclass(annotation, BaseModel)
+        except ImportError:
+            return False
+    origin = get_origin(annotation)
+    if origin is None:
+        return False
+    if origin in _LIST_ORIGINS or origin in _SEQUENCE_ORIGINS or origin is dict or _abc_name(origin) in ("Mapping", "MutableMapping"):
+        return all(a is Ellipsis or _knows(a) for a in get_args(annotation))
+    return False
+
+
+def _marks_labware(marker) -> bool:
+    """A marker that names labware, wells, a site or a per-well value (labware.py's vocabulary)."""
+    try:
+        keys = marker.ivoryos_schema()
+    except Exception:
+        return False
+    return isinstance(keys, dict) and bool({"labware", "wells", "per_well", "site"} & set(keys))
+
+
+def _cast_field(name, annotation, val):
+    try:
+        return cast_value(annotation, val)
+    except CastError as e:
+        if e.parameter is None:
+            e.parameter = name
+        raise
+
 
 
 def cast_arguments(method, args):
-    if not args:
-        return {}
+    """`args` (a step's arguments, JSON values or the text a form sent) cast to `method`'s
+    parameter types; raises CastError for a value that cannot be one. Internal metadata
+    (`_`-prefixed) is never forwarded.
+
+    The parameter decides what nothing means: `<default>` and a blank leave an argument out so
+    the driver's own default applies; a blank on an Optional with no default is None, on a text
+    argument with no default the empty string, and on anything else missing (refused); an
+    Optional parameter left out of `args` entirely is sent as None, since it is not required.
+    """
+    args = dict(args or {})
     try:
         sig = inspect.signature(method)
     except (TypeError, ValueError):
         # A compiled entry point with no readable signature (see inspect_device_module). There
         # is nothing to cast against, so forward what the caller sent rather than refusing to
         # run the method at all.
-        return {k: v for k, v in args.items() if not k.startswith('_')}
+        return {k: (None if v == NONE_MARKER else v) for k, v in args.items() if not k.startswith('_')}
 
     # Under PEP 563 (`from __future__ import annotations`) every annotation is a string, and
     # cast_value("float", "14") casts nothing: the driver received the text "14". The schema
     # side already resolved these (inspect_device_module), so the form promised a float the call
     # never applied. Resolve them the same way here.
     hints = _resolve_hints(method)
+    # An argument a driver marks as labware or wells (`Annotated[..., Wells(...)]`, labware.py) is
+    # text the driver reads itself (`plate[A1:H1]`, several joined by commas), whatever type sits
+    # under the marker: it is never cast.
+    labware = {name for name, marks in _resolve_markers(method).items() if any(_marks_labware(m) for m in marks)}
 
     casted_args = {}
+    handled = set()  # listed parameters given a value, including those left out on purpose
     var_keyword = None
     var_keyword_annotation = inspect.Parameter.empty
     for param_name, param in sig.parameters.items():
@@ -1154,8 +1600,30 @@ def cast_arguments(method, args):
             # Not an argument a caller can name (see inspect_device_module) — a key matching its
             # name is an ordinary keyword argument headed for **kwargs, not this.
             continue
-        if param_name in args:
-            casted_args[param_name] = cast_value(annotation, args[param_name])
+        has_default = param.default is not inspect.Parameter.empty
+        if param_name not in args:
+            if not has_default and _nullable(annotation):
+                casted_args[param_name] = None
+            continue
+        handled.add(param_name)
+        value = args[param_name]
+        if param_name in labware and not (isinstance(value, str) and value in _MARKERS):
+            casted_args[param_name] = value
+            continue
+        blank = isinstance(value, str) and value.strip() == ""
+        if value == DEFAULT_MARKER or (blank and has_default):
+            if not has_default:
+                raise CastError(value, "asks for a default, and this argument has none", type_name(annotation), param_name)
+            continue
+        if blank:
+            if _nullable(annotation):
+                casted_args[param_name] = None
+            elif _is_text_type(annotation):
+                casted_args[param_name] = ""
+            else:
+                raise CastError(value, "is missing a value", type_name(annotation), param_name)
+            continue
+        casted_args[param_name] = _cast_field(param_name, annotation, value)
 
     # Anything the signature doesn't list is destined for **kwargs. It arrives as JSON — a form
     # sends "2.5", not 2.5 — so a method that says what its **kwargs are gets the same casting a
@@ -1163,20 +1631,22 @@ def cast_arguments(method, args):
     # inspect_device_module reported for the same annotation or the schema promises a type the
     # call never applies: a declared TypedDict (PEP 692) casts each key by its own field type,
     # and a blanket `**offsets: float` casts every one of them. An unannotated `**kwargs` has an
-    # empty annotation and cast_value passes the value through untouched.
+    # empty annotation and the value goes through as typed (an untyped parameter is text).
     # Internal metadata arguments, which start with '_', are never forwarded to a driver.
     declared = _declared_kwargs_fields(var_keyword_annotation) if var_keyword is not None else None
     for k, v in args.items():
-        if k in casted_args or k.startswith('_'):
+        if k in handled or k.startswith('_'):
+            continue
+        if v == DEFAULT_MARKER:
             continue
         if declared is not None:
             # A key outside a declared set is passed through rather than dropped: the driver is
             # the one entitled to reject it, and silently losing an argument is worse.
-            casted_args[k] = cast_value(declared[k][0], v) if k in declared else v
+            casted_args[k] = _cast_field(k, declared[k][0], v) if k in declared else cast_value(inspect.Parameter.empty, v)
         elif var_keyword is not None:
-            casted_args[k] = cast_value(var_keyword_annotation, v)
+            casted_args[k] = _cast_field(k, var_keyword_annotation, v)
         else:
-            casted_args[k] = v
+            casted_args[k] = cast_value(inspect.Parameter.empty, v)
     return casted_args
 
 

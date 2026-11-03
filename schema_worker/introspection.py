@@ -147,9 +147,36 @@ def type_name(annotation) -> str:
     return f"{text.split('[', 1)[0]}[{', '.join(_argument_name(a) for a in get_args(annotation))}]"
 
 
+def _published_value(value):
+    """A choice's value as the schema carries it: what JSON can hold, or a description.
+
+    An Enum's values are whatever the driver chose: a dataclass of settings, a `ctypes` pointer,
+    a callable, a vendor object. The member's **name** is what a workflow stores and what the cast
+    resolves (resolve_member), so the value only has to be shown. Published raw, one such Enum
+    stopped the schema being written to disk, recorded as a deck version or sent to Cloud, and
+    `/api/status` showed `{}` for every option. Scalars pass as they are, a dataclass as its
+    fields, a container element by element, a nested Enum member by its name, anything else as
+    its repr.
+    """
+    import dataclasses
+    import enum
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, enum.Enum):
+        return value.name
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_published_value(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _published_value(v) for k, v in value.items()}
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return {f.name: _published_value(getattr(value, f.name)) for f in dataclasses.fields(value)}
+    return repr(value)
+
+
 def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _seen=None):
     param_type = "Any"
     options = None
+    choices = None
     is_object = False
     is_numeric = False
     fields = {}
@@ -174,7 +201,10 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
         # Check for Enum
         import enum
         if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
-            options = [e.value for e in annotation]
+            # As the edge publishes it: the values (JSON-safe), and label/value choices with the
+            # member's name as the label, which is what a workflow stores.
+            options = [_published_value(e.value) for e in annotation]
+            choices = [{"label": e.name, "value": _published_value(e.value)} for e in annotation]
             param_type = annotation.__name__
 
         # Check for Literal
@@ -182,6 +212,7 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
             # Need to handle Literal which might be typing.Literal or typing_extensions.Literal
             if getattr(get_origin(annotation), '__name__', '') == 'Literal' or get_origin(annotation) is getattr(typing, 'Literal', None):
                 options = list(get_args(annotation))
+                choices = [{"label": str(o), "value": o} for o in options]
                 param_type = "Literal"
         except Exception:
             pass
@@ -261,6 +292,7 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
                     inner = extract_type_info(args[0], inspect.Parameter.empty, _depth, _seen)
                     if inner.get("options") is not None:
                         options = inner["options"]
+                        choices = inner.get("choices")
                         param_type = inner["type"]
                     elif inner.get("is_object"):
                         is_object = True
@@ -281,14 +313,18 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
             except Exception:
                 pass
 
+    # Required means "something must be given": no default, unless it is an Optional, where
+    # nothing given is None (the edge's rule; docs/argument_casting_ground_truth.md P9).
     param_data = {
         "type": param_type,
-        "required": default == inspect.Parameter.empty
+        "required": default == inspect.Parameter.empty and not nullable
     }
     if nullable:
         param_data["optional"] = True
     if options is not None:
         param_data["options"] = options
+    if choices is not None:
+        param_data["choices"] = choices
     if is_object:
         param_data["is_object"] = True
         param_data["fields"] = fields
@@ -300,7 +336,11 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
     if default != inspect.Parameter.empty:
         import enum
         if isinstance(default, enum.Enum):
-            param_data["default"] = default.value
+            # The member's name, as the edge publishes it (a workflow stores the name).
+            param_data["default"] = default.name
+        elif choices is not None and any(str(c["label"]) == str(default) or c["value"] == default for c in choices):
+            # A Literal's default as its label, as the edge publishes it.
+            param_data["default"] = next(c["label"] for c in choices if str(c["label"]) == str(default) or c["value"] == default)
         else:
             param_data["default"] = default
 
