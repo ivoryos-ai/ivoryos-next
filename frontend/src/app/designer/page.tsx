@@ -24,7 +24,8 @@ import {
   chooseDialog,
   confirmDialog,
   notify,
-  promptDialog, useDocumentTheme, FLOW_CONTROL_PALETTE, workflowOutputs, getReturnLeaves, runtimeVarNames, mainOnlyLink } from '@ivoryos/shared-ui';
+  promptDialog, useDocumentTheme, FLOW_CONTROL_PALETTE, workflowOutputs, getReturnLeaves, runtimeVarNames, mainOnlyLink,
+  blankChoiceOf, isTextType } from '@ivoryos/shared-ui';
 import { isNumericType, containerProblem } from '@ivoryos/shared-ui';
 
 export default function DesignerPage() {
@@ -661,8 +662,11 @@ export default function DesignerPage() {
           // protocol states. (Introspection never marks a parameter both required and
           // defaulted — `required` is precisely "has no default".)
           if (!(param as any)?.required) continue;
+          // `<None>` is a value (the driver gets None), whatever the type.
+          if (blankChoiceOf(val)) continue;
 
-          if (val === undefined || val === '') {
+          // A blank text field is the empty string (T9), never missing.
+          if ((val === undefined || val === '') && !isTextType(param)) {
             await notify(`Missing parameter '${key}' in ${block.instrument}.${block.method}`,
               { title: 'Incomplete step', tone: 'error' });
             return false;

@@ -23,6 +23,7 @@ from dummy_driver import PumpDirection, SettingsStore  # noqa: E402
 
 from ivoryos_edge.agent.validate import validate_body  # noqa: E402
 from ivoryos_edge.introspection import (  # noqa: E402
+    CastError,
     cast_arguments,
     cast_value,
     extract_type_info,
@@ -154,10 +155,15 @@ def test_text_that_is_not_a_container_is_left_to_the_driver():
     store = SettingsStore()
     # A wells selection on a Sequence[str] only starts like a list.
     assert _call(store, "select", wells="plate[A1:H1]") == {"wells": "plate[A1:H1]"}
-    assert cast_value(dict, "abc") == "abc"
+    # Text that is not a dict is refused for a dict (docs/argument_casting_ground_truth.md: a value
+    # that cannot be the type is refused with a message, never passed through); only a list of
+    # text keeps a lone word.
+    with pytest.raises(CastError):
+        cast_value(dict, "abc")
     assert cast_value(list, "abc") == "abc", "was ['a', 'b', 'c']"
     # The wrong kind of container: the driver says so, as it would for any wrong value.
-    assert cast_value(typing.Dict[str, int], "[1, 2]") == "[1, 2]"
+    with pytest.raises(CastError):
+        cast_value(typing.Dict[str, int], "[1, 2]")
     assert parse_container_text("[1, 2") is None
     assert parse_container_text("42") is None
     assert parse_container_text("") is None

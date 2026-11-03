@@ -4,6 +4,9 @@
  * text reaches a device as the same value from either (the edge's run_edits.py then checks it).
  */
 
+import { choiceLabels } from './runConfig';
+import { isNumericType } from './paramTypes';
+
 /** A value as it is shown in a field. */
 export function fieldText(value: any): string {
   if (value === undefined || value === null) return '';
@@ -21,14 +24,15 @@ export function parseField(raw: string, declared: any, original: any): any {
   const text = raw.trim();
   if (text.startsWith('#')) return text;
   const type = String(declared?.type || '').toLowerCase();
-  const options: any[] | undefined = Array.isArray(declared?.options) ? declared.options : undefined;
-  if (options) return options.find((o) => String(o) === text) ?? text;
+  // A choice goes as the text a workflow stores (an Enum member's name, a Literal option as
+  // written); the edge resolves it to the member or option.
+  if (choiceLabels(declared)) return text;
   if (type === 'bool' || typeof original === 'boolean') {
     if (/^(true|1|yes)$/i.test(text)) return true;
     if (/^(false|0|no)$/i.test(text)) return false;
     return text;
   }
-  if (type.includes('int') || type.includes('float') || typeof original === 'number') {
+  if (isNumericType(declared) || typeof original === 'number') {
     return text !== '' && !isNaN(Number(text)) ? Number(text) : text;
   }
   if (declared?.is_object || (original !== null && typeof original === 'object') || /^[[{]/.test(text)) {

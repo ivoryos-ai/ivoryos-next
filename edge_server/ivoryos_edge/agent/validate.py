@@ -14,6 +14,8 @@ silently do the wrong thing, on real hardware.
 
 import re
 
+from ivoryos_edge.introspection import DEFAULT_MARKER, NONE_MARKER, match_choice
+
 from ivoryos_edge import expressions
 from ivoryos_edge.agent.deck import (
     FLOW_CONTROL_INSTRUMENT,
@@ -118,8 +120,12 @@ def _value_problem(info, value):
     if _is_numeric_type(info) and not _numeric_ok(value):
         return f"is not a number ({info.get('type')})"
     options = info.get("options")
-    if options and str(value) not in [str(o) for o in options]:
-        return f"is not one of {[str(o) for o in options]}"
+    if options and not _is_reference(value):
+        # By label, value or value's text (introspection.match_choice): an Enum value inside a
+        # dict or a list is written by its member's name, as anywhere else.
+        choices = info.get("choices") or [{"label": str(o), "value": o} for o in options]
+        if match_choice(choices, value) is None:
+            return f"is not one of {[str(c.get('label', c.get('value'))) for c in choices]}"
     return _container_problem(info, value)
 
 
@@ -188,6 +194,10 @@ def _check_params(where, entry, params, issues, known_vars, instrument, method):
         # `Optional[int]` with no default: None is the value the annotation invites, not a gap.
         if name in params and value is None and info.get("optional"):
             continue
+        # A text argument given as blank is the empty string (ground truth T9), and the <None>
+        # marker is a value (None, on purpose): neither is a gap.
+        if isinstance(value, str) and (value == NONE_MARKER or (value.strip() == "" and str(info.get("type", "")) == "str")):
+            continue
         if value is None or (isinstance(value, str) and value.strip() == ""):
             issues.append(_issue(
                 "error", where,
@@ -229,8 +239,9 @@ def _check_params(where, entry, params, issues, known_vars, instrument, method):
             continue
 
         # Nothing given: either reported as missing above (required) or "leave the default" /
-        # a deliberate None (optional). Neither is a number to check.
-        if value is None or (isinstance(value, str) and value.strip() == ""):
+        # a deliberate None (optional), or the <None> / <default> markers saying one of those on
+        # purpose. None of them is a number or a choice to check.
+        if value is None or (isinstance(value, str) and value.strip() in ("", NONE_MARKER, DEFAULT_MARKER)):
             continue
         if _is_numeric_type(info) and not _numeric_ok(value):
             unit = info.get("unit")
@@ -243,8 +254,12 @@ def _check_params(where, entry, params, issues, known_vars, instrument, method):
 
         options = info.get("options")
         if options and not _is_reference(value):
-            allowed = [str(o) for o in options]
-            if str(value) not in allowed:
+            # By label, value or value's text (introspection.match_choice), the way the cast and
+            # the guard read it: a workflow stores an Enum member's name, and `str()` against the
+            # values called every such workflow broken.
+            choices = info.get("choices") or [{"label": str(o), "value": o} for o in options]
+            if match_choice(choices, value) is None:
+                allowed = [str(c.get("label", c.get("value"))) for c in choices]
                 issues.append(_issue(
                     "error", where,
                     f"'{name}' must be one of {allowed}, not {value!r}.",

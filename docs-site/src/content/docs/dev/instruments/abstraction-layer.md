@@ -2,7 +2,7 @@
 title: Device layer or abstraction layer?
 description: Expose the vendor SDK as it is, or write a class that speaks the lab's language? How to decide, and how to do both.
 sidebar:
-  order: 3
+  order: 4
 ---
 
 IvoryOS reads whatever class you give it. The question is *which* class: the vendor's SDK object

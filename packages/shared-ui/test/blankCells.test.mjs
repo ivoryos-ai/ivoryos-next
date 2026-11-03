@@ -35,14 +35,16 @@ test('each row chooses for itself: a value, None, or the driver default', () => 
 
 test('an empty cell is still missing, and says what the column could have chosen', () => {
   assert.throws(() => run([{ volume: '1', rate: '', speed: '7', note: 'a' }]),
-    (e) => e instanceof RunConfigError && /Missing value for 'rate' in row 1\. To leave it to the default or None/.test(e.message));
-  // A required argument with no default offers nothing extra.
-  assert.throws(() => run([{ volume: '', rate: '1', speed: '7', note: 'a' }]), (e) => e.message === "Missing value for 'volume' in row 1");
+    (e) => e instanceof RunConfigError && /Missing value for 'rate' in row 1\. To send None or leave it to the default, choose that in the cell/.test(e.message));
+  // A required argument with no default still offers None (always allowed), not the default.
+  assert.throws(() => run([{ volume: '', rate: '1', speed: '7', note: 'a' }]),
+    (e) => e.message === "Missing value for 'volume' in row 1. To send None, choose that in the cell.");
 });
 
 test('a choice the argument cannot take is refused before the run is built', () => {
-  assert.throws(() => run([{ volume: NONE_VALUE, rate: '1', speed: '7', note: 'a' }]),
-    /'volume' in row 1: this argument does not take None/);
+  // None is allowed on every argument, Optional or not: the driver gets None (ground truth T11).
+  const sent = run([{ volume: NONE_VALUE, rate: '1', speed: '7', note: 'a' }]);
+  assert.equal(sent[0].params.volume, null);
   assert.throws(() => run([{ volume: DEFAULT_VALUE, rate: '1', speed: '7', note: 'a' }]),
     /'volume' in row 1: this argument has no default/);
   // Optional[str] with no default takes None but has no default to fall back on.
@@ -86,10 +88,11 @@ test('a column offers a choice only when every argument it feeds allows it', () 
     schema: { parameters: { wait: { type: 'float', required: false, default: 2 }, speed: { type: 'int', required: false, default: 5 } } } };
   const choices = config.blankChoicesFor([dispense, tare]);
   // rate: Optional with a None default in one step, a plain float defaulting to 2 in the other.
-  assert.deepEqual(choices.rate, { none: false, default: true, defaults: [null, 2] });
+  // None is offered on every column, Optional or not (the driver gets None).
+  assert.deepEqual(choices.rate, { none: true, default: true, defaults: [null, 2] });
   // speed: both default to 5, so the default can be named.
-  assert.deepEqual(choices.speed, { none: false, default: true, defaults: [5] });
-  assert.deepEqual(choices.volume, { none: false, default: false, defaults: [] });
+  assert.deepEqual(choices.speed, { none: true, default: true, defaults: [5] });
+  assert.deepEqual(choices.volume, { none: true, default: false, defaults: [] });
   assert.deepEqual(choices.note, { none: true, default: false, defaults: [] });
 });
 

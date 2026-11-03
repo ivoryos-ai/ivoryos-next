@@ -57,17 +57,48 @@ export interface ResolveOptions {
 }
 
 /**
+ * What a field with fixed choices offers, as the text a workflow stores: an Enum member's name, a
+ * Literal option as written (the schema's `choices: [{label, value}]`). A schema from before
+ * `choices` lists the values themselves as `options`. Null for a field without choices.
+ */
+export const choiceLabels = (declared: any): string[] | null => {
+  if (Array.isArray(declared?.choices)) return declared.choices.map((c: any) => String(c.label));
+  if (Array.isArray(declared?.options)) return declared.options.map((o: any) => String(o));
+  return null;
+};
+
+/**
+ * The same choices for a `SuggestInput`: the label is what is typed, and the value is shown
+ * beside it when it differs (`FAST` with `3`, `WELL_96` with `[8, 12]`), so a person sees what
+ * the name stands for without being able to type a value that is not a label.
+ */
+export const choiceSuggestions = (declared: any): { value: string; label?: string }[] => {
+  if (Array.isArray(declared?.choices)) {
+    return declared.choices.map((c: any) => {
+      const label = String(c.label);
+      const value = typeof c.value === 'object' && c.value !== null ? JSON.stringify(c.value) : String(c.value);
+      // A Literal's 1.0 reaches JSON as 1: the same number is not worth showing twice.
+      const same = value === label || (label.trim() !== '' && !isNaN(Number(label)) && Number(label) === Number(value));
+      return same ? { value: label } : { value: label, label: value };
+    });
+  }
+  return (choiceLabels(declared) || []).map((v) => ({ value: v }));
+};
+
+/**
  * A value that says "no value" on purpose, chosen per cell (one row can use the driver's default
  * while the next sets a number). An empty cell is not one: it is a value nobody has filled in yet,
  * refused as missing, and a row of nothing but empty cells is not a sample at all. A row of
  * these markers is a sample, and runs.
  *
- * - `NONE_VALUE`: the argument is sent as None (JSON null).
+ * - `NONE_VALUE`: the argument is sent as None (JSON null). Allowed everywhere, Optional or not:
+ *   the driver gets None, and what it makes of it is its own.
  * - `DEFAULT_VALUE`: the argument is left out of the call, so the driver's own default applies.
  *   That is not the same as None: a parameter's default is often something else.
  *
  * Bracketed so neither can be a real value: a `mode: Literal["default", "fast"]` column holds the
- * text `default`, and a `str` column may hold the text `None`.
+ * text `default`, and a `str` column may hold the text `None`. The same markers are typed into a
+ * field (a Designer step's ∅ button writes `<None>`); the edge's `cast_arguments` reads them too.
  */
 export const NONE_VALUE = '<None>';
 export const DEFAULT_VALUE = '<default>';
@@ -95,17 +126,17 @@ export function acceptsNone(declared: any): boolean {
 /** Whether a declared parameter (or object field) has a default for the driver to fall back on. */
 export const hasDefault = (declared: any): boolean => !!declared && declared.required === false;
 
-/** Why a blank choice cannot be used for this parameter, or null when it can. */
+/** Why a blank choice cannot be used for this parameter, or null when it can. None always can. */
 function blankRefusal(choice: BlankChoice, declared: any): string | null {
   if (choice === 'default') {
     return hasDefault(declared) ? null : 'this argument has no default, so it needs a value';
   }
-  return acceptsNone(declared) ? null : 'this argument does not take None, so it needs a value';
+  return null;
 }
 
 /** What a column offers instead of a value, from every argument it feeds. */
 export interface BlankChoices {
-  /** Every argument the column feeds takes None. */
+  /** None is offered: always true (None is allowed on every argument), kept for the readers. */
   none: boolean;
   /** Every argument the column feeds has a default. */
   default: boolean;
@@ -128,7 +159,7 @@ export function blankChoicesFor(sequence: any[], skip?: (name: string) => boolea
       if (m) {
         if (skip?.(m[1])) return;
         const seen = out[m[1]];
-        const none = acceptsNone(declared);
+        const none = true;
         const dflt = hasDefault(declared);
         const defaults = dflt && 'default' in declared ? [declared.default] : [];
         out[m[1]] = seen
@@ -195,10 +226,9 @@ export function resolveBlockParams(block: any, opts: ResolveOptions): Record<str
         let subVal = opts.lookup(varName);
         if (subVal === undefined || subVal === null || subVal === '') {
           if (opts.onMissing === 'leave') return;
-          const offer = [hasDefault(declared) && 'the default', acceptsNone(declared) && 'None'].filter(Boolean);
           throw new RunConfigError(
             `Missing value for ${opts.describe(varName)}` +
-              (offer.length ? `. To leave it to ${offer.join(' or ')}, choose that in the cell.` : ''),
+              `. To send None${hasDefault(declared) ? ' or leave it to the default' : ''}, choose that in the cell.`,
           );
         }
 
@@ -214,7 +244,7 @@ export function resolveBlockParams(block: any, opts: ResolveOptions): Record<str
         if (isNumericType(declared)) {
           if (isNaN(Number(subVal))) {
             if (opts.numeric === 'strict') {
-              const typedNone = String(subVal).trim() === 'None' && acceptsNone(declared);
+              const typedNone = String(subVal).trim() === 'None';
               throw new RunConfigError(
                 `${opts.describe(varName)} expects a number (${declared?.type}), got '${subVal}'` +
                   (typedNone ? '. To send None, choose None in the cell rather than typing it.' : ''),

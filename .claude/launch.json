@@ -2,6 +2,19 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "edge-cases-demo",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "edge_server",
+        "python",
+        "example/edge_cases_demo.py"
+      ],
+      "port": 8084,
+      "autoPort": false
+    },
+    {
       "name": "edge-server-demo",
       "runtimeExecutable": "sh",
       "runtimeArgs": [

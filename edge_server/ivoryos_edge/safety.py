@@ -87,7 +87,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from . import paths
 from .labware import declared_trays, expand_references, layout_of
-from .introspection import has_member, resolve_callable, resolve_output_path, serialize_result, _MISSING
+from .introspection import has_member, match_choice, resolve_callable, resolve_output_path, serialize_result, _MISSING
 
 SAFETY_FORMAT = "ivoryos-safety/1"
 NAMINGS = ("A1", "A01", "1", "0")
@@ -254,7 +254,11 @@ def check_value(constraint: dict, value, trays: dict) -> List[Tuple[str, str]]:
     put a real value there.
     """
     problems = []
-    values = value if isinstance(value, (list, tuple)) else [value]
+    # A list is checked element by element, unless the choices themselves are lists or tuples
+    # (an Enum whose values are tuples): then the whole value is one choice.
+    choice_values = [c.get("value") for c in constraint.get("choices") or []]
+    whole = any(isinstance(v, (list, tuple)) for v in choice_values)
+    values = value if isinstance(value, (list, tuple)) and not whole else [value]
     for item in values:
         if item is None or item == "" or _is_reference(item):
             continue
@@ -269,7 +273,15 @@ def check_value(constraint: dict, value, trays: dict) -> List[Tuple[str, str]]:
                 problems.append((shown, f"is below the minimum of {_fmt(constraint['min'])}{unit}"))
             if "max" in constraint and number > constraint["max"]:
                 problems.append((shown, f"is above the maximum of {_fmt(constraint['max'])}{unit}"))
-        if constraint.get("allowed") is not None:
+        if constraint.get("choices") is not None and constraint.get("declared"):
+            # The driver's own Enum or Literal: a value names an option by its label (the member's
+            # name, the option as written), its value, its value's text, or as a number (1 for
+            # 1.0, which is what JavaScript made of it). Comparing str() to str() refused "FAST",
+            # refused 1 against "1.0", and never matched a tuple value at all.
+            if match_choice(constraint["choices"], item) is None:
+                labels = ", ".join(str(c.get("label", c.get("value"))) for c in constraint["choices"])
+                problems.append((shown, f"is not one of its choices ({labels})"))
+        elif constraint.get("allowed") is not None:
             allowed = [str(a) for a in constraint["allowed"]]
             if _position_text(item) not in allowed:
                 # `declared`: the list is the driver's own (an Enum or Literal), not this bench's.
@@ -308,6 +320,8 @@ def declared_choices(method_schema: dict, _fields: Optional[dict] = None, _prefi
             out.update(declared_choices({}, info["fields"], path + "."))
         elif info.get("options") is not None and str(info.get("type") or "").lower() != "bool":
             out[path] = {"allowed": list(info["options"]), "declared": True}
+            if info.get("choices") is not None:
+                out[path]["choices"] = list(info["choices"])
     return out
 
 
@@ -1033,6 +1047,7 @@ class Guard:
             merged = {**constraints.get(param, {}), **limit}
             if "allowed" in limit:
                 merged.pop("declared", None)
+                merged.pop("choices", None)
             constraints[param] = merged
         out = []
         for param, constraint in constraints.items():

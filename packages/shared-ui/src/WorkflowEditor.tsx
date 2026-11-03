@@ -30,7 +30,8 @@ import { fieldGuard, guardHint, guardProblem, guardSuggestions, unitOf } from '.
 import { formatReference, referenceCount, referenceStart, referencesProblem, wellChoices, type TrayChoice } from './labware';
 import { TrayPicker } from './TrayPicker';
 import { addedObject, defaultParams, isOptionalObject, objectGiven } from './objectArgs';
-import { isNumericType, isBoolType, containerKind, containerProblem, containerExample, parseContainerText } from './paramTypes';
+import { isNumericType, isBoolType, isTextType, containerKind, containerProblem, containerExample, parseContainerText } from './paramTypes';
+import { NONE_VALUE, blankChoiceOf, choiceLabels, choiceSuggestions } from './runConfig';
 
 /** The toolbox groups folded away, per browser. */
 const FOLDED_TOOLBOX_KEY = 'ivoryos_toolbox_folded';
@@ -610,7 +611,8 @@ const HOLD_TO_SWITCH_MS = 500;
   const handleParamChange = (blockId: string, param: string, value: any, type: string, listId: string) => {
     updateBlock(listId, blockId, block => {
       let parsedValue = value;
-      if (typeof value === 'string' && !value.startsWith('#')) {
+      // A '#name' and the <None> / <default> markers are kept as typed; the edge resolves them.
+      if (typeof value === 'string' && !value.startsWith('#') && !blankChoiceOf(value)) {
         // By the type's exact name (paramTypes.ts): "int" in "Dict[str, int]" used to make a
         // dict's text a number whenever it happened to parse as one. A dict or a list stays
         // text; the edge parses it at the call.
@@ -1671,8 +1673,13 @@ const HOLD_TO_SWITCH_MS = 500;
                               continue;
                           }
                           const isDynamicRef = typeof val === 'string' && val.startsWith('#');
+                          // `<None>` (the ∅ button) is a value, the driver gets None, whatever the type.
+                          if (blankChoiceOf(val)) continue;
 
-                          if (pData?.required && !isDynamicRef) {
+                          // Blank means the default where there is one (None for an Optional, which
+                          // the schema marks not required), '' for a text argument (T9); anything
+                          // else left blank is missing.
+                          if (pData?.required && !isDynamicRef && !isTextType(pData)) {
                               if ((val === undefined || val === '') && (pData.default === undefined || pData.default === '')) {
                                   blockWarnings.push(`Missing required parameter: '${fullKey}'`);
                                   continue;
@@ -1692,6 +1699,15 @@ const HOLD_TO_SWITCH_MS = 500;
                           const containerIssue = isDynamicRef ? null : containerProblem(pData, val);
                           if (containerIssue) {
                               blockWarnings.push(`'${fullKey}' ${containerIssue}`);
+                              continue;
+                          }
+
+                          // A value outside an Enum's or a Literal's choices: the edge refuses the
+                          // run for it (by the stored label or the value), so it is said here.
+                          const labels = choiceLabels(pData);
+                          if (labels && !isDynamicRef && val !== undefined && val !== '' && typeof val !== 'object'
+                              && !labels.includes(String(val)) && !(pData.options || []).map((o: any) => String(o)).includes(String(val))) {
+                              blockWarnings.push(`'${fullKey}' = ${val} is not one of its choices (${labels.join(', ')})`);
                               continue;
                           }
 
@@ -1914,9 +1930,13 @@ const HOLD_TO_SWITCH_MS = 500;
                                       const unit = isFlowBlock ? undefined
                                         : unitOf(fieldGuard(statusData?.safety, block.instrument, block.method, key), pData?.unit);
                                       if (typeof v === 'string' && v.trim() === '#') args.push({ key, name, text: '#?', tone: 'missing' });
+                                      // The <None> marker: sent as None, on purpose (the ∅ button on the open card).
+                                      else if (v === NONE_VALUE) args.push({ key, name, text: 'None', tone: 'set', unit });
                                       // null is how a step dropped before None defaults were left out holds one: shown as None, not "null".
                                       else if (v !== undefined && v !== '' && v !== null) args.push({ key, name, text: shown(v, pData), tone: typeof v === 'string' && v.startsWith('#') ? 'var' : 'set', unit });
                                       else if (pData?.default !== undefined && pData.default !== '' && pData.default !== null) args.push({ key, name, text: shown(pData.default, pData), tone: 'default', unit });
+                                      // A blank text argument with no default is the empty string (T9), not a gap.
+                                      else if (pData?.required && isTextType(pData)) args.push({ key, name, text: '""', tone: 'empty', unit });
                                       else args.push({ key, name, text: pData?.required ? '?' : 'None', tone: pData?.required ? 'missing' : 'empty' });
                                     };
                                     const walk = (schemaObj: any, prefix: string) => {
@@ -2369,9 +2389,11 @@ const HOLD_TO_SWITCH_MS = 500;
                                                         id={paramFieldId(lId, bId, paramKey)}
                                                         type="text"
                                                         suggestions={[
+                                                          // A choice is offered as a workflow stores it: an Enum member's name,
+                                                          // a Literal option as written, with the value beside it when it differs.
                                                           ...(guard?.tray || guard?.allowed
                                                             ? guardSuggestions(guard, statusData?.safety)
-                                                            : (pData.options || []).map((o: any) => String(o))),
+                                                            : choiceSuggestions(pData)),
                                                           ...availableVars.map((v: string) => ({ value: `#${v}`, label: 'earlier step' })),
                                                         ]}
                                                         value={actualVal}
@@ -2390,6 +2412,28 @@ const HOLD_TO_SWITCH_MS = 500;
                                                       />
                                                       {/* The unit, after the value, as on the folded card. */}
                                                       {unit && <span className="shrink-0 text-gray-400 dark:text-gray-500" title={`Values are in ${unit}`}>{unit}</span>}
+                                                      {/* None on purpose: writes the <None> marker (runConfig.ts), which the edge
+                                                          sends as None whatever the type. Blank already means the default (or
+                                                          None for an Optional), so this is only for a None over a default. */}
+                                                      {!pData.wells && (
+                                                        <button
+                                                          type="button"
+                                                          tabIndex={-1}
+                                                          onMouseDown={(e) => e.preventDefault()}
+                                                          onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleParamChange(bId, paramKey, actualVal === NONE_VALUE ? '' : NONE_VALUE, pData.type || '', lId);
+                                                            clearHashWarning(lId, bId, paramKey);
+                                                          }}
+                                                          title={actualVal === NONE_VALUE ? 'Sent as None. Click to type a value instead' : 'Send None for this argument'}
+                                                          aria-label={actualVal === NONE_VALUE ? 'Type a value instead of None' : 'Send None'}
+                                                          className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded font-sans text-[12px] leading-none ${actualVal === NONE_VALUE
+                                                            ? 'bg-accent-soft text-accent-fg'
+                                                            : 'text-gray-300 hover:bg-gray-100 hover:text-gray-600 dark:text-gray-600 dark:hover:bg-white/10 dark:hover:text-gray-300'}`}
+                                                        >
+                                                          ∅
+                                                        </button>
+                                                      )}
                                                       {pData.wells && (
                                                         <button
                                                           type="button"
