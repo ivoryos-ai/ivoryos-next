@@ -24,9 +24,11 @@ ivoryos-next repo.
 3. **Write `state()` and the page.** `state()` returns JSON-safe data. The page fetches
    `api/state` once, then follows the `events` websocket. Add routes with
    `@plugin.router.get/post`.
-4. **Choose `placement`**: `"tab"` for a full page (a calculator, a data viewer), or
-   `"panel-left"` / `"panel-right"` for something watched during runs. A panel is 280–600 px
-   wide, so keep the key state near the top.
+4. **Choose `placement`**, how it opens the first time: `"tab"` for a full page (a calculator, a
+   data viewer), or `"panel-right"` (beside the page) / `"panel-left"` (a window) for something
+   watched during runs. People can switch between page, side and window from the plugin's header,
+   so it must work at 280–600 px wide with the key state near the top, unless you limit that with
+   `modes=[...]` (some of `"page"`, `"side"`, `"window"`).
 5. **Test.** Run `pytest` (with `ivoryos_edge` importable: `pip install -e <ivoryos-next>/edge_server`).
    Then run it on a real deck: add `"plugins": ["<package>.plugin:plugin"]` to a deck file
    (see `template/deck.example.json`), start it, and confirm `GET /api/plugins` lists it with

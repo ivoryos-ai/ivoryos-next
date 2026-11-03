@@ -2819,7 +2819,7 @@ def run(module_name: str = None, port: int = None, plugins: list = None, *,
                 continue
             app.mount(f"/plugins/{p['id']}", PluginFiles(p["path"]), name=f"plugin_{p['id']}")
             app.state.plugins.append({"id": p["id"], "name": p["name"], "url": f"/plugins/{p['id']}/index.html",
-                                      "placement": p.get("placement", "tab"), "kind": "static"})
+                                      "placement": p.get("placement", "tab"), "modes": p.get("modes"), "kind": "static"})
         elif "url" in p:
             app.state.plugins.append({"placement": "tab", "kind": "link", **p})
 
