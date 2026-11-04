@@ -114,8 +114,9 @@ def _is_numeric_type(info):
 
 
 def _value_problem(info, value):
-    """Why `value` does not fit a key, value or item of a container, or None."""
-    if not isinstance(info, dict) or value is None:
+    """Why `value` does not fit a key, value or item of a container, or None. A `#name` is a
+    reference, checked once the run puts a value there."""
+    if not isinstance(info, dict) or value is None or _is_reference(value):
         return None
     if _is_numeric_type(info) and not _numeric_ok(value):
         return f"is not a number ({info.get('type')})"

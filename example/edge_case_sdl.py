@@ -2,7 +2,7 @@
 
 `docs/argument_casting_ground_truth.md` says what a driver must receive for each kind of typed
 input, and `tests/fixtures/casting_ground_truth.json` holds those rows as data. This is the
-instrument the rows are run against. Every method takes one argument called `value`, keeps the
+instrument the rows are run against. Every method (but `tune_gains`) takes one argument called `value`, keeps the
 exact Python object it received in `self.received[<method>]`, and returns a one-line
 description of it (`"int 3"`), so the Instruments page and a run's Data History show what
 arrived without a debugger:
@@ -77,7 +77,8 @@ class Address(Enum):
 
 
 class EdgeCaseSDL:
-    """One parameter called `value` per method; the method name says the annotation."""
+    """One parameter called `value` per method; the method name says the annotation. `tune_gains`
+    is the exception: a dict among other arguments, for trying one by hand."""
 
     def __init__(self):
         self.received: Dict[str, object] = {}
@@ -183,6 +184,17 @@ class EdgeCaseSDL:
 
     def take_optional_dict(self, value: Optional[Dict[str, float]] = None) -> str:
         return self._keep("take_optional_dict", value)
+
+    def tune_gains(self, setpoint: float = 50.0, gains: Optional[Dict[str, float]] = None,
+                   speed: Speed = Speed.SLOW, note: str = "") -> float:
+        """The one method with more than `value`: a dict beside other arguments, as a driver has
+        one (a controller's gains beside its setpoint), to see how a step lays it out and to put a
+        `#name` in it for Iterate or Optimize. Returns how far the gains are from kp 2, ki 0.1,
+        kd 0.5 (0 at best), a number to minimize; `received` keeps every argument."""
+        self.received["tune_gains"] = {"setpoint": setpoint, "gains": gains, "speed": speed, "note": note}
+        given = {"kp": 1.0, "ki": 0.0, "kd": 0.0, **(gains or {})}
+        best = {"kp": 2.0, "ki": 0.1, "kd": 0.5}
+        return round(sum((given[k] - v) ** 2 for k, v in best.items()), 6)
 
     def take_tuple(self, value: Tuple[float, float] = (1.0, 2.0)) -> str:
         return self._keep("take_tuple", value)

@@ -22,7 +22,7 @@ import {
   getVarModeType as sharedGetVarModeType,
   isPerIteration as sharedIsPerIteration,
   getIterationValue as sharedGetIterationValue, useDocumentTheme, LIBRARY_INSTRUMENT, linkOutputBindings, runtimeVarNames, splitRepeatedLinks, mainOnlyLinks , confirmDialog , notify,
-  guardHint, guardProblem, guardsFor, unitOf, type FieldGuard, type FieldRef } from '@ivoryos/shared-ui';
+  guardHint, guardProblem, guardsFor, unitOf, declaredChild, type FieldGuard, type FieldRef } from '@ivoryos/shared-ui';
 
 const OPTIMIZER_LABELS: Record<string, string> = {
   baybe: 'BayBE',
@@ -287,9 +287,7 @@ export default function OptimizeRunPage({ stage }: { stage?: EmbeddedStage } = {
         const extractVars = (block: any, obj: any, schemaObj: any, targetSet: Set<string>, prefix = '') => {
              if (!obj) return;
              Object.entries(obj).forEach(([k, v]) => {
-                let pData: any = null;
-                if (schemaObj?.parameters?.[k]) pData = schemaObj.parameters[k];
-                else if (schemaObj?.fields?.[k]) pData = schemaObj.fields[k];
+                const pData: any = declaredChild(schemaObj, k);
 
                 if (typeof v === 'string' && v.startsWith('#')) {
                     const varName = v.substring(1);

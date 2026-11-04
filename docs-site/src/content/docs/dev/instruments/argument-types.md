@@ -17,6 +17,22 @@ is checked when it is substituted. The Designer, the Instruments page, the Itera
 assistant's validator warn earlier, but they only *say* what the edge will refuse; the cast is
 the one place a value becomes a Python object.
 
+## Dict arguments
+
+A dict is written the way it reads, on one line among the step's other arguments:
+`gains = {kp: 1.5, ki: #ki, +}`, each key and value a small box of its own, typed and checked by
+the annotation (`Dict[str, float]` wants numbers, an Enum value offers its members). Enter in a
+value goes on to the next entry, and an optional dict reads `None` until **Add**. **JSON** shows
+the same value as text. Paste a dict from anywhere into either, as JSON or the way it looks in
+Python (`{'kp': 1.5, 'on': True}`); rows copied from a spreadsheet, key then value, paste too.
+
+A value can be a `#name`, which is a variable like any other. `{"kp": 1.5, "ki": "#ki"}` gives the
+Iterate table one column, `ki`, typed `float`, and gives the Optimize page one thing to search, so
+the rest of the dict stays fixed and a table never has to hold a dict in a cell. For the same
+reason `#auto` leaves a dict argument alone when a step is dropped. A whole dict from a variable an
+earlier step saved is written `#settings` in JSON. A key is never a reference: `{"#x": 1}` has a
+key called `#x`.
+
 ## Supported types
 
 | Annotation | Field | Typed | The driver receives |
@@ -30,9 +46,10 @@ the one place a value becomes a Python object.
 | `Literal["a", "b"]` / `Literal[0.5, 1.0]` | dropdown of the options | `1.0` | the option itself, `1.0` as a float |
 | `Optional[X]` / `X \| None` | the field for `X` | blank, or `<None>` | `None`; otherwise as `X` |
 | a dataclass or Pydantic model | one field per attribute, nested | its fields, or JSON in a cell | the object, each field cast by its own type |
+| a `TypedDict` | one field per key, nested | its fields | a dict, each key cast by its own type; a required key missing is refused |
 | `List[X]`, `list` | text | `1, 2` or `[1, 2]` | `[1, 2]`, each element cast to `X`. One word with no comma into a list of text stays text (a wells selection). |
 | `Tuple[X, Y]` | text | `[1, 2]` | `(1.0, 2.0)`; the wrong length is refused |
-| `Dict[K, V]`, `dict` | text | `{"1": 10}` or `{'a': 1}` (JSON or a Python literal) | `{1: 10.0}`, keys and values cast |
+| `Dict[K, V]`, `Mapping[K, V]`, `dict` | its keys and values on one line, or JSON | an entry at a time, or `{"1": 10}` / `{'a': 1}` pasted (JSON or a Python literal); a value can be `#name` | `{1: 10.0}`, keys and values cast |
 | `set`, `frozenset` | text | `a, b` | a set of the elements |
 | no annotation | text | anything | the text exactly as typed, no guessing |
 | `Annotated[X, ...]` | the field for `X`, plus what the marker adds (a unit, a labware or wells picker) | | as `X` |
@@ -98,7 +115,10 @@ own driver, and [tell us](https://github.com/ivoryzh/ivoryos-next/issues) what y
 - **A dataclass or object as a parameter's default** (`settings: Settings = Settings()`) is
   shown through `str()` and is not round-tripped through the schema the way an Enum default is.
 - **Nested containers** (`List[Dict[str, float]]`, `Dict[str, List[int]]`, `Optional[List[int]]`)
-  are cast recursively but only lightly tested.
+  are cast recursively but only lightly tested. In a dict's field a list or a nested dict is one
+  box, written as JSON.
+- **The order of a dict with number-like keys**: a browser keeps `{"2": 1, "1": 2}` in numeric
+  order, so the driver receives it as `{1: 2, 2: 1}`.
 - **`datetime`, `Path`, `bytes`, `Decimal`, NumPy scalars and arrays, and any other class the
   edge does not know** are passed through as the text typed. The driver has to parse them.
 - **`*args`** is not supported: a step stores named arguments and has no place for positional
@@ -107,7 +127,8 @@ own driver, and [tell us](https://github.com/ivoryzh/ivoryos-next/issues) what y
   `**kwargs: float` casts each extra argument to float; a bare `**kwargs` receives the text typed
   into each name/value row.
 - **Cloud's own single-value fields** (a step configured on the Orchestrator canvas) do not yet
-  offer the markers and still list an Enum's values rather than its names.
+  offer the markers and still list an Enum's values rather than its names. A dict there is still
+  one box for JSON, with no `#name` inside it; Cloud's Edge Sequence editor has the new field.
 - The rules are run on CPython 3.10, 3.12 and 3.14; a type that prints differently on another
   interpreter may be described differently.
 

@@ -57,6 +57,14 @@ export interface ResolveOptions {
 }
 
 /**
+ * The schema of what sits under `key` in a block's arguments or inside one of them: a method's
+ * parameter, an object's field, or (whatever the key) a dict's value. The one way down a schema, for
+ * every walk that finds a `#name` and asks what type it has to be.
+ */
+export const declaredChild = (schemaObj: any, key: string): any =>
+  schemaObj?.parameters?.[key] ?? schemaObj?.fields?.[key] ?? (schemaObj?.is_mapping ? schemaObj.value_type : null) ?? null;
+
+/**
  * What a field with fixed choices offers, as the text a workflow stores: an Enum member's name, a
  * Literal option as written (the schema's `choices: [{label, value}]`). A schema from before
  * `choices` lists the values themselves as `options`. Null for a field without choices.
@@ -154,7 +162,7 @@ export function blankChoicesFor(sequence: any[], skip?: (name: string) => boolea
   const walk = (obj: any, schemaObj: any) => {
     Object.entries(obj || {}).forEach(([key, val]) => {
       if (key.startsWith('_')) return;
-      const declared = schemaObj?.parameters?.[key] ?? schemaObj?.fields?.[key] ?? null;
+      const declared = declaredChild(schemaObj, key);
       const m = typeof val === 'string' ? /^#(\w+)$/.exec(val.trim()) : null;
       if (m) {
         if (skip?.(m[1])) return;
@@ -191,7 +199,7 @@ export function resolveBlockParams(block: any, opts: ResolveOptions): Record<str
   const walk = (obj: any, schemaObj: any) => {
     Object.keys(obj).forEach((key) => {
       const val = obj[key];
-      const declared = schemaObj?.parameters?.[key] ?? schemaObj?.fields?.[key] ?? null;
+      const declared = declaredChild(schemaObj, key);
 
       if (typeof val === 'string' && val.trim().startsWith('#')) {
         const varName = val.trim().slice(1).trim();
@@ -304,16 +312,26 @@ export const linkKeysOf = (b: any) => ({
  * say which of its arguments came from a spreadsheet column, a fixed value or the optimizer and
  * which were typed into the step itself. Carried on the submitted step as `_vars` — metadata the
  * edge never forwards to a driver (`cast_arguments` drops `_`-prefixed keys) — and read by Data
- * History to mark those arguments.
+ * History to mark those arguments. A `#name` inside a dict or an object is dotted (`gains.kp`).
  */
 export function dynamicArgumentsOf(block: any, skip?: (name: string) => boolean): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [key, value] of Object.entries(block?.params || {})) {
-    const m = typeof value === 'string' ? /^#(\w+)$/.exec(value.trim()) : null;
-    if (m && !key.startsWith('_') && !skip?.(m[1])) out[key] = m[1];
-  }
+  const walk = (obj: any, prefix: string) => {
+    for (const [key, value] of Object.entries(obj || {})) {
+      if (!prefix && key.startsWith('_')) continue;
+      const m = typeof value === 'string' ? /^#(\w+)$/.exec(value.trim()) : null;
+      if (m && !skip?.(m[1])) out[`${prefix}${key}`] = m[1];
+      else if (value && typeof value === 'object') walk(value, `${prefix}${key}.`);
+    }
+  };
+  walk(block?.params, '');
   return out;
 }
+
+/** Whether a `#name` sits anywhere in a value: an argument, a dict's value, an object's field. */
+export const holdsReference = (value: unknown): boolean =>
+  typeof value === 'string' ? value.trim().startsWith('#')
+    : !!value && typeof value === 'object' && Object.values(value as object).some(holdsReference);
 
 /**
  * Which of a block's arguments are handed one value per row when the block is a batch step, as

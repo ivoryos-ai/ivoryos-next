@@ -723,12 +723,7 @@ async def agent_accept(proposal_id: int, request: Request):
                 supplied = (row.payload or {}).get("variables") or {}
                 if supplied:
                     for step in steps:
-                        params = step.get("params") or {}
-                        for key, value in list(params.items()):
-                            if isinstance(value, str) and value.strip().startswith("#"):
-                                var_name = value.strip()[1:].strip()
-                                if var_name in supplied:
-                                    params[key] = supplied[var_name]
+                        step["params"] = wf.fill_references(step.get("params") or {}, supplied)
 
                 parameters = dict((row.payload or {}).get("parameters") or {})
                 if supplied:

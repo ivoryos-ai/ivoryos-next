@@ -228,6 +228,19 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
         recursion_ok = _depth < MAX_OBJECT_DEPTH and id(annotation) not in _seen
         child_seen = _seen | {id(annotation)}
 
+        # A TypedDict says what its keys are, so it is an object with fields, like a dataclass,
+        # not a dict of anything (it subclasses dict, so _container_shape took it for one);
+        # whether a key may be left out is what its key sets say, as for a declared **kwargs.
+        declared_keys = _declared_kwargs_fields(annotation) if isinstance(annotation, type) else None
+        if declared_keys is not None:
+            is_object = True
+            container = {}
+            param_type = annotation.__name__
+            if recursion_ok:
+                for key, (key_annotation, key_required) in declared_keys.items():
+                    fields[key] = extract_type_info(key_annotation, inspect.Parameter.empty, _depth + 1, child_seen)
+                    fields[key]["required"] = key_required
+
         # Check for Dataclass
         import dataclasses
         if dataclasses.is_dataclass(annotation):
@@ -1389,8 +1402,8 @@ def cast_value(annotation, val):
     numbers (a whole number for int, never truncated), bool from True/False in any case, an
     Enum by member, name, value or text of value, a Literal by its label or value, lists from
     brackets or commas with each element cast, dicts from a JSON or Python literal with keys and
-    values cast, dataclasses and Pydantic models from a dict or its text, and Optional / Union
-    by their arms (Union[int, float] by the decimal point).
+    values cast, dataclasses, Pydantic models and TypedDicts from a dict or its text, and
+    Optional / Union by their arms (Union[int, float] by the decimal point).
     """
     if val is None:
         return None
@@ -1437,6 +1450,16 @@ def cast_value(annotation, val):
             return annotation(**kwargs)
         except TypeError as e:
             raise _refuse(val, f"does not make a {annotation.__name__}: {e}", annotation)
+
+    declared_keys = _declared_kwargs_fields(annotation) if isinstance(annotation, type) else None
+    if declared_keys is not None:
+        data = _parse_text(val) if isinstance(val, str) else val
+        if not isinstance(data, dict):
+            raise _refuse(val, f"is not a {annotation.__name__} (a dict of its keys)", annotation)
+        missing = [key for key, (_, required) in declared_keys.items() if required and key not in data]
+        if missing:
+            raise _refuse(val, f"does not make a {annotation.__name__}: it needs {', '.join(missing)}", annotation)
+        return {k: _cast_field(k, declared_keys[k][0], v) if k in declared_keys else v for k, v in data.items()}
 
     try:
         from pydantic import BaseModel
@@ -1524,6 +1547,8 @@ def _knows(annotation) -> bool:
     # "a type the driver reads" and reached the driver as the text typed.
     if isinstance(annotation, type) and not isinstance(annotation, types.GenericAlias):
         if issubclass(annotation, enum.Enum) or dataclasses.is_dataclass(annotation):
+            return True
+        if _declared_kwargs_fields(annotation) is not None:
             return True
         try:
             from pydantic import BaseModel

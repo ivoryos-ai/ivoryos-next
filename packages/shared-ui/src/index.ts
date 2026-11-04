@@ -54,8 +54,10 @@ export { isOptionalObject, objectGiven, defaultParams, addedObject } from './obj
 export {
   RunConfigError, resolveBlockParams, resolveFixedBlock, toWireBlock, rowListArgumentsOf,
   NONE_VALUE, DEFAULT_VALUE, blankChoiceOf, blankChoicesFor, acceptsNone, hasDefault,
-  choiceLabels, choiceSuggestions,
+  choiceLabels, choiceSuggestions, declaredChild, holdsReference,
 } from './runConfig';
+export { DictInput } from './DictInput';
+export { readDictText, dictProblems, compactValue } from './dictArgs';
 export type { ResolveOptions, ResolvedStep, BlankChoice, BlankChoices } from './runConfig';
 export { BlankChoiceField, BlankChoiceOptions, blankLabel } from './BlankChoice';
 export {

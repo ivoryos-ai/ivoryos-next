@@ -131,8 +131,9 @@ export function guardProblem(
   }
   if (value === undefined || value === null || value === '' || isReference(value)) return null;
   if (guard.wells) return referencesProblem(value, wellChoices(safety, guard.wells.instrument, guard.wells.labware));
-  if (Array.isArray(value)) {
-    for (const item of value) {
+  if (value !== null && typeof value === 'object') {
+    // A list by its elements, a dict by its values, as the edge's check_value does.
+    for (const item of Object.values(value as object)) {
       const problem = guardProblem(guard, item, safety);
       if (problem) return problem;
     }

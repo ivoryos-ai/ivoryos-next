@@ -533,7 +533,7 @@ const CustomCloudNode = ({ data, id, selected }: any) => {
                 <input
                   type="text"
                   className={`nodrag nowheel ${isInvalid && isEmpty ? 'ring-1 ring-red-500' : ''}`}
-                  value={val}
+                  value={typeof val === 'object' && val !== null ? JSON.stringify(val) : val}
                   onChange={e => handleParamChange(paramKey, e.target.value)}
                 />
               </div>
@@ -740,7 +740,8 @@ export default function CloudWorkflowEditor({
       const prefill = autoFill && instrument !== FLOW_CONTROL;
       const defaultParams: Record<string, any> = {};
       Object.entries(m_schema.parameters || {}).forEach(([key, param]: [string, any]) => {
-        if (prefill) defaultParams[key] = `#${key}`;
+        // A dict is not one `#name` (shared-ui defaultParams): a column of whole dicts helps nobody.
+        if (prefill && !param.is_mapping) defaultParams[key] = `#${key}`;
         else if (param.default !== undefined) defaultParams[key] = param.default;
       });
 

@@ -8,7 +8,7 @@ import { restartEdge } from '@/restartEdge';
 import Sidebar from '@/components/Sidebar';
 import DeckHistory from '@/components/DeckHistory';
 import FieldGuardDialog, { type GuardedField } from '@/components/safety/FieldGuardDialog';
-import { ExtraArguments, NONE_VALUE, ResultView, SuggestInput, TrayPicker, acceptsNone, choiceSuggestions, confirmDialog, fieldGuard, guardHint, guardProblem, guardSuggestions, isOptionalObject, objectGiven, trayOf, unitOf, useDocumentTheme, type TrayView } from '@ivoryos/shared-ui';
+import { DictInput, ExtraArguments, NONE_VALUE, ResultView, SuggestInput, TrayPicker, acceptsNone, choiceSuggestions, confirmDialog, fieldGuard, guardHint, guardProblem, guardSuggestions, isOptionalObject, objectGiven, trayOf, unitOf, useDocumentTheme, type TrayView } from '@ivoryos/shared-ui';
 import { useEdgeTopic } from '@/edgeSocket';
 import { isNumericType, isBoolType, isTextType, bareTypeName, containerKind, containerExample, containerProblem, notify } from '@ivoryos/shared-ui';
 
@@ -507,6 +507,23 @@ export default function InstrumentsPage() {
 
                               const displayType = (pData.type || '').replace(/<class '([^']+)'>/, '$1').replace('typing.', '');
                               const isMissing = (missingArgs[key] || []).includes(paramPath);
+                              if (pData.is_mapping) {
+                                const given = paramPath.split('.').reduce((acc: any, part: string) => acc && acc[part] !== undefined ? acc[part] : undefined, formValues[key]);
+                                return (
+                                  <div key={paramPath} className="space-y-1">
+                                    <label className={`text-[11px] capitalize flex items-start font-medium mb-1 ${isMissing ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400'}`} title={displayType || undefined}>
+                                      <span className="break-all">{paramLabel}</span>
+                                      {pData.required && <span className="text-red-500/80 dark:text-red-400/70 ml-1 text-sm leading-none shrink-0">*</span>}
+                                    </label>
+                                    <DictInput
+                                      info={pData}
+                                      value={given !== undefined ? given : pData.default}
+                                      onChange={(next) => handleInputChange(instName, methodName, paramPath, next)}
+                                    />
+                                    {isMissing && <p className="text-[10px] font-medium text-red-600 dark:text-red-400">Required</p>}
+                                  </div>
+                                );
+                              }
                               const fieldBorder = isMissing
                                 ? 'border-red-400 dark:border-red-500/60 focus:border-red-500'
                                 : 'border-gray-300 dark:border-white/10 focus:border-accent';

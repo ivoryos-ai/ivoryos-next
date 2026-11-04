@@ -22,7 +22,7 @@ import {
   toSubmittedStep,
   toWireBlock, useDocumentTheme, runtimeVarNames, splitRepeatedLinks, mainOnlyLinks,
   TrayPicker, guardHint, guardProblem, guardSuggestions, guardsFor, trayForGuards, unitOf, SuggestInput,
-  formatReference, referenceStart, rowListVariables, RunConfigError, isRowActive, fitRowsToColumns,
+  formatReference, referenceStart, rowListVariables, RunConfigError, isRowActive, fitRowsToColumns, declaredChild,
   blankChoicesFor, blankChoiceOf, BlankChoiceField, BlankChoiceOptions, choiceLabels,
   type FieldGuard, type FieldRef, type BlankChoices } from '@ivoryos/shared-ui';
 import Link from 'next/link';
@@ -358,9 +358,7 @@ export default function RunWorkflowPage({ mode, stage }: {
         const extractVars = (obj: any, schemaObj: any, targetSet: Set<string>, prefix = '') => {
             if (!obj) return;
             Object.entries(obj).forEach(([k, v]) => {
-                let pData = null;
-                if (schemaObj?.parameters?.[k]) pData = schemaObj.parameters[k];
-                else if (schemaObj?.fields?.[k]) pData = schemaObj.fields[k];
+                const pData = declaredChild(schemaObj, k);
 
                 if (typeof v === 'string' && v.startsWith('#')) {
                     const varName = v.substring(1).trim();

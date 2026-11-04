@@ -2769,18 +2769,26 @@ class WorkflowQueueManager:
                     # Which arguments came from a #name, so Data History can mark them after the
                     # values are substituted. `_`-prefixed, so cast_arguments never forwards it.
                     dynamic = {}
-                    for k, v in tmpl_step.get("params", {}).items():
-                        if isinstance(v, str) and v.startswith("#"):
-                            var_name = v[1:]
-                            if not k.startswith("_"):
-                                dynamic[k] = var_name
+
+                    def trial_value(value, path):
+                        # A `#name` anywhere in an argument, a dict's value or an object's field
+                        # as much as the argument itself: left in place, it reached the step
+                        # unfilled and stopped the trial. `path` is dotted for the record.
+                        if isinstance(value, str) and value.startswith("#"):
+                            var_name = value[1:]
+                            dynamic[path] = var_name
                             if var_name in iteration_values:
                                 values_for_var = iteration_values[var_name]
-                                args[k] = values_for_var[global_iteration] if global_iteration < len(values_for_var) else v
-                            else:
-                                args[k] = suggestion.get(var_name, v)
-                        else:
-                            args[k] = v
+                                return values_for_var[global_iteration] if global_iteration < len(values_for_var) else value
+                            return suggestion.get(var_name, value)
+                        if isinstance(value, dict):
+                            return {sub: trial_value(item, f"{path}.{sub}") for sub, item in value.items()}
+                        if isinstance(value, list):
+                            return [trial_value(item, f"{path}.{i}") for i, item in enumerate(value)]
+                        return value
+
+                    for k, v in tmpl_step.get("params", {}).items():
+                        args[k] = v if k.startswith("_") else trial_value(v, k)
                     if dynamic:
                         args["_vars"] = dynamic
                     if overrides:
