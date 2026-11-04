@@ -181,6 +181,19 @@ test('close goes to the tray and minimize to the taskbar by default; both persis
     assert.throws(() => mgr.setWindowPref('launchMissiles', true), /Unknown setting/);
 });
 
+test('the app version that last emptied the HTTP cache is kept across launches', () => {
+    // main.js empties Chromium's cache once per app version (an older edge's pages were kept in
+    // it as fresh); a setting left out of loadProfiles is lost at the next launch, so this one is
+    // held to the same read-back as the others.
+    const { ProfileManager } = require('../src/manager');
+    const home = tmp();
+    const mgr = new ProfileManager({ home, getRuntime: async () => ({}) });
+    assert.equal(mgr.cacheClearedFor, null, 'a first launch, or a profiles.json from before this: cleared once');
+    mgr.setCacheClearedFor('0.1.2');
+    const again = new ProfileManager({ home, getRuntime: async () => ({}) });
+    assert.equal(again.cacheClearedFor, '0.1.2', 'kept, so the same version does not clear again');
+});
+
 test('the old minimizeToTray: true, written for everyone, does not keep minimize in the tray', () => {
     const { ProfileManager } = require('../src/manager');
     const home = tmp();
