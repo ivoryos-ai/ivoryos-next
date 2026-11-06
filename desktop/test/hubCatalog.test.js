@@ -3,8 +3,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { HubCatalog, moduleToDeckEntry, pluginToDeckEntry, toEdgeWorkflow, requirementFor, builtInStep } = require('../src/hubCatalog');
 
-/** A fake PostgREST: answers from `tables`, and refuses `visibility` when `legacy`. */
-function fakeHub(tables, { legacy = false } = {}) {
+/**
+ * A fake PostgREST: answers from `tables`, refuses `visibility` when `legacy`, and answers a table
+ * in `missing` as PostgREST answers one the database does not have.
+ */
+function fakeHub(tables, { legacy = false, missing = [] } = {}) {
     const calls = [];
     const fetch = async (url, init) => {
         const u = new URL(url);
@@ -14,7 +17,13 @@ function fakeHub(tables, { legacy = false } = {}) {
         if (legacy && /visibility|plugin_api/.test(select)) {
             return { ok: false, status: 400, text: async () => JSON.stringify({ code: '42703', message: 'column modules.visibility does not exist' }) };
         }
+        if (missing.includes(table)) {
+            return { ok: false, status: 404, text: async () => JSON.stringify({ code: 'PGRST205', message: `Could not find the table 'public.${table}' in the schema cache` }) };
+        }
         let rows = tables[table] || [];
+        const moduleId = u.searchParams.get('module_id');
+        if (moduleId) rows = rows.filter((r) => `eq.${r.module_id}` === moduleId);
+        if (u.searchParams.get('is_current') === 'is.true') rows = rows.filter((r) => r.is_current);
         const id = u.searchParams.get('id');
         if (id && id.startsWith('eq.')) rows = rows.filter((r) => String(r.id) === id.slice(3));
         if (id && id.startsWith('in.(')) {
@@ -86,6 +95,30 @@ test('a template with legacy variable and math steps installs as Set variable st
     ] } }, 'x');
     assert.deepEqual(wf.script.map((b) => [b.instrument, b.action, b.args.value, b.batch_action]),
         [['Flow_Control', 'Set_Variable', '4', false], ['Flow_Control', 'Set_Variable', 'n / 2', true]]);
+});
+
+test('what a module version pins is installed beside its package, so a pre-release it pins is named', async () => {
+    const flex = { id: 422, name: 'Opentrons Flex', pip_name: 'plr-ivoryos==1.0.0b1', module_path: 'plr_ivoryos.opentrons', module_name: 'Flex', init_args: [], is_unlisted: false };
+    const hub = fakeHub({ modules: [flex, modules[0]], module_versions: [
+        { module_id: 422, is_current: false, requires: { pylabrobot: '==0.9' } },
+        { module_id: 422, is_current: true, requires: { pylabrobot: '==1.0.0b1', 'pylabrobot[serial]': '' } },
+    ] });
+    const c = new HubCatalog({ fetch: hub.fetch, url: 'https://hub.example', key: 'anon' });
+    const entry = await c.deckEntry({ moduleId: 422, name: 'flex' });
+    assert.deepEqual(entry.packages, ['plr-ivoryos==1.0.0b1', 'pylabrobot==1.0.0b1', 'pylabrobot[serial]']);
+    assert.deepEqual(entry.warnings, []);
+    // A module whose current version pins nothing installs its own package alone.
+    assert.deepEqual((await c.deckEntry({ moduleId: 1, name: 'pump' })).packages, ['pumps==1.0']);
+
+    // A row names packages and versions; anything else is left out, and said.
+    const odd = moduleToDeckEntry({ ...flex, requires: { '--index-url': 'https://evil.example', pylabrobot: '==1.0.0b1; rm -rf /', numpy: '>=1.26,<3' } }, 'flex');
+    assert.deepEqual(odd.packages, ['plr-ivoryos==1.0.0b1', 'numpy>=1.26,<3']);
+    assert.equal(odd.warnings.length, 2);
+});
+
+test('a Hub without module versions installs a module\'s package alone', async () => {
+    const c = new HubCatalog({ fetch: fakeHub({ modules }, { missing: ['module_versions'] }).fetch, url: 'https://hub.example', key: 'anon' });
+    assert.deepEqual((await c.deckEntry({ moduleId: 1, name: 'pump' })).packages, ['pumps==1.0']);
 });
 
 test('an unknown or unshared row says so', async () => {
