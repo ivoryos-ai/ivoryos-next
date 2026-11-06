@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
@@ -1504,6 +1505,56 @@ def _refuse_unsafe(parameters: dict, prep: list, sequence: list, cleanup: list) 
         raise WorkflowError("Safety guard: " + " ".join(problems) + " Nothing was run.")
 
 
+def _refuse_uncastable(steps: list) -> None:
+    """Refuse a run holding a literal value its parameter's type cannot take, before any of it is
+    sent: `int` given 2.5, an Enum given a name it does not have, the word None in a number field.
+    The same cast runs again at each step (queue.py), which covers what a run only learns on the
+    way: a '#name', an optimizer's suggestion, a spreadsheet's per-row value. Anything holding a
+    reference is left for then; a step whose instrument or method is not on the deck is somebody
+    else's refusal."""
+    from ivoryos_edge.introspection import CastError, cast_arguments, has_member, resolve_callable
+
+    instruments = getattr(app.state, "instruments", {}) or {}
+    problems = []
+    for number, step in enumerate(steps or [], start=1):
+        if not isinstance(step, dict):
+            continue
+        instrument = step.get("instrument") or step.get("module") or ""
+        method = step.get("method") or step.get("action") or ""
+        instance = instruments.get(instrument)
+        if instance is None or not method or not has_member(instance, method):
+            continue
+        params = step.get("params")
+        if params is None:
+            params = step.get("args")
+        if not isinstance(params, dict):
+            continue
+        literal = {k: v for k, v in params.items() if not k.startswith("_") and not _holds_reference(v)}
+        if not literal:
+            continue
+        try:
+            cast_arguments(resolve_callable(instance, method), literal)
+        except CastError as e:
+            problems.append(f"Step {number} ({instrument}.{method}): {e}.")
+        except Exception:
+            # Not a cast refusal (a signature that cannot be read, a shim that objects): the step
+            # will say so itself when it runs.
+            continue
+    if problems:
+        raise WorkflowError(" ".join(problems) + " Nothing was run.")
+
+
+def _holds_reference(value) -> bool:
+    """A '#name' anywhere inside the value: substituted when the step runs, so not cast now."""
+    if isinstance(value, str):
+        return value.strip().startswith("#")
+    if isinstance(value, dict):
+        return any(_holds_reference(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_holds_reference(v) for v in value)
+    return False
+
+
 def prepare_run(parameters: dict, prep: list, sequence: list, cleanup: list):
     """What a run will execute: links expanded, the deck version stamped, references checked.
     Returns (parameters, steps). Shared by start_run and by editing a queued run, so a run changed
@@ -1544,6 +1595,7 @@ def prepare_run(parameters: dict, prep: list, sequence: list, cleanup: list):
             parameters["resolved_links"] = resolved_links
 
         _refuse_unsafe(parameters, prep, [], cleanup)
+        _refuse_uncastable(prep + list(parameters.get("sequence_template") or []) + cleanup)
         # No steps: the budget loop builds each trial from the sequence_template
         return parameters, []
 
@@ -1556,6 +1608,7 @@ def prepare_run(parameters: dict, prep: list, sequence: list, cleanup: list):
     if unproduced:
         raise WorkflowError(" ".join(unproduced) + " Nothing was run.")
     _refuse_unsafe(parameters, prep, sequence, cleanup)
+    _refuse_uncastable(prep + sequence + cleanup)
 
     if parameters.get("type") == "Spreadsheet":
         # Rebuilt from the expanded steps rather than trusted from the caller -- see
@@ -2062,7 +2115,7 @@ async def execute_method(req: ExecuteRequest):
         return JSONResponse(status_code=404, content={"error": f"Module {req.module} not found"})
         
     instance = instruments[req.module]
-    from ivoryos_edge.introspection import cast_arguments, has_member, resolve_callable
+    from ivoryos_edge.introspection import CastError, cast_arguments, has_member, resolve_callable
     if not has_member(instance, req.method):
         return JSONResponse(status_code=404, content={"error": f"Method {req.method} not found on {req.module}"})
 
@@ -2076,8 +2129,13 @@ async def execute_method(req: ExecuteRequest):
     except safety.SafetyViolation as e:
         return JSONResponse(status_code=409, content={"error": str(e), "blocked_by": "safety", "problems": e.problems})
 
-    req.args = cast_arguments(method, req.args or {})
-    
+    # A value that cannot be the parameter's type is refused here, with the reason, rather than
+    # reaching the driver as text (introspection.cast_value; docs/argument_casting_ground_truth.md).
+    try:
+        req.args = cast_arguments(method, req.args or {})
+    except CastError as e:
+        return JSONResponse(status_code=400, content={"error": str(e), "blocked_by": "cast"})
+
     # Generate task ID and run in background
     task_id = str(uuid.uuid4())
     task_results[task_id] = {"status": "running"}
@@ -2555,11 +2613,30 @@ class UIFiles(StaticFiles):
     back as a cheap 304), as plugin pages are (PluginFiles). Without a caching header a browser
     guesses how long a page stays fresh, and after the edge was updated it went on loading the old
     page and the old scripts that page names, until a hard reload. Files under `_next/static/` are
-    named by their content, so a name never changes meaning: those are kept."""
+    named by their content, so a name never changes meaning: those are kept.
+
+    A 404 is rechecked too. Starlette answers a missing path with the build's `404.html` through a
+    plain FileResponse that bypasses `file_response`, so it left with no caching header, and a
+    browser could keep it as it kept a page. The usual missing path is a script an older page still
+    names (`/_next/static/chunks/<hash>.js`, a name this build no longer has), which must not be
+    remembered as that script, or as missing, once the page is current again. `immutable` is said
+    only of a file that exists, never of a 404 under `_next/static/`."""
+
+    async def get_response(self, path, scope):
+        try:
+            response = await super().get_response(path, scope)
+        except HTTPException as exc:
+            # No 404.html beside the pages: the app's own handler answers, with these headers.
+            if exc.status_code == 404:
+                exc.headers = {**(exc.headers or {}), "Cache-Control": "no-cache"}
+            raise
+        if response.status_code == 404 or "Cache-Control" not in response.headers:
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
     def file_response(self, full_path, stat_result, scope, status_code=200):
         response = super().file_response(full_path, stat_result, scope, status_code)
-        immutable = scope.get("path", "").startswith("/_next/static/")
+        immutable = status_code == 200 and scope.get("path", "").startswith("/_next/static/")
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable" if immutable else "no-cache"
         return response
 
@@ -2762,7 +2839,7 @@ def run(module_name: str = None, port: int = None, plugins: list = None, *,
                 continue
             app.mount(f"/plugins/{p['id']}", PluginFiles(p["path"]), name=f"plugin_{p['id']}")
             app.state.plugins.append({"id": p["id"], "name": p["name"], "url": f"/plugins/{p['id']}/index.html",
-                                      "placement": p.get("placement", "tab"), "kind": "static"})
+                                      "placement": p.get("placement", "tab"), "modes": p.get("modes"), "kind": "static"})
         elif "url" in p:
             app.state.plugins.append({"placement": "tab", "kind": "link", **p})
 

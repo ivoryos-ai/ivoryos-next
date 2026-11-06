@@ -671,6 +671,18 @@ def missing_links(workflows_dir, body):
 
 # --- expansion ----------------------------------------------------------------------------------
 
+def fill_references(value, supplied):
+    """`value` with each `#name` that `supplied` has a value for replaced by it, at any depth: a
+    dict's value or an object's field reads a `#name` the same way an argument does."""
+    if isinstance(value, str) and value.strip().startswith("#"):
+        return supplied.get(value.strip()[1:].strip(), value)
+    if isinstance(value, dict):
+        return {k: fill_references(v, supplied) for k, v in value.items()}
+    if isinstance(value, list):
+        return [fill_references(v, supplied) for v in value]
+    return value
+
+
 def _substitute(params, caller_params, set_variable=False):
     """Replace `#var` placeholders with the values the caller supplied for them.
 
@@ -681,12 +693,7 @@ def _substitute(params, caller_params, set_variable=False):
     page marks one it filled from the table: it is a value, and the edge must not read the
     caller's `abc` as an expression naming a variable called abc (queue.set_variable_value).
     """
-    out = {}
-    for key, value in (params or {}).items():
-        if isinstance(value, str) and value.startswith("#"):
-            out[key] = caller_params.get(value[1:], value)
-        else:
-            out[key] = value
+    out = {key: fill_references(value, caller_params) for key, value in (params or {}).items()}
     supplied = (params or {}).get("value")
     if set_variable and isinstance(supplied, str) and supplied.startswith("#") and supplied[1:] in caller_params:
         out["_vars"] = {**(out.get("_vars") or {}), "value": supplied[1:]}

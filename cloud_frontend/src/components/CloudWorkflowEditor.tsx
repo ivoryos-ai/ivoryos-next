@@ -10,7 +10,7 @@ import {
   ChevronDown, ChevronUp, ChevronRight, PanelRightOpen, Hourglass, MessageSquareText,
   GitBranch, AlertTriangle, AlertCircle, CheckCircle2, LayoutGrid, X, EyeOff, GripVertical, Workflow, Wrench,
 } from 'lucide-react';
-import { LIBRARY_INSTRUMENT, issuesLabel, SuggestInput, LOGIC_TOOLS, ToolChip, ToolboxGroupHeader, ToolboxGroupTitle, ToolboxInstrumentHeader, AutoFillToggle } from '@ivoryos/shared-ui';
+import { LIBRARY_INSTRUMENT, issuesLabel, SuggestInput, LOGIC_TOOLS, ToolChip, ToolboxGroupHeader, ToolboxGroupTitle, ToolboxInstrumentHeader, AutoFillToggle, FoldAllToggle } from '@ivoryos/shared-ui';
 import {
   CLOUD_LOGIC as CLOUD_LOGIC_SCHEMAS, IF_OPERATORS, isCloudLogicNode, isDeviceNode, isStartNode, blankParamsOf,
   logicProblemsOf, buildGraph,
@@ -533,7 +533,7 @@ const CustomCloudNode = ({ data, id, selected }: any) => {
                 <input
                   type="text"
                   className={`nodrag nowheel ${isInvalid && isEmpty ? 'ring-1 ring-red-500' : ''}`}
-                  value={val}
+                  value={typeof val === 'object' && val !== null ? JSON.stringify(val) : val}
                   onChange={e => handleParamChange(paramKey, e.target.value)}
                 />
               </div>
@@ -646,6 +646,14 @@ export default function CloudWorkflowEditor({
     try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next)); } catch { }
     return next;
   });
+  // Everything at once (FoldAllToggle beside #auto): Logic and every device fold to one line each.
+  const foldAll = (folded: boolean) => setCollapsedGroups(prev => {
+    const next: Record<string, boolean> = { ...prev, 'cloud-logic': folded };
+    cloudDevices.forEach(d => { next[`device:${d.id}`] = folded; });
+    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next)); } catch { }
+    return next;
+  });
+  const allFolded = cloudDevices.length > 0 && !!collapsedGroups['cloud-logic'] && cloudDevices.every(d => !!collapsedGroups[`device:${d.id}`]);
 
   const toggleToolbox = (key: string) => {
     setExpandedToolbox(prev => ({ ...prev, [key]: !prev[key] }));
@@ -732,7 +740,8 @@ export default function CloudWorkflowEditor({
       const prefill = autoFill && instrument !== FLOW_CONTROL;
       const defaultParams: Record<string, any> = {};
       Object.entries(m_schema.parameters || {}).forEach(([key, param]: [string, any]) => {
-        if (prefill) defaultParams[key] = `#${key}`;
+        // A dict is not one `#name` (shared-ui defaultParams): a column of whole dicts helps nobody.
+        if (prefill && !param.is_mapping) defaultParams[key] = `#${key}`;
         else if (param.default !== undefined) defaultParams[key] = param.default;
       });
 
@@ -1019,6 +1028,7 @@ export default function CloudWorkflowEditor({
                       ? '#auto is on: dropped cards fill every field with #<field name>. Click to turn off.'
                       : 'Turn on #auto: dropped cards fill every field with #<field name>, ready to configure in the run panel.'}
                   />
+                  {cloudDevices.length > 1 && <FoldAllToggle folded={allFolded} onToggle={() => foldAll(!allFolded)} what="group" />}
                 </div>
               );
             })()}

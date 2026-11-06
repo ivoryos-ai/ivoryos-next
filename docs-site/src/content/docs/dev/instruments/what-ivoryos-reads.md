@@ -50,20 +50,23 @@ such as Pydantic are left out; their methods are not.
 
 | Annotation | Field | Cast before the call |
 |---|---|---|
-| `float`, `int` | number | `float()` / `int()` |
+| `float`, `int` | number | a float / a whole number (`2.5` into `int` is refused, not rounded) |
 | `str` | text | as typed |
 | `bool` | True / False | `bool` |
-| `Enum` subclass | dropdown of the members' values | the member |
-| `Literal["a", "b"]` | dropdown of the values | the value |
+| `Enum` subclass | dropdown of the members' **names**, the value shown beside each | the member |
+| `Literal["a", "b"]` | dropdown of the options | the option |
 | a dataclass or Pydantic model | nested form, one field per attribute, recursively | the object |
-| `Optional[X]` / `X | None` | the field for `X` | as `X` |
-| `List[...]`, `Dict[...]`, other typing forms | text (JSON) | parsed |
+| `Optional[X]` / `X | None` | the field for `X`, blank is None | as `X` |
+| `List[...]`, `Dict[...]`, `Tuple[...]` | text (JSON, or a comma-separated list) | parsed, each element cast |
 | no annotation | text | as typed |
+
+The full table, what blank and `<None>` mean, and the cases still uncertain are on
+[Argument types](/dev/instruments/argument-types/).
 
 Also:
 
-- A parameter **with a default** is optional and pre-filled; one **without** is required. Nothing
-  else decides this.
+- A parameter **with a default** is optional and pre-filled; one **without** is required, unless
+  it is `Optional`, where blank means `None`.
 - `*args` is left out (a step stores named arguments, and a variadic is never required).
 - `**kwargs` is left out as a field, but the step is marked as accepting extra arguments: the
   Designer and the Instruments page offer name/value rows for them, typed from the annotation on

@@ -22,8 +22,8 @@ import {
   toSubmittedStep,
   toWireBlock, useDocumentTheme, runtimeVarNames, splitRepeatedLinks, mainOnlyLinks,
   TrayPicker, guardHint, guardProblem, guardSuggestions, guardsFor, trayForGuards, unitOf, SuggestInput,
-  formatReference, referenceStart, rowListVariables, RunConfigError, isRowActive, fitRowsToColumns,
-  blankChoicesFor, blankChoiceOf, BlankChoiceField, BlankChoiceOptions,
+  formatReference, referenceStart, rowListVariables, RunConfigError, isRowActive, fitRowsToColumns, declaredChild,
+  blankChoicesFor, blankChoiceOf, BlankChoiceField, BlankChoiceOptions, choiceLabels,
   type FieldGuard, type FieldRef, type BlankChoices } from '@ivoryos/shared-ui';
 import Link from 'next/link';
 import { useQueueBusy } from '@/queueBusy';
@@ -358,9 +358,7 @@ export default function RunWorkflowPage({ mode, stage }: {
         const extractVars = (obj: any, schemaObj: any, targetSet: Set<string>, prefix = '') => {
             if (!obj) return;
             Object.entries(obj).forEach(([k, v]) => {
-                let pData = null;
-                if (schemaObj?.parameters?.[k]) pData = schemaObj.parameters[k];
-                else if (schemaObj?.fields?.[k]) pData = schemaObj.fields[k];
+                const pData = declaredChild(schemaObj, k);
 
                 if (typeof v === 'string' && v.startsWith('#')) {
                     const varName = v.substring(1).trim();
@@ -373,7 +371,10 @@ export default function RunWorkflowPage({ mode, stage }: {
 
                     if (pData?.type) vTypes[varName] = pData.type;
                     if (pData?.unit) vUnits[varName] = String(pData.unit);
-                    if (pData?.options) vOptions[varName] = pData.options;
+                    // A column with fixed choices offers them as a workflow stores them (an
+                    // Enum member's name, a Literal option as written).
+                    const labels = choiceLabels(pData);
+                    if (labels) vOptions[varName] = labels;
                     const ref: FieldRef = { instrument: scanningBlock.instrument, method: scanningBlock.method, param: `${prefix}${k}` };
                     // A wells column holds `plate[A1]` per row (shared-ui labware.ts): it gets a
                     // picker for the instrument's plates, and is checked against them as it is typed.

@@ -20,7 +20,7 @@
 //   <userData>/git.bin               GitHub/GitLab tokens for private drivers (encrypted)
 //   <userData>/private-packages/     private repositories downloaded at one commit each
 
-const { app, BrowserWindow, WebContentsView, Menu, Notification, Tray, dialog, ipcMain, shell, net, protocol, clipboard, nativeImage, nativeTheme, safeStorage } = require('electron');
+const { app, BrowserWindow, WebContentsView, Menu, Notification, Tray, dialog, ipcMain, shell, net, protocol, clipboard, nativeImage, nativeTheme, safeStorage, session } = require('electron');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
@@ -457,17 +457,42 @@ function openEdgeTab(id, page, { raise = true } = {}) {
         // Another deck had this address before (a removed deck's port, reused): its Designer
         // canvas, cached schema and page settings are in the address's storage. Cleared before
         // this deck's page reads any of it. Cookies are left alone: they are not per port.
+        //
+        // The HTTP cache is emptied for every new view, whoever had the address. Chromium keeps
+        // one cache for the whole app, shared by every version of it and by every edge that ever
+        // ran on a port, and edges before 0.1.1 served their pages with no Cache-Control, so it
+        // held their pages, scripts and Next's prefetch payloads as fresh for a tenth of the time
+        // since the build's Last-Modified (over a day for a two-week-old build). After an update
+        // the tab loaded the old page from the cache without asking the new edge, and that page
+        // named scripts by content hash, names the new build no longer has: 404, "Failed to load
+        // chunk", until a refresh, one page at a time. The same happens whenever an edge on a port
+        // serves a different build than the one before it. The cache is only speed for a page on
+        // this computer, so emptying it costs nothing (Cloud's assets are fetched again).
         const contents = view.webContents;
         let address = null;
         try { address = new URL(origin).origin; } catch { /* loadURL says what is wrong with it */ }
-        const cleared = address && originOwners.claim(address, id)
-            ? contents.session.clearStorageData({ origin: address, storages: ['localstorage', 'indexdb', 'cachestorage', 'serviceworkers'] }).catch(() => {})
-            : Promise.resolve();
+        const cleared = Promise.all([
+            contents.session.clearCache().catch(() => {}),
+            address && originOwners.claim(address, id)
+                ? contents.session.clearStorageData({ origin: address, storages: ['localstorage', 'indexdb', 'cachestorage', 'serviceworkers'] }).catch(() => {})
+                : Promise.resolve(),
+        ]);
         cleared.then(() => { if (!contents.isDestroyed()) contents.loadURL(target || origin); });
     } else if (target) {
         view.webContents.loadURL(target);
     }
     showTab(id);
+}
+
+/**
+ * Reload a tab from its edge, not from the cache. The edge that came back may serve another UI
+ * build than the one before it on this address (the app updated, the edge in a project's venv
+ * upgraded, a dev build), and the cache is one for all of them (openEdgeTab says why). It is
+ * emptied first because `reloadIgnoringCache` bypasses it only for what the page itself loads,
+ * not for what Next fetches afterwards (its route prefetches), which the old entries would answer.
+ */
+function reloadFresh(contents) {
+    contents.session.clearCache().catch(() => {}).then(() => { if (!contents.isDestroyed()) contents.reloadIgnoringCache(); });
 }
 
 // An edge that was restarted (a deck edit, an install, Restart) comes back as a new process on
@@ -479,7 +504,7 @@ function reloadReturnedTabs() {
         const was = lastState.get(p.id);
         lastState.set(p.id, p.status.state);
         if (p.status.state === 'running' && was && was !== 'running' && edgeTabs.has(p.id)) {
-            edgeTabs.get(p.id).webContents.reload();
+            reloadFresh(edgeTabs.get(p.id).webContents);
         }
     }
 }
@@ -619,7 +644,7 @@ async function openCloudTab() {
 /** After a restart from the launcher, the tab's page points at a process that no longer exists. */
 function reloadEdgeTab(id) {
     const view = edgeTabs.get(id);
-    if (view) view.webContents.reload();
+    if (view) reloadFresh(view.webContents);
 }
 
 // --- installs from links and files ---------------------------------------------------------------
@@ -1467,6 +1492,12 @@ app.whenReady().then(async () => {
     if (process.platform === 'darwin' && app.dock && fs.existsSync(ICON)) app.dock.setIcon(nativeImage.createFromPath(ICON));
     serveFrontend();
     manager = new ProfileManager({ home: home(), getRuntime, frontendDir: resources().frontendDir, cloudComingSoon: CLOUD_COMING_SOON });
+    // Once per app version, before any page loads: the HTTP cache a new version inherits holds
+    // the pages the previous version's edges served (openEdgeTab says why that breaks them).
+    if (manager.cacheClearedFor !== app.getVersion()) {
+        await session.defaultSession.clearCache().catch(() => {});
+        manager.setCacheClearedFor(app.getVersion());
+    }
     manager.on('changed', () => { broadcast('launcher:changed'); refreshTray(); reloadReturnedTabs(); watchRunningDecks(); });
     attention = new AttentionWatcher({ WebSocket: globalThis.WebSocket });
     attention.on('attention', notifyAttention);

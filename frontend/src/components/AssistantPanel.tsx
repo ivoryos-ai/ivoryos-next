@@ -37,6 +37,7 @@ import {
 } from '@/assistant';
 import { canvasHasUnsavedWork, canvasWorkflowName, handOffToDesigner } from '@/designerHandoff';
 import { usePageArea } from '@/usePageArea';
+import { setDockRight } from '@/dockRight';
 
 type Issue = { severity: 'error' | 'warning' | 'info'; where: string; message: string; hint?: string };
 
@@ -125,14 +126,13 @@ export default function AssistantPanel() {
   const panelRef = useRef<HTMLElement>(null);
   const shown = open && !onLauncher;
   useEffect(() => {
-    const root = document.documentElement;
-    if (!shown || !panelRef.current) { root.style.removeProperty('--ivoryos-dock-right'); return; }
+    if (!shown || !panelRef.current) { setDockRight('assistant', null); return; }
     const panel = panelRef.current;
-    const set = () => root.style.setProperty('--ivoryos-dock-right', `${panel.getBoundingClientRect().width}px`);
+    const set = () => setDockRight('assistant', panel.getBoundingClientRect().width);
     set();
     const sized = new ResizeObserver(set);
     sized.observe(panel);
-    return () => { sized.disconnect(); root.style.removeProperty('--ivoryos-dock-right'); };
+    return () => { sized.disconnect(); setDockRight('assistant', null); };
   }, [shown]);
 
   useEffect(() => {

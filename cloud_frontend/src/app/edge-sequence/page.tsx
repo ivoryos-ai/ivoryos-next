@@ -23,8 +23,9 @@ import {
   FLOW_CONTROL_PALETTE,
   workflowOutputs,
   getReturnLeaves,
+  blankChoiceOf,
 } from '@ivoryos/shared-ui';
-import { isNumericType, containerProblem } from '@ivoryos/shared-ui';
+import { isNumericType, containerProblem, holdsReference } from '@ivoryos/shared-ui';
 
 export default function DesignerPage() {
   const [deviceId, setDeviceId] = useState<string | null>(null);
@@ -516,7 +517,7 @@ export default function DesignerPage() {
               { title: 'Wrong parameter type', tone: 'error' });
             return false;
           }
-          if (isNumericType(param) && isNaN(Number(val))) {
+          if (isNumericType(param) && !blankChoiceOf(val) && isNaN(Number(val))) {
             await notify(`Parameter '${key}' in ${block.instrument}.${block.method} expects a number (or '#variable'), got '${val}'`,
                          { title: 'Wrong parameter type', tone: 'error' });
             return false;
@@ -652,7 +653,7 @@ export default function DesignerPage() {
                 {(() => {
                   const allBlocks = [...prepSequence, ...sequence, ...cleanupSequence];
                   const hasDynamicParams = allBlocks.some(block => 
-                    Object.values(block.params).some(val => typeof val === 'string' && val.startsWith('#'))
+                    holdsReference(block.params)
                   );
                   return (
                     <>

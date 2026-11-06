@@ -4,7 +4,8 @@ import React, { useRef } from 'react';
 import { X } from 'lucide-react';
 import { DEFAULT_VALUE, NONE_VALUE, blankChoiceOf, type BlankChoices } from './runConfig';
 
-const shownDefault = (d: any) => (d === null ? 'None' : typeof d === 'string' ? d : JSON.stringify(d));
+// An empty-string default reads as "" rather than as nothing after "default".
+const shownDefault = (d: any) => (d === null ? 'None' : typeof d === 'string' ? (d === '' ? '""' : d) : JSON.stringify(d));
 
 /**
  * How a "no value on purpose" marker (runConfig.ts `NONE_VALUE` / `DEFAULT_VALUE`) reads: `None`,

@@ -141,7 +141,9 @@ def with_arguments(params: dict, args: Dict[str, Any], keep_columns: bool) -> Tu
     columns = dict(out.get("_vars") or {})
     changes: Dict[str, list] = {}
     for name, value in args.items():
-        if name in columns and keep_columns:
+        # `gains.kp`: a `#name` inside a dict or an object, which makes the argument the column's too.
+        inside = [column for column in columns if column.startswith(f"{name}.")]
+        if (name in columns or inside) and keep_columns:
             continue
         before = out.get(name)
         if name in out and before == value:
@@ -149,6 +151,8 @@ def with_arguments(params: dict, args: Dict[str, Any], keep_columns: bool) -> Tu
         out[name] = value
         changes[name] = [before, value]
         columns.pop(name, None)
+        for column in inside:
+            columns.pop(column, None)
     if changes:
         if columns:
             out["_vars"] = columns

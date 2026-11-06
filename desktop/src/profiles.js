@@ -126,6 +126,9 @@ function loadProfiles(home) {
             starred: stored.starred && typeof stored.starred === 'object' ? stored.starred : {},
             // What the person is notified about (notifyPrefs.js normalizes it where it is read).
             notifications: stored.notifications && typeof stored.notifications === 'object' ? stored.notifications : undefined,
+            // The app version whose start emptied the browser's HTTP cache (main.js says why); a
+            // new version empties it again, once.
+            cacheClearedFor: typeof stored.cacheClearedFor === 'string' ? stored.cacheClearedFor : null,
             profiles: stored.profiles.map((p) => withDefaults(home, p)),
         };
     }

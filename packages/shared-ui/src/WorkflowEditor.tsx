@@ -21,16 +21,22 @@ import {
 } from './workflowBody';
 import { confirmDialog, notify, promptDialog } from './dialogs';
 import { ExtraArguments } from './ExtraArguments';
+import { DictInput } from './DictInput';
+import { compactValue, dictProblems, readDictValue } from './dictArgs';
 import { WorkflowPeek, type WorkflowPeekTarget } from './WorkflowPeek';
 import { WorkflowDiff } from './WorkflowDiff';
 import { SuggestInput } from './SuggestInput';
-import { AutoFillToggle, LOGIC_TOOLS, ToolChip, ToolboxGroupHeader, ToolboxGroupTitle, ToolboxInstrumentHeader, logicStepLook } from './Toolbox';
+import { AutoFillToggle, FoldAllToggle, LOGIC_TOOLS, ToolChip, ToolboxGroupHeader, ToolboxGroupTitle, ToolboxInstrumentHeader, logicStepLook } from './Toolbox';
 import { FLOW_CONTROL_INSTRUMENTS, SET_VARIABLE_TYPES, isSetVariable, setVariableReads, wholeReference, withoutReferenceMarks } from './flowControl';
 import { fieldGuard, guardHint, guardProblem, guardSuggestions, unitOf } from './safety';
 import { formatReference, referenceCount, referenceStart, referencesProblem, wellChoices, type TrayChoice } from './labware';
 import { TrayPicker } from './TrayPicker';
 import { addedObject, defaultParams, isOptionalObject, objectGiven } from './objectArgs';
-import { isNumericType, isBoolType, containerKind, containerProblem, containerExample, parseContainerText } from './paramTypes';
+import { isNumericType, isBoolType, isTextType, containerKind, containerProblem, containerExample, parseContainerText } from './paramTypes';
+import { NONE_VALUE, blankChoiceOf, choiceLabels, choiceSuggestions } from './runConfig';
+
+/** The toolbox groups folded away, per browser. */
+const FOLDED_TOOLBOX_KEY = 'ivoryos_toolbox_folded';
 
 // One named variable bound to one addressable leaf of a step's return value. `path` is the
 // dotted pointer the backend's introspection published in `schema.return_paths`
@@ -223,7 +229,7 @@ export default function WorkflowEditor({
   activePhaseRef.current = activePhase;
   const canvasScrollRef = useRef<HTMLDivElement>(null);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const HOLD_TO_SWITCH_MS = 500;
+const HOLD_TO_SWITCH_MS = 500;
   const switchPhase = (id: PhaseId) => {
     setActivePhase(id);
     // A list the pointer has not scrolled starts at its top; scrolling the container mid-drag is
@@ -607,7 +613,8 @@ export default function WorkflowEditor({
   const handleParamChange = (blockId: string, param: string, value: any, type: string, listId: string) => {
     updateBlock(listId, blockId, block => {
       let parsedValue = value;
-      if (typeof value === 'string' && !value.startsWith('#')) {
+      // A '#name' and the <None> / <default> markers are kept as typed; the edge resolves them.
+      if (typeof value === 'string' && !value.startsWith('#') && !blankChoiceOf(value)) {
         // By the type's exact name (paramTypes.ts): "int" in "Dict[str, int]" used to make a
         // dict's text a number whenever it happened to parse as one. A dict or a list stays
         // text; the edge parses it at the call.
@@ -1253,9 +1260,27 @@ export default function WorkflowEditor({
     setExpandedToolbox(prev => ({ ...prev, [instName]: !prev[instName] }));
   };
   // Toolbox groups (Logic, Workflows, Instruments, each instrument) start open; this records the
-  // ones folded away. `expandedToolbox` is the opposite, for things that start closed.
+  // ones folded away, per browser (read after mount, AGENTS.md section 11). `expandedToolbox` is
+  // the opposite, for things that start closed.
   const [foldedToolbox, setFoldedToolbox] = useState<Record<string, boolean>>({});
-  const toggleFold = (key: string) => setFoldedToolbox(prev => ({ ...prev, [key]: !prev[key] }));
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(FOLDED_TOOLBOX_KEY) || 'null');
+      if (saved && typeof saved === 'object') setFoldedToolbox(saved);
+    } catch { /* starts open */ }
+  }, []);
+  const rememberFolds = (next: Record<string, boolean>) => {
+    try { localStorage.setItem(FOLDED_TOOLBOX_KEY, JSON.stringify(next)); } catch { /* not kept */ }
+    return next;
+  };
+  const toggleFold = (key: string) => setFoldedToolbox(prev => rememberFolds({ ...prev, [key]: !prev[key] }));
+  // Everything at once (FoldAllToggle beside #auto): Logic, Workflows and every instrument fold
+  // to one line each, under an open Instruments heading, and open again together.
+  const foldAll = (names: string[], folded: boolean) => setFoldedToolbox(prev => {
+    const next: Record<string, boolean> = { ...prev, logic: folded, workflows: folded, instruments: false };
+    names.forEach(n => { next[`inst:${n}`] = folded; });
+    return rememberFolds(next);
+  });
 
   const removeBlock = (index: number, listId: string) => {
     const list = Array.from(getSequenceList(listId));
@@ -1650,8 +1675,18 @@ export default function WorkflowEditor({
                               continue;
                           }
                           const isDynamicRef = typeof val === 'string' && val.startsWith('#');
+                          // `<None>` (the ∅ button) is a value, the driver gets None, whatever the type.
+                          if (blankChoiceOf(val)) continue;
 
-                          if (pData?.required && !isDynamicRef) {
+                          // A dict: text that is not one, and keys or values its type cannot take.
+                          if (pData?.is_mapping) {
+                              dictProblems(val, pData).forEach(p => blockWarnings.push(`'${fullKey}': ${p}`));
+                          }
+
+                          // Blank means the default where there is one (None for an Optional, which
+                          // the schema marks not required), '' for a text argument (T9); anything
+                          // else left blank is missing.
+                          if (pData?.required && !isDynamicRef && !isTextType(pData)) {
                               if ((val === undefined || val === '') && (pData.default === undefined || pData.default === '')) {
                                   blockWarnings.push(`Missing required parameter: '${fullKey}'`);
                                   continue;
@@ -1668,9 +1703,19 @@ export default function WorkflowEditor({
 
                           // A dict or a list typed as text the edge could not read, or holding a key,
                           // value or item of the wrong type (paramTypes.ts).
-                          const containerIssue = isDynamicRef ? null : containerProblem(pData, val);
+                          // A dict said its own above, entry by entry.
+                          const containerIssue = isDynamicRef || pData?.is_mapping ? null : containerProblem(pData, val);
                           if (containerIssue) {
                               blockWarnings.push(`'${fullKey}' ${containerIssue}`);
+                              continue;
+                          }
+
+                          // A value outside an Enum's or a Literal's choices: the edge refuses the
+                          // run for it (by the stored label or the value), so it is said here.
+                          const labels = choiceLabels(pData);
+                          if (labels && !isDynamicRef && val !== undefined && val !== '' && typeof val !== 'object'
+                              && !labels.includes(String(val)) && !(pData.options || []).map((o: any) => String(o)).includes(String(val))) {
+                              blockWarnings.push(`'${fullKey}' = ${val} is not one of its choices (${labels.join(', ')})`);
                               continue;
                           }
 
@@ -1681,7 +1726,7 @@ export default function WorkflowEditor({
                           const refused = isFlowBlock ? null : guardProblem(
                               fieldGuard(statusData?.safety, block.instrument, block.method, fullKey), guarded, statusData?.safety);
                           if (refused) {
-                              blockWarnings.push(`'${fullKey}' = ${guarded} ${refused} (safety guard)`);
+                              blockWarnings.push(`'${fullKey}' = ${compactValue(guarded)} ${refused} (safety guard)`);
                           }
 
                           // Wells that are not on the worktable (`plate[A13]`, a plate that is not
@@ -1874,12 +1919,14 @@ export default function WorkflowEditor({
                                       opens the card on that field. */}
                                   {(() => {
                                     const valueAt = (path: string) => path.split('.').reduce((acc: any, part: string) => (acc && acc[part] !== undefined ? acc[part] : undefined), block.params);
+                                    // A dict reads as written in its field, `{kp: 1.5, ki: #ki}`; a list as JSON.
+                                    const asValue = (v: object) => (Array.isArray(v) ? JSON.stringify(v) : compactValue(v));
                                     const shown = (v: any, pData?: any) => {
-                                      if (typeof v === 'object' && v !== null) return JSON.stringify(v);
+                                      if (typeof v === 'object' && v !== null) return asValue(v);
                                       // A dict or list typed as text reads as the value it is, not as a quoted string.
                                       if (typeof v === 'string' && containerKind(pData)) {
                                         const parsed = parseContainerText(v);
-                                        if (parsed !== undefined) return JSON.stringify(parsed);
+                                        if (parsed !== undefined) return asValue(parsed as object);
                                       }
                                       const t = String(v);
                                       return t === '' || /\s/.test(t) ? `"${t}"` : t;
@@ -1889,13 +1936,22 @@ export default function WorkflowEditor({
                                     type Arg = { key: string; name: string; text: string; tone: 'set' | 'var' | 'default' | 'missing' | 'empty'; unit?: string };
                                     const args: Arg[] = [];
                                     const add = (key: string, name: string, pData: any) => {
-                                      const v = valueAt(key);
+                                      let v = valueAt(key);
+                                      // A dict saved as text (before the table, or imported) reads as one.
+                                      if (pData?.is_mapping && typeof v === 'string') {
+                                        const read = readDictValue(v);
+                                        if (read.kind === 'dict') v = read.value;
+                                      }
                                       const unit = isFlowBlock ? undefined
                                         : unitOf(fieldGuard(statusData?.safety, block.instrument, block.method, key), pData?.unit);
                                       if (typeof v === 'string' && v.trim() === '#') args.push({ key, name, text: '#?', tone: 'missing' });
+                                      // The <None> marker: sent as None, on purpose (the ∅ button on the open card).
+                                      else if (v === NONE_VALUE) args.push({ key, name, text: 'None', tone: 'set', unit });
                                       // null is how a step dropped before None defaults were left out holds one: shown as None, not "null".
                                       else if (v !== undefined && v !== '' && v !== null) args.push({ key, name, text: shown(v, pData), tone: typeof v === 'string' && v.startsWith('#') ? 'var' : 'set', unit });
                                       else if (pData?.default !== undefined && pData.default !== '' && pData.default !== null) args.push({ key, name, text: shown(pData.default, pData), tone: 'default', unit });
+                                      // A blank text argument with no default is the empty string (T9), not a gap.
+                                      else if (pData?.required && isTextType(pData)) args.push({ key, name, text: '""', tone: 'empty', unit });
                                       else args.push({ key, name, text: pData?.required ? '?' : 'None', tone: pData?.required ? 'missing' : 'empty' });
                                     };
                                     const walk = (schemaObj: any, prefix: string) => {
@@ -2318,6 +2374,30 @@ export default function WorkflowEditor({
 
                                                 const displayType = (pData.type || '').replace(/<class '([^']+)'>/, '$1').replace('typing.', '');
                                                 const val = paramKey.split('.').reduce((acc: any, part: string) => acc && acc[part] !== undefined ? acc[part] : undefined, paramsObj);
+                                                // A dict is written as it reads, `{kp: 1.5, ki: #ki}`, a
+                                                // `#name` per value that should vary (DictInput).
+                                                if (pData.is_mapping) {
+                                                    return (
+                                                        <DictInput
+                                                            key={paramKey}
+                                                            id={paramFieldId(lId, bId, paramKey)}
+                                                            info={pData}
+                                                            quiet
+                                                            value={val !== undefined ? val : pData.default}
+                                                            suggestions={availableVars.map((v: string) => ({ value: `#${v}`, label: 'earlier step' }))}
+                                                            onChange={(next) => handleParamChange(bId, paramKey, next, pData.type || '', lId)}
+                                                            label={(
+                                                                <>
+                                                                  <label htmlFor={paramFieldId(lId, bId, paramKey)} className="whitespace-nowrap text-gray-600 dark:text-gray-300" title={displayType || undefined}>
+                                                                    {paramName}
+                                                                    {pData.required && <span className="text-red-500/80 ml-0.5">*</span>}
+                                                                  </label>
+                                                                  <span className="text-gray-400 dark:text-gray-500">=</span>
+                                                                </>
+                                                            )}
+                                                        />
+                                                    );
+                                                }
                                                 // A dict or list held as a value (a workflow an assistant wrote, an imported one) is edited as its JSON.
                                                 const fieldText = (v: any) => (typeof v === 'object' && v !== null ? JSON.stringify(v) : v);
                                                 const actualVal = val !== undefined ? fieldText(val) : (pData.default !== undefined && pData.default !== null ? String(fieldText(pData.default)) : '');
@@ -2348,9 +2428,11 @@ export default function WorkflowEditor({
                                                         id={paramFieldId(lId, bId, paramKey)}
                                                         type="text"
                                                         suggestions={[
+                                                          // A choice is offered as a workflow stores it: an Enum member's name,
+                                                          // a Literal option as written, with the value beside it when it differs.
                                                           ...(guard?.tray || guard?.allowed
                                                             ? guardSuggestions(guard, statusData?.safety)
-                                                            : (pData.options || []).map((o: any) => String(o))),
+                                                            : choiceSuggestions(pData)),
                                                           ...availableVars.map((v: string) => ({ value: `#${v}`, label: 'earlier step' })),
                                                         ]}
                                                         value={actualVal}
@@ -2369,6 +2451,28 @@ export default function WorkflowEditor({
                                                       />
                                                       {/* The unit, after the value, as on the folded card. */}
                                                       {unit && <span className="shrink-0 text-gray-400 dark:text-gray-500" title={`Values are in ${unit}`}>{unit}</span>}
+                                                      {/* None on purpose: writes the <None> marker (runConfig.ts), which the edge
+                                                          sends as None whatever the type. Blank already means the default (or
+                                                          None for an Optional), so this is only for a None over a default. */}
+                                                      {!pData.wells && (
+                                                        <button
+                                                          type="button"
+                                                          tabIndex={-1}
+                                                          onMouseDown={(e) => e.preventDefault()}
+                                                          onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleParamChange(bId, paramKey, actualVal === NONE_VALUE ? '' : NONE_VALUE, pData.type || '', lId);
+                                                            clearHashWarning(lId, bId, paramKey);
+                                                          }}
+                                                          title={actualVal === NONE_VALUE ? 'Sent as None. Click to type a value instead' : 'Send None for this argument'}
+                                                          aria-label={actualVal === NONE_VALUE ? 'Type a value instead of None' : 'Send None'}
+                                                          className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded font-sans text-[12px] leading-none ${actualVal === NONE_VALUE
+                                                            ? 'bg-accent-soft text-accent-fg'
+                                                            : 'text-gray-300 hover:bg-gray-100 hover:text-gray-600 dark:text-gray-600 dark:hover:bg-white/10 dark:hover:text-gray-300'}`}
+                                                        >
+                                                          ∅
+                                                        </button>
+                                                      )}
                                                       {pData.wells && (
                                                         <button
                                                           type="button"
@@ -2519,11 +2623,18 @@ export default function WorkflowEditor({
                   placeholder="Search steps..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:border-accent transition-colors"
+                  className="w-full h-8 bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-lg pl-8 pr-3 text-xs focus:outline-none focus:border-accent transition-colors"
                 />
-                <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-gray-400" />
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
              </div>
              <AutoFillToggle on={autoFillVariables} onToggle={toggleAutoFillVariables} />
+             {(() => {
+               const names = Object.keys(instruments).filter(k => k !== LIBRARY_INSTRUMENT && !FLOW_CONTROL_INSTRUMENTS.includes(k));
+               // Workflows starts folded when nothing is saved (see its header below).
+               const workflowsFolded = foldedToolbox.workflows ?? Object.keys(instruments[LIBRARY_INSTRUMENT] || {}).length === 0;
+               const allFolded = !!foldedToolbox.logic && workflowsFolded && names.every(n => !!foldedToolbox[`inst:${n}`]);
+               return names.length > 1 ? <FoldAllToggle folded={allFolded} onToggle={() => foldAll(names, !allFolded)} what="group" /> : null;
+             })()}
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 pt-2">

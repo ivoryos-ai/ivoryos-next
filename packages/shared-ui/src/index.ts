@@ -54,7 +54,10 @@ export { isOptionalObject, objectGiven, defaultParams, addedObject } from './obj
 export {
   RunConfigError, resolveBlockParams, resolveFixedBlock, toWireBlock, rowListArgumentsOf,
   NONE_VALUE, DEFAULT_VALUE, blankChoiceOf, blankChoicesFor, acceptsNone, hasDefault,
+  choiceLabels, choiceSuggestions, declaredChild, holdsReference,
 } from './runConfig';
+export { DictInput } from './DictInput';
+export { readDictText, dictProblems, compactValue } from './dictArgs';
 export type { ResolveOptions, ResolvedStep, BlankChoice, BlankChoices } from './runConfig';
 export { BlankChoiceField, BlankChoiceOptions, blankLabel } from './BlankChoice';
 export {
@@ -98,7 +101,7 @@ export type { Theme, ThemePreference } from './theme';
 export { useNavPlacement, readNavPlacement, setNavPlacement, defaultNavPlacement, NavPlacementChoice, NAV_PLACEMENT_KEY } from './navPlacement';
 export type { NavPlacement } from './navPlacement';
 export { SuggestInput, type Suggestion } from './SuggestInput';
-export { ToolChip, ToolboxGroupHeader, ToolboxGroupTitle, ToolboxInstrumentHeader, AutoFillToggle, LOGIC_TOOLS, TOOLBOX_SUBLABEL, logicStepLook } from './Toolbox';
+export { ToolChip, ToolboxGroupHeader, ToolboxGroupTitle, ToolboxInstrumentHeader, AutoFillToggle, FoldAllToggle, LOGIC_TOOLS, TOOLBOX_SUBLABEL, logicStepLook } from './Toolbox';
 export { TopNavBar, TopNavItem, TopNavButton, TopNavIconLink, TopNavDivider, TopNavBrand, TopNavMenu, TopNavMenuItem, topNavPill, BRAND_MARK } from './TopNav';
 export { fieldGuard, trayOf, guardsFor, guardHint, guardProblem, guardSuggestions, trayForGuards, orderPositions, unitOf } from './safety';
 export type { SafetyView, FieldGuard, TrayView, FieldRef } from './safety';
@@ -107,5 +110,5 @@ export type { TrayChoice, RowUnit } from './labware';
 export { TrayPicker } from './TrayPicker';
 export type { TrayPickerProps } from './TrayPicker';
 export { fieldText, parseField, changedArguments } from './stepEdits';
-export { bareTypeName, isNumericType, isBoolType, containerKind, parseContainerText, containerProblem, containerExample } from './paramTypes';
+export { bareTypeName, isNumericType, isBoolType, isTextType, containerKind, parseContainerText, containerProblem, containerExample } from './paramTypes';
 export type { ContainerKind } from './paramTypes';

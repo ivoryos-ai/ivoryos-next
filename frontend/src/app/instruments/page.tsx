@@ -8,9 +8,9 @@ import { restartEdge } from '@/restartEdge';
 import Sidebar from '@/components/Sidebar';
 import DeckHistory from '@/components/DeckHistory';
 import FieldGuardDialog, { type GuardedField } from '@/components/safety/FieldGuardDialog';
-import { ExtraArguments, ResultView, SuggestInput, TrayPicker, confirmDialog, fieldGuard, guardHint, guardProblem, guardSuggestions, isOptionalObject, objectGiven, trayOf, unitOf, useDocumentTheme, type TrayView } from '@ivoryos/shared-ui';
+import { DictInput, ExtraArguments, NONE_VALUE, ResultView, SuggestInput, TrayPicker, acceptsNone, choiceSuggestions, confirmDialog, fieldGuard, guardHint, guardProblem, guardSuggestions, isOptionalObject, objectGiven, trayOf, unitOf, useDocumentTheme, type TrayView } from '@ivoryos/shared-ui';
 import { useEdgeTopic } from '@/edgeSocket';
-import { isNumericType, isBoolType, bareTypeName, containerKind, containerExample, containerProblem, notify } from '@ivoryos/shared-ui';
+import { isNumericType, isBoolType, isTextType, bareTypeName, containerKind, containerExample, containerProblem, notify } from '@ivoryos/shared-ui';
 
 /** Whether anything was typed into a form value, at any depth. */
 const anyTyped = (v: unknown): boolean =>
@@ -113,6 +113,7 @@ export default function InstrumentsPage() {
 
   /** The bits of an introspected parameter this form needs; the schema carries more. */
   type ParamSchema = {
+    type?: string;
     required?: boolean;
     default?: unknown;
     is_object?: boolean;
@@ -148,6 +149,9 @@ export default function InstrumentsPage() {
         if (val === undefined || val === '') {
           if (pData?.default !== undefined) {
             val = pData.default;
+          } else if (isTextType(pData)) {
+            // A blank text field is the empty string (T9), not a missing value.
+            val = '';
           } else if (pData?.required) {
             missing.push(path);
             continue;
@@ -503,6 +507,23 @@ export default function InstrumentsPage() {
 
                               const displayType = (pData.type || '').replace(/<class '([^']+)'>/, '$1').replace('typing.', '');
                               const isMissing = (missingArgs[key] || []).includes(paramPath);
+                              if (pData.is_mapping) {
+                                const given = paramPath.split('.').reduce((acc: any, part: string) => acc && acc[part] !== undefined ? acc[part] : undefined, formValues[key]);
+                                return (
+                                  <div key={paramPath} className="space-y-1">
+                                    <label className={`text-[11px] capitalize flex items-start font-medium mb-1 ${isMissing ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400'}`} title={displayType || undefined}>
+                                      <span className="break-all">{paramLabel}</span>
+                                      {pData.required && <span className="text-red-500/80 dark:text-red-400/70 ml-1 text-sm leading-none shrink-0">*</span>}
+                                    </label>
+                                    <DictInput
+                                      info={pData}
+                                      value={given !== undefined ? given : pData.default}
+                                      onChange={(next) => handleInputChange(instName, methodName, paramPath, next)}
+                                    />
+                                    {isMissing && <p className="text-[10px] font-medium text-red-600 dark:text-red-400">Required</p>}
+                                  </div>
+                                );
+                              }
                               const fieldBorder = isMissing
                                 ? 'border-red-400 dark:border-red-500/60 focus:border-red-500'
                                 : 'border-gray-300 dark:border-white/10 focus:border-accent';
@@ -524,25 +545,34 @@ export default function InstrumentsPage() {
                                     {pData.required && <span className="text-red-500/80 dark:text-red-400/70 ml-1 text-sm leading-none shrink-0">*</span>}
                                   </label>
                                   {isBoolType(pData) ? (
+                                    // A None default (`Optional[bool] = None`) is null: String() rather than
+                                    // .toString(), which took the whole page down. An Optional offers None as
+                                    // the <None> marker, which the edge reads as None (runConfig.ts NONE_VALUE).
                                     <select
-                                      value={currentValue !== undefined ? currentValue.toString() : (pData.default !== undefined ? pData.default.toString() : '')}
+                                      value={currentValue != null ? String(currentValue) : (pData.default != null ? String(pData.default) : '')}
                                       className={`w-full bg-gray-50 dark:bg-black/40 border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none transition-colors text-gray-900 dark:text-white ${fieldBorder}`}
-                                      onChange={(e) => handleInputChange(instName, methodName, paramPath, e.target.value === 'true')}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        handleInputChange(instName, methodName, paramPath, v === NONE_VALUE ? NONE_VALUE : v === '' ? '' : v === 'true');
+                                      }}
                                     >
                                       <option value="">Select boolean...</option>
                                       <option value="true">True</option>
                                       <option value="false">False</option>
+                                      {acceptsNone(pData) && <option value={NONE_VALUE}>None</option>}
                                     </select>
                                   ) : (
                                     <div className="flex items-center gap-1.5">
                                       <SuggestInput
+                                        // Judged on the whole type name: a Dict[int, float] or a List[int] is
+                                        // text (JSON), and a number box could not take its braces.
                                         type={isNumericType(pData) ? 'number' : 'text'}
                                         step={bareTypeName(pData.type) === 'float' ? 'any' : '1'}
                                         // Enum / Literal parameters know their accepted values, so offer them as
                                         // suggestions instead of leaving the operator to guess the spelling. A
                                         // field the guard narrows (a tray, an allowed list) offers only those.
-                                        suggestions={guard?.tray || guard?.allowed ? guardSuggestions(guard, safety) : (pData.options || []).map((o: any) => String(o))}
-                                        value={currentValue !== undefined ? currentValue : (pData.default !== undefined ? pData.default : '')}
+                                        suggestions={guard?.tray || guard?.allowed ? guardSuggestions(guard, safety) : choiceSuggestions(pData)}
+                                        value={currentValue != null ? currentValue : (pData.default != null ? pData.default : '')}
                                         className={`w-full bg-gray-50 dark:bg-black/40 border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none transition-colors text-gray-900 dark:text-white ${refused ? 'border-red-400 dark:border-red-500/60 focus:border-red-500' : fieldBorder}`}
                                         placeholder={containerKind(pData) ? containerExample(pData) : displayType}
                                         onChange={(e) => {
@@ -636,7 +666,8 @@ export default function InstrumentsPage() {
                             className={`w-full py-2 text-sm rounded-lg font-medium transition-all shadow-sm ${
                               executing[key] 
                                 ? 'bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400 cursor-not-allowed' 
-                                : 'bg-gray-100 hover:bg-gray-700 dark:hover:bg-gray-200 hover:text-white dark:bg-white/10 dark:hover:bg-gray-200 text-gray-700 dark:text-white border border-gray-200 dark:border-transparent'
+                                // Dark hover used to go to a light grey while the text stayed white.
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-700 hover:text-white dark:bg-white/10 dark:text-white dark:hover:bg-white/25 dark:hover:text-white border border-gray-200 dark:border-transparent'
                             }`}
                           >
                             {executing[key] ? 'Executing...' : 'Execute'}

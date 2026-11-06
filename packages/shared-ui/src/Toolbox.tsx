@@ -1,6 +1,6 @@
 "use client";
 import React from 'react';
-import { ChevronDown, ChevronRight, GitBranch, GripVertical, Hourglass, MessageSquareText, Repeat, StickyNote, Variable } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, GitBranch, GripVertical, Hourglass, MessageSquareText, Repeat, StickyNote, Variable } from 'lucide-react';
 
 /**
  * The pieces of a designer's toolbox, shared by the edge Designer (WorkflowEditor) and Cloud's
@@ -192,11 +192,33 @@ export function AutoFillToggle({ on, onToggle, title }: { on: boolean; onToggle:
       title={title ?? (on
         ? '#auto is on: dropped steps fill every field with #<field name>. Click to turn off.'
         : 'Turn on #auto: dropped steps fill every field with #<field name>, ready to configure.')}
-      className={`shrink-0 px-2 py-0.5 rounded-md border font-mono text-[11px] font-semibold transition-colors ${on
+      className={`shrink-0 h-8 px-2 rounded-md border font-mono text-[11px] font-semibold transition-colors ${on
         ? 'bg-accent border-accent text-on-accent'
         : 'bg-white border-gray-200 text-gray-500 hover:text-gray-800 dark:bg-white/5 dark:border-white/10 dark:text-gray-400 dark:hover:text-gray-200'}`}
     >
       #auto
+    </button>
+  );
+}
+
+/**
+ * Fold or open every group at once (Logic, Workflows and each instrument on the edge; Logic and
+ * each device on Cloud), beside the `#auto` switch. A deck with several instruments of twenty
+ * methods each made the palette a long scroll; folded, it reads as one line per group, each
+ * opened as needed. `folded` is whether every group is folded now, which decides what the click does.
+ */
+export function FoldAllToggle({ folded, onToggle, what = 'group' }: { folded: boolean; onToggle: () => void; what?: string }) {
+  const title = folded ? `Open every ${what}` : `Fold every ${what}: one line each, opened as needed`;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={folded}
+      aria-label={title}
+      title={title}
+      className="shrink-0 flex items-center justify-center w-8 h-8 rounded-md border bg-white border-gray-200 text-gray-500 hover:text-gray-800 dark:bg-white/5 dark:border-white/10 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+    >
+      {folded ? <ChevronsUpDown className="w-3.5 h-3.5" /> : <ChevronsDownUp className="w-3.5 h-3.5" />}
     </button>
   );
 }

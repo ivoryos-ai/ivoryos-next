@@ -387,6 +387,50 @@ async def test_optimization_run_uses_per_iteration_values_for_excluded_var():
 
 
 @pytest.mark.asyncio
+async def test_a_trial_fills_in_a_reference_inside_a_dict():
+    """A `#name` as a dict's value is searched like any other. Left in place it reached the step
+    unfilled and stopped the trial, and the record has to find the value to show it."""
+    from ivoryos_edge.datasheet import _suggested_value
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        payload = {
+            "name": "Test Dict Reference",
+            "parameters": {
+                "type": "Optimization",
+                "optimizer": "mock",
+                "budget": 2,
+                "optimizer_config": {"step_1": {"model": "TestModel", "num_samples": 2}},
+                "parameter_space": [{"name": "x", "type": "range", "bounds": [0.0, 1.0], "value_type": "float"}],
+                "objective_config": [{"name": "y", "minimize": True}],
+                "iteration_values": {"note": ["a", "b"]},
+                "sequence_template": [
+                    {"instrument": "dummy", "method": "echo_method",
+                     "params": {"value": {"gain": "#x", "note": "#note", "list": ["#x"], "fixed": 1}}, "returnVar": "y"}
+                ]
+            }
+        }
+
+        response = await ac.post("/api/queue/runs", json=payload)
+        run_id = response.json()["run_id"]
+
+        run = None
+        for _ in range(50):
+            resp = await ac.get("/api/queue/runs")
+            run = next((r for r in resp.json()["runs"] if r["id"] == run_id), None)
+            if run and run["status"] in ["completed", "error", "cancelled"]:
+                break
+            await asyncio.sleep(0.05)
+
+        assert run["status"] == "completed", run.get("steps")
+        first, second = [s["parameters"] for s in run["steps"]]
+        assert first["value"] == {"gain": pytest.approx(0.1), "note": "a", "list": [pytest.approx(0.1)], "fixed": 1}
+        assert second["value"]["gain"] == pytest.approx(0.2)
+        assert second["value"]["note"] == "b"
+        assert first["_vars"] == {"value.gain": "x", "value.note": "note", "value.list.0": "x"}
+        assert _suggested_value("x", [run["steps"][1]]) == pytest.approx(0.2)
+
+
+@pytest.mark.asyncio
 async def test_optimizers_endpoint_lists_registered_schemas():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         resp = await ac.get("/api/optimizers")

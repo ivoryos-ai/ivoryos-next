@@ -57,17 +57,56 @@ export interface ResolveOptions {
 }
 
 /**
+ * The schema of what sits under `key` in a block's arguments or inside one of them: a method's
+ * parameter, an object's field, or (whatever the key) a dict's value. The one way down a schema, for
+ * every walk that finds a `#name` and asks what type it has to be.
+ */
+export const declaredChild = (schemaObj: any, key: string): any =>
+  schemaObj?.parameters?.[key] ?? schemaObj?.fields?.[key] ?? (schemaObj?.is_mapping ? schemaObj.value_type : null) ?? null;
+
+/**
+ * What a field with fixed choices offers, as the text a workflow stores: an Enum member's name, a
+ * Literal option as written (the schema's `choices: [{label, value}]`). A schema from before
+ * `choices` lists the values themselves as `options`. Null for a field without choices.
+ */
+export const choiceLabels = (declared: any): string[] | null => {
+  if (Array.isArray(declared?.choices)) return declared.choices.map((c: any) => String(c.label));
+  if (Array.isArray(declared?.options)) return declared.options.map((o: any) => String(o));
+  return null;
+};
+
+/**
+ * The same choices for a `SuggestInput`: the label is what is typed, and the value is shown
+ * beside it when it differs (`FAST` with `3`, `WELL_96` with `[8, 12]`), so a person sees what
+ * the name stands for without being able to type a value that is not a label.
+ */
+export const choiceSuggestions = (declared: any): { value: string; label?: string }[] => {
+  if (Array.isArray(declared?.choices)) {
+    return declared.choices.map((c: any) => {
+      const label = String(c.label);
+      const value = typeof c.value === 'object' && c.value !== null ? JSON.stringify(c.value) : String(c.value);
+      // A Literal's 1.0 reaches JSON as 1: the same number is not worth showing twice.
+      const same = value === label || (label.trim() !== '' && !isNaN(Number(label)) && Number(label) === Number(value));
+      return same ? { value: label } : { value: label, label: value };
+    });
+  }
+  return (choiceLabels(declared) || []).map((v) => ({ value: v }));
+};
+
+/**
  * A value that says "no value" on purpose, chosen per cell (one row can use the driver's default
  * while the next sets a number). An empty cell is not one: it is a value nobody has filled in yet,
  * refused as missing, and a row of nothing but empty cells is not a sample at all. A row of
  * these markers is a sample, and runs.
  *
- * - `NONE_VALUE`: the argument is sent as None (JSON null).
+ * - `NONE_VALUE`: the argument is sent as None (JSON null). Allowed everywhere, Optional or not:
+ *   the driver gets None, and what it makes of it is its own.
  * - `DEFAULT_VALUE`: the argument is left out of the call, so the driver's own default applies.
  *   That is not the same as None: a parameter's default is often something else.
  *
  * Bracketed so neither can be a real value: a `mode: Literal["default", "fast"]` column holds the
- * text `default`, and a `str` column may hold the text `None`.
+ * text `default`, and a `str` column may hold the text `None`. The same markers are typed into a
+ * field (a Designer step's ∅ button writes `<None>`); the edge's `cast_arguments` reads them too.
  */
 export const NONE_VALUE = '<None>';
 export const DEFAULT_VALUE = '<default>';
@@ -95,17 +134,17 @@ export function acceptsNone(declared: any): boolean {
 /** Whether a declared parameter (or object field) has a default for the driver to fall back on. */
 export const hasDefault = (declared: any): boolean => !!declared && declared.required === false;
 
-/** Why a blank choice cannot be used for this parameter, or null when it can. */
+/** Why a blank choice cannot be used for this parameter, or null when it can. None always can. */
 function blankRefusal(choice: BlankChoice, declared: any): string | null {
   if (choice === 'default') {
     return hasDefault(declared) ? null : 'this argument has no default, so it needs a value';
   }
-  return acceptsNone(declared) ? null : 'this argument does not take None, so it needs a value';
+  return null;
 }
 
 /** What a column offers instead of a value, from every argument it feeds. */
 export interface BlankChoices {
-  /** Every argument the column feeds takes None. */
+  /** None is offered: always true (None is allowed on every argument), kept for the readers. */
   none: boolean;
   /** Every argument the column feeds has a default. */
   default: boolean;
@@ -123,12 +162,12 @@ export function blankChoicesFor(sequence: any[], skip?: (name: string) => boolea
   const walk = (obj: any, schemaObj: any) => {
     Object.entries(obj || {}).forEach(([key, val]) => {
       if (key.startsWith('_')) return;
-      const declared = schemaObj?.parameters?.[key] ?? schemaObj?.fields?.[key] ?? null;
+      const declared = declaredChild(schemaObj, key);
       const m = typeof val === 'string' ? /^#(\w+)$/.exec(val.trim()) : null;
       if (m) {
         if (skip?.(m[1])) return;
         const seen = out[m[1]];
-        const none = acceptsNone(declared);
+        const none = true;
         const dflt = hasDefault(declared);
         const defaults = dflt && 'default' in declared ? [declared.default] : [];
         out[m[1]] = seen
@@ -160,7 +199,7 @@ export function resolveBlockParams(block: any, opts: ResolveOptions): Record<str
   const walk = (obj: any, schemaObj: any) => {
     Object.keys(obj).forEach((key) => {
       const val = obj[key];
-      const declared = schemaObj?.parameters?.[key] ?? schemaObj?.fields?.[key] ?? null;
+      const declared = declaredChild(schemaObj, key);
 
       if (typeof val === 'string' && val.trim().startsWith('#')) {
         const varName = val.trim().slice(1).trim();
@@ -195,10 +234,9 @@ export function resolveBlockParams(block: any, opts: ResolveOptions): Record<str
         let subVal = opts.lookup(varName);
         if (subVal === undefined || subVal === null || subVal === '') {
           if (opts.onMissing === 'leave') return;
-          const offer = [hasDefault(declared) && 'the default', acceptsNone(declared) && 'None'].filter(Boolean);
           throw new RunConfigError(
             `Missing value for ${opts.describe(varName)}` +
-              (offer.length ? `. To leave it to ${offer.join(' or ')}, choose that in the cell.` : ''),
+              `. To send None${hasDefault(declared) ? ' or leave it to the default' : ''}, choose that in the cell.`,
           );
         }
 
@@ -214,7 +252,7 @@ export function resolveBlockParams(block: any, opts: ResolveOptions): Record<str
         if (isNumericType(declared)) {
           if (isNaN(Number(subVal))) {
             if (opts.numeric === 'strict') {
-              const typedNone = String(subVal).trim() === 'None' && acceptsNone(declared);
+              const typedNone = String(subVal).trim() === 'None';
               throw new RunConfigError(
                 `${opts.describe(varName)} expects a number (${declared?.type}), got '${subVal}'` +
                   (typedNone ? '. To send None, choose None in the cell rather than typing it.' : ''),
@@ -274,16 +312,26 @@ export const linkKeysOf = (b: any) => ({
  * say which of its arguments came from a spreadsheet column, a fixed value or the optimizer and
  * which were typed into the step itself. Carried on the submitted step as `_vars` — metadata the
  * edge never forwards to a driver (`cast_arguments` drops `_`-prefixed keys) — and read by Data
- * History to mark those arguments.
+ * History to mark those arguments. A `#name` inside a dict or an object is dotted (`gains.kp`).
  */
 export function dynamicArgumentsOf(block: any, skip?: (name: string) => boolean): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [key, value] of Object.entries(block?.params || {})) {
-    const m = typeof value === 'string' ? /^#(\w+)$/.exec(value.trim()) : null;
-    if (m && !key.startsWith('_') && !skip?.(m[1])) out[key] = m[1];
-  }
+  const walk = (obj: any, prefix: string) => {
+    for (const [key, value] of Object.entries(obj || {})) {
+      if (!prefix && key.startsWith('_')) continue;
+      const m = typeof value === 'string' ? /^#(\w+)$/.exec(value.trim()) : null;
+      if (m && !skip?.(m[1])) out[`${prefix}${key}`] = m[1];
+      else if (value && typeof value === 'object') walk(value, `${prefix}${key}.`);
+    }
+  };
+  walk(block?.params, '');
   return out;
 }
+
+/** Whether a `#name` sits anywhere in a value: an argument, a dict's value, an object's field. */
+export const holdsReference = (value: unknown): boolean =>
+  typeof value === 'string' ? value.trim().startsWith('#')
+    : !!value && typeof value === 'object' && Object.values(value as object).some(holdsReference);
 
 /**
  * Which of a block's arguments are handed one value per row when the block is a batch step, as

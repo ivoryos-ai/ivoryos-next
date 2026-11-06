@@ -69,6 +69,7 @@ hplc = HPLC()
 # if os.getenv("IVORYOS_DEMO_TEST_DRIVERS"):
 from dummy_driver import AsyncPumpDriver, DummyMathDriver, PumpDriver, SettingsStore
 from variadic_driver import VariadicProbe, VendorBridge
+from edge_case_sdl import EdgeCaseSDL
 
 test_pump = PumpDriver()
 test_async_pump = AsyncPumpDriver()
@@ -80,6 +81,9 @@ test_settings = SettingsStore()
 # what actually reached the driver -- see variadic_driver.py.
 test_variadics = VariadicProbe()
 test_vendor_bridge = VendorBridge()
+# The casting ground truth (docs/argument_casting_ground_truth.md): one method per annotation
+# shape, each keeping exactly what it received -- see edge_case_sdl.py.
+test_edge_cases = EdgeCaseSDL()
 
 # Run edge server. The port is the desktop launcher's (a script profile's Port setting, passed as
 # IVORYOS_PORT) and 8080 from a terminal. Passed explicitly rather than left to run(), so it also
