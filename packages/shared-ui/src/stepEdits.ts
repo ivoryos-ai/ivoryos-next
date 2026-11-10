@@ -5,11 +5,13 @@
  */
 
 import { choiceLabels } from './runConfig';
-import { isNumericType } from './paramTypes';
+import { isBoolType, isNumericType } from './paramTypes';
 
-/** A value as it is shown in a field. */
+/** A value as it is shown in a field. A bool as Python writes it, which is what a bool's
+ *  field offers (True, False). */
 export function fieldText(value: any): string {
   if (value === undefined || value === null) return '';
+  if (typeof value === 'boolean') return value ? 'True' : 'False';
   return typeof value === 'object' ? JSON.stringify(value) : String(value);
 }
 
@@ -23,15 +25,15 @@ export function fieldText(value: any): string {
 export function parseField(raw: string, declared: any, original: any): any {
   const text = raw.trim();
   if (text.startsWith('#')) return text;
-  const type = String(declared?.type || '').toLowerCase();
-  // A choice goes as the text a workflow stores (an Enum member's name, a Literal option as
-  // written); the edge resolves it to the member or option.
-  if (choiceLabels(declared)) return text;
-  if (type === 'bool' || typeof original === 'boolean') {
+  // Before the choices: a bool's options (True, False) are not choices to send as text.
+  if (isBoolType(declared) || typeof original === 'boolean') {
     if (/^(true|1|yes)$/i.test(text)) return true;
     if (/^(false|0|no)$/i.test(text)) return false;
     return text;
   }
+  // A choice goes as the text a workflow stores (an Enum member's name, a Literal option as
+  // written); the edge resolves it to the member or option.
+  if (choiceLabels(declared)) return text;
   if (isNumericType(declared) || typeof original === 'number') {
     return text !== '' && !isNaN(Number(text)) ? Number(text) : text;
   }

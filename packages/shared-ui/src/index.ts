@@ -60,6 +60,7 @@ export { DictInput } from './DictInput';
 export { readDictText, dictProblems, compactValue } from './dictArgs';
 export type { ResolveOptions, ResolvedStep, BlankChoice, BlankChoices } from './runConfig';
 export { BlankChoiceField, BlankChoiceOptions, blankLabel } from './BlankChoice';
+export { BoolSelect } from './BoolSelect';
 export {
   isRowActive,
   fitRowsToColumns,
@@ -110,5 +111,5 @@ export type { TrayChoice, RowUnit } from './labware';
 export { TrayPicker } from './TrayPicker';
 export type { TrayPickerProps } from './TrayPicker';
 export { fieldText, parseField, changedArguments } from './stepEdits';
-export { bareTypeName, isNumericType, isBoolType, isTextType, containerKind, parseContainerText, containerProblem, containerExample } from './paramTypes';
+export { bareTypeName, isNumericType, isBoolType, isBoolValue, asBool, valueText, choiceProblem, isTextType, containerKind, parseContainerText, containerProblem, containerExample } from './paramTypes';
 export type { ContainerKind } from './paramTypes';

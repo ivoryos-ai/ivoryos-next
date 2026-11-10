@@ -40,6 +40,10 @@ test('a cell means what its declared type says, and shows as what it was typed',
   assert.equal(dict.cellValue('#x', FLOATS.value_type), '#x');
   assert.equal(dict.cellValue('abc', FLOATS.value_type), 'abc');
   assert.equal(dict.cellValue('TRUE', { type: 'bool' }), true);
+  // As the edge publishes a bool, with options for a dropdown: still a bool, not a choice kept as text.
+  assert.equal(dict.cellValue('True', { type: 'bool', options: ['True', 'False'] }), true);
+  assert.equal(dict.cellProblem('true', { type: 'bool', options: ['True', 'False'] }), null);
+  assert.equal(dict.cellProblem('maybe', { type: 'bool', options: ['True', 'False'] }), 'is not True or False');
   assert.equal(dict.cellValue(' 5 ', { type: 'str' }), ' 5 ');
   assert.equal(dict.cellValue('FAST', { type: 'Speed', choices: [{ label: 'FAST', value: 3 }] }), 'FAST');
   // No type to go by: what the same value pasted as JSON would be.
@@ -71,7 +75,7 @@ test('rows pasted from a spreadsheet', () => {
 });
 
 test('a folded step shows a dict on one line', () => {
-  assert.equal(dict.compactValue({ kp: 1.5, ki: '#ki', on: true, off: null, list: [1, 2] }), '{kp: 1.5, ki: #ki, on: true, off: None, list: [1, 2]}');
+  assert.equal(dict.compactValue({ kp: 1.5, ki: '#ki', on: true, off: null, list: [1, 2] }), '{kp: 1.5, ki: #ki, on: True, off: None, list: [1, 2]}');
 });
 
 const step = { instrument: 'pid', method: 'tune', params: { gains: { kp: 1.5, ki: '#ki' }, note: '#note' }, schema: { parameters: { gains: FLOATS, note: { type: 'str', required: true } } } };

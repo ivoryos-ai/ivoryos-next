@@ -22,6 +22,7 @@ import {
 import { confirmDialog, notify, promptDialog } from './dialogs';
 import { ExtraArguments } from './ExtraArguments';
 import { DictInput } from './DictInput';
+import { BoolSelect } from './BoolSelect';
 import { compactValue, dictProblems, readDictValue } from './dictArgs';
 import { WorkflowPeek, type WorkflowPeekTarget } from './WorkflowPeek';
 import { WorkflowDiff } from './WorkflowDiff';
@@ -32,8 +33,8 @@ import { fieldGuard, guardHint, guardProblem, guardSuggestions, unitOf } from '.
 import { formatReference, referenceCount, referenceStart, referencesProblem, wellChoices, type TrayChoice } from './labware';
 import { TrayPicker } from './TrayPicker';
 import { addedObject, defaultParams, isOptionalObject, objectGiven } from './objectArgs';
-import { isNumericType, isBoolType, isTextType, containerKind, containerProblem, containerExample, parseContainerText } from './paramTypes';
-import { NONE_VALUE, blankChoiceOf, choiceLabels, choiceSuggestions } from './runConfig';
+import { isNumericType, isBoolType, isTextType, choiceProblem, containerKind, containerProblem, containerExample, parseContainerText, valueText, asBool } from './paramTypes';
+import { NONE_VALUE, blankChoiceOf, choiceSuggestions } from './runConfig';
 
 /** The toolbox groups folded away, per browser. */
 const FOLDED_TOOLBOX_KEY = 'ivoryos_toolbox_folded';
@@ -1710,12 +1711,13 @@ const HOLD_TO_SWITCH_MS = 500;
                               continue;
                           }
 
-                          // A value outside an Enum's or a Literal's choices: the edge refuses the
-                          // run for it (by the stored label or the value), so it is said here.
-                          const labels = choiceLabels(pData);
-                          if (labels && !isDynamicRef && val !== undefined && val !== '' && typeof val !== 'object'
-                              && !labels.includes(String(val)) && !(pData.options || []).map((o: any) => String(o)).includes(String(val))) {
-                              blockWarnings.push(`'${fullKey}' = ${val} is not one of its choices (${labels.join(', ')})`);
+                          // A value outside an Enum's or a Literal's choices, or a bool that is not
+                          // True or False: the edge refuses the run for it, so it is said here, judged
+                          // as the edge's cast judges it (paramTypes.ts). A bool's options are not
+                          // matched as text: the `true` this editor stores was "not one of its choices".
+                          const choiceIssue = isDynamicRef ? null : choiceProblem(pData, val);
+                          if (choiceIssue) {
+                              blockWarnings.push(`'${fullKey}' = ${compactValue(val)} ${choiceIssue}`);
                               continue;
                           }
 
@@ -1928,7 +1930,9 @@ const HOLD_TO_SWITCH_MS = 500;
                                         const parsed = parseContainerText(v);
                                         if (parsed !== undefined) return asValue(parsed as object);
                                       }
-                                      const t = String(v);
+                                      // A bool as its dropdown offers it, True / False, also when an
+                                      // older workflow holds it as the text "true".
+                                      const t = valueText(isBoolType(pData) ? asBool(v) ?? v : v);
                                       return t === '' || /\s/.test(t) ? `"${t}"` : t;
                                     };
                                     // `unit`: what the value is in (the Safety page's choice for the
@@ -2415,6 +2419,38 @@ const HOLD_TO_SWITCH_MS = 500;
                                                 const picked = pData.wells ? referenceCount(actualVal, plates) : null;
                                                 const guardRefuses = !!guardProblem(guard, actualVal, statusData?.safety)
                                                   || (!!pData.wells && !!referencesProblem(actualVal, plates));
+
+                                                // A bool is picked, True / False / None (BoolSelect), and kept as a JSON
+                                                // true / false: typed, it read `true` beside suggestions offering `True`.
+                                                // A `#name` keeps the text field; cleared, the dropdown comes back.
+                                                if (isBoolType(pData) && !(typeof val === 'string' && val.trim().startsWith('#'))) {
+                                                    return (
+                                                        <div key={paramKey} className="inline-flex items-center gap-1 font-mono text-[12px]">
+                                                          <label htmlFor={paramFieldId(lId, bId, paramKey)} className="whitespace-nowrap text-gray-600 dark:text-gray-300" title={displayType || undefined}>
+                                                            {paramName}
+                                                            {pData.required && <span className="text-red-500/80 ml-0.5">*</span>}
+                                                          </label>
+                                                          <span className="text-gray-400 dark:text-gray-500">=</span>
+                                                          <BoolSelect
+                                                            id={paramFieldId(lId, bId, paramKey)}
+                                                            value={val}
+                                                            defaultValue={'default' in pData ? pData.default : undefined}
+                                                            required={!!pData.required}
+                                                            title={guardText || undefined}
+                                                            onChange={(next) => {
+                                                              handleParamChange(bId, paramKey, next, pData.type || '', lId);
+                                                              clearHashWarning(lId, bId, paramKey);
+                                                            }}
+                                                            onVariable={() => {
+                                                              // As #auto names it: after the argument.
+                                                              handleParamChange(bId, paramKey, `#${paramKey.split('.').pop()}`, pData.type || '', lId);
+                                                              setTimeout(() => (document.getElementById(paramFieldId(lId, bId, paramKey)) as HTMLInputElement | null)?.select(), 30);
+                                                            }}
+                                                            className={`h-6 rounded-md border bg-white px-1 font-mono text-[12px] text-gray-900 focus:outline-none focus:border-accent dark:bg-white/5 dark:text-gray-100 ${guardRefuses ? 'border-red-400 dark:border-red-500/70' : 'border-gray-200 dark:border-white/10'}`}
+                                                          />
+                                                        </div>
+                                                    );
+                                                }
 
                                                 return (
                                                     // name = value, as the call would be written (the folded card reads the same).

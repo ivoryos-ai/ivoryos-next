@@ -14,7 +14,7 @@
  */
 
 import { takesRowList } from './labware';
-import { isNumericType } from './paramTypes';
+import { asBool, isBoolType, isNumericType } from './paramTypes';
 
 /** Thrown for a value that is missing or of the wrong shape. Message is user-facing verbatim. */
 export class RunConfigError extends Error {
@@ -193,6 +193,21 @@ export function blankChoicesFor(sequence: any[], skip?: (name: string) => boolea
  * `fields` inside a structured argument) so a `#name` buried in a dataclass argument gets the same
  * type checking as a top-level one.
  */
+/**
+ * A bool argument's value from a cell, as the JSON true / false every page sends: the table holds
+ * the text its dropdown offers ("True"), the Designer and the Instruments page hold the boolean.
+ * Anything else is refused in strict mode (the edge would refuse it at the step) and passed on as
+ * typed otherwise.
+ */
+function boolOf(value: any, where: string, declared: any, opts: ResolveOptions): any {
+  const b = asBool(value);
+  if (b !== undefined) return b;
+  if (opts.numeric === 'strict') {
+    throw new RunConfigError(`${where} expects True or False (${declared?.type}), got '${value}'`);
+  }
+  return value;
+}
+
 export function resolveBlockParams(block: any, opts: ResolveOptions): Record<string, any> {
   const args = JSON.parse(JSON.stringify(block?.params || {}));
 
@@ -219,6 +234,7 @@ export function resolveBlockParams(block: any, opts: ResolveOptions): Record<str
               // One call acts on every row's value: a row cannot leave its share to a default.
               throw new RunConfigError(`${where} needs a value: this step takes one from every row of its batch in one call`);
             }
+            if (isBoolType(declared)) return boolOf(value, where, declared, opts);
             if (!isNumericType(declared)) return value;
             if (isNaN(Number(value))) {
               if (opts.numeric === 'strict') {
@@ -261,6 +277,8 @@ export function resolveBlockParams(block: any, opts: ResolveOptions): Record<str
           } else {
             subVal = Number(subVal);
           }
+        } else if (isBoolType(declared)) {
+          subVal = boolOf(subVal, opts.describe(varName), declared, opts);
         }
         obj[key] = subVal;
       } else if (typeof val === 'object' && val !== null) {

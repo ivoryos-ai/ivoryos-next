@@ -12,6 +12,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, Layers, Link2, RefreshCw, Repeat, X } from 'lucide-react';
+import { valueText } from './paramTypes';
 
 export type ExpandedStep = {
   instrument: string;
@@ -269,7 +270,7 @@ export function WorkflowMap({ isOpen, onClose, fetchExpansion, spreadsheet, conf
               </div>
               {params.length > 0 && (
                 <p className="text-[11px] text-gray-500 dark:text-gray-400 font-mono mt-0.5 break-words">
-                  {params.map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : String(v)}`).join(', ')}
+                  {params.map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : valueText(v)}`).join(', ')}
                 </p>
               )}
             </div>
