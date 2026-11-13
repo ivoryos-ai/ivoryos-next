@@ -38,31 +38,31 @@ instrument.
 <table>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/readme/feature-designer.webp" width="100%" alt="The Designer: instruments and their methods on the left, a workflow of steps on the right.">
+      <img src="docs-site/src/assets/screenshots/designer-workflow.png" width="100%" alt="The Designer: instruments and their methods on the left, a workflow of steps on the right.">
       <br><b>Drag-and-drop workflows</b><br>No interface to write.
     </td>
     <td width="50%" valign="top">
-      <img src="docs/readme/feature-samples.webp" width="100%" alt="The Run page: a table with one row per sample and one column per value.">
+      <img src="docs-site/src/assets/screenshots/run-iterate-filled.png" width="100%" alt="The Run page: a table with one row per sample and one column per value.">
       <br><b>A whole table of samples</b><br>No batch scripts.
     </td>
   </tr>
   <tr>
     <td valign="top">
-      <img src="docs/readme/feature-optimize.webp" width="100%" alt="An optimization run: its search space, objectives and the optimizer's plot.">
+      <img src="docs-site/src/assets/screenshots/data-history-plots.png" width="100%" alt="An optimization run: its search space, objectives and the optimizer's plot.">
       <br><b>Optimization built in</b><br>Ax, BayBE and NIMO, already wired.
     </td>
     <td valign="top">
-      <img src="docs/readme/feature-record.webp" width="100%" alt="Data History: a run's timeline and every step with the values it used and returned.">
+      <img src="docs-site/src/assets/screenshots/data-history-run.png" width="100%" alt="Data History: a run's timeline and every step with the values it used and returned.">
       <br><b>Every run on record</b><br>No logging code.
     </td>
   </tr>
   <tr>
     <td valign="top">
-      <img src="docs/readme/feature-safety.webp" width="100%" alt="The Safety page: a minimum, a maximum and a unit for each field of an instrument.">
+      <img src="docs-site/src/assets/screenshots/safety-limits.png" width="100%" alt="The Safety page: a minimum, a maximum and a unit for each field of an instrument.">
       <br><b>Safety limits</b><br>Set outside your drivers.
     </td>
     <td valign="top">
-      <img src="docs/readme/feature-assistant.webp" width="100%" alt="The assistant panel open beside a workflow in the Designer.">
+      <img src="docs-site/src/assets/screenshots/designer-assistant.png" width="100%" alt="The assistant panel open beside a workflow in the Designer.">
       <br><b>AI drafts, you approve</b><br>Checked against your real deck.
     </td>
   </tr>
