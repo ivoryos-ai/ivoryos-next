@@ -668,6 +668,8 @@ function batchOfRows(run: any): Map<number, number> | null {
 }
 
 const PAGE_SIZE = 50;
+// The least time between two reloads of the run list while runs are under way.
+const LIST_REFRESH_MS = 2000;
 
 const SORTS: { value: string; label: string }[] = [
   { value: 'newest', label: 'Newest first' },
@@ -778,18 +780,29 @@ export default function DataPage() {
   }, []);
 
   // The broadcast carries live and recent runs with their steps: enough to keep an open run
-  // current as it executes. The list itself is refreshed at most every couple of seconds --
-  // the broadcast fires after every step.
+  // current as it executes. The list itself is refreshed at most every couple of seconds (the
+  // broadcast fires after every step), and always once more after the last broadcast. A
+  // broadcast inside those two seconds used to be dropped, and the last one of a run, the one
+  // saying it finished, usually was: the open run showed its results while its dot in the list
+  // stayed "running" until the page was reloaded.
   const lastListRefresh = useRef(0);
+  const listRefreshDue = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (listRefreshDue.current) clearTimeout(listRefreshDue.current); }, []);
+  const refreshList = () => {
+    if (listRefreshDue.current) return; // one is already on its way, and will read what is current then
+    const wait = LIST_REFRESH_MS - (Date.now() - lastListRefresh.current);
+    listRefreshDue.current = setTimeout(() => {
+      listRefreshDue.current = null;
+      lastListRefresh.current = Date.now();
+      setListVersion(v => v + 1);
+    }, Math.max(0, wait));
+  };
   useEdgeTopic('queue', data => {
     if (data.status) setEdgeStatus(data.status);
     if (data.runs) {
       const open = data.runs.find((r: any) => r.id === selectedIdRef.current);
       if (open) setSelectedRun(formatRun(open));
-      if (Date.now() - lastListRefresh.current > 2000) {
-        lastListRefresh.current = Date.now();
-        setListVersion(v => v + 1);
-      }
+      refreshList();
     }
   });
 
