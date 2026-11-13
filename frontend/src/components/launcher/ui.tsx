@@ -3,6 +3,9 @@ import React, { useEffect, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import type { ProfileStatus } from '@/desktop';
 
+/** The documentation site (docs-site/). Moves to docs.ivoryos.ai once that is set up. */
+export const DOCS_URL = 'https://ivoryos-ai.github.io/ivoryos-next';
+
 export const cardClass = 'bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl';
 export const inputClass = 'w-full px-2.5 py-1.5 rounded-lg text-sm bg-white border border-gray-200 text-gray-800 placeholder:text-gray-400 focus:outline-none focus:border-accent dark:bg-black/40 dark:border-white/10 dark:text-gray-100 dark:placeholder:text-gray-600';
 export const labelClass = 'block text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1';
