@@ -17,7 +17,9 @@
   <a href="https://discord.gg/3KdjhUmsYA">Discord</a>
 </p>
 
----
+<p align="center">
+  <img src="docs/readme/hero.webp" width="100%" alt="A Python script of eight lines creates a pump, a reactor and an HPLC and ends with ivoryos_edge.run. IvoryOS opens beside it with a workflow designer in which every method of those instruments is a step. It reads your drivers: every method becomes a step, every argument a field. Under five minutes to set up.">
+</p>
 
 ## What it is
 
@@ -31,22 +33,44 @@ It is for scientists who want to run and automate experiments by pointing and cl
 whoever in the lab writes the drivers: anyone who can write a Python class can bring a new
 instrument.
 
-## What you can do
+## What you get
 
-- **Design** a workflow by dragging in your instruments' steps: a prep that runs once, a main part
-  that runs for every sample, and a cleanup at the end, with ifs, loops, waits and pauses for a
-  person. Values flow from one step to the next. Any workflow can be read, or downloaded, as the
-  Python it runs.
-- **Run** it once, run it over a spreadsheet of samples, or let an optimizer search for the best
-  conditions.
-- **Stay in charge.** A failed step pauses and waits for you to retry, skip or stop. A stop holds
-  the queue, and the app tells you when a run needs you.
-- **Keep everything.** Every run, step and value is kept, searchable, and exportable as CSV.
-- **Reuse.** Save workflows to a versioned library, and use one inside another.
-- **Install from the Hub.** Drivers, whole platforms and workflow templates shared by the
-  community, installed from inside the app.
-- **Extend.** Add your own pages and panels as plugins, or let an AI assistant draft workflows
-  that you review before anything runs.
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/readme/feature-designer.webp" width="100%" alt="The Designer: instruments and their methods on the left, a workflow of steps on the right.">
+      <br><b>Drag-and-drop workflows</b><br>No interface to write.
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/readme/feature-samples.webp" width="100%" alt="The Run page: a table with one row per sample and one column per value.">
+      <br><b>A whole table of samples</b><br>No batch scripts.
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <img src="docs/readme/feature-optimize.webp" width="100%" alt="An optimization run: its search space, objectives and the optimizer's plot.">
+      <br><b>Optimization built in</b><br>Ax, BayBE and NIMO, already wired.
+    </td>
+    <td valign="top">
+      <img src="docs/readme/feature-record.webp" width="100%" alt="Data History: a run's timeline and every step with the values it used and returned.">
+      <br><b>Every run on record</b><br>No logging code.
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <img src="docs/readme/feature-safety.webp" width="100%" alt="The Safety page: a minimum, a maximum and a unit for each field of an instrument.">
+      <br><b>Safety limits</b><br>Set outside your drivers.
+    </td>
+    <td valign="top">
+      <img src="docs/readme/feature-assistant.webp" width="100%" alt="The assistant panel open beside a workflow in the Designer.">
+      <br><b>AI drafts, you approve</b><br>Checked against your real deck.
+    </td>
+  </tr>
+</table>
+
+And: a failed step pauses and waits for you to retry, skip or stop. Workflows are saved to a
+versioned library and can be used inside one another. Drivers, whole platforms and workflow
+templates install from the [Automation Hub](https://ivoryos.ai). Plugins add your own pages.
 
 IvoryOS Cloud, for watching and running the decks of several labs from one place, is in
 development.
