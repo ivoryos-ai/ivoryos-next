@@ -32,28 +32,42 @@ then opens in a tab on its own, unless you have moved on to something else meanw
 instruments did not all load opens on its Instruments tab instead, with the failures in red.
 
 **Open** shows the page in a tab; the arrow beside it opens the same page in your normal browser.
-Closing a tab does not stop the deck. Other computers reach a deck only when its **Reachable from
-other computers** setting is on, because anyone who can reach the port can drive the instruments.
+Closing a tab does not stop the deck. Other computers on your network can open it too, at
+`http://<this computer's address>:<port>`: a profile's **Reachable from other computers** setting
+is on unless you turn it off. Anyone who can reach the port can drive the instruments, so turn it
+off for a deck only this computer should open.
 
 **Stop** asks the process to shut down and forces it after a few seconds. **Restart** is always a
 new process (Python cannot reliably let go of a serial port otherwise): it re-reads the deck file,
 re-imports the drivers and reconnects every instrument. Restart on the deck's Instruments page
 does the same through the deck itself, and is refused while a run is going unless you confirm.
 
-## Script profiles: arguments and environment variables
+## Script profile settings
 
-Leave both empty unless your script reads them. They exist for one case: changing something
-(usually a port) without editing the script.
+A script profile needs its Python file and nothing else. The rest is under **Advanced** in its
+**Configuration** tab, and can stay empty:
+
+- **Python interpreter.** Empty, the script runs in the app's own Python, which has IvoryOS and
+  every driver installed from the Hub. A script from a project of your own usually needs that
+  project's packages: choose the project's interpreter (its `.venv/bin/python`, or
+  `.venv\Scripts\python.exe` on Windows). The line under the field says whether IvoryOS is
+  installed there, and offers to install it when it is not.
+- **Working folder.** Where the script runs, its own folder by default. Imports are found in the
+  script's folder, the working folder, and the project above the script (the folders holding
+  `pyproject.toml`, `setup.py`, `requirements.txt`, `.git` or `.idea`, and their `src/`), as
+  PyCharm does.
+- **Environment variables.** For changing something, usually a port, without editing the script:
 
 ```python
 import os
 pump_1 = SyringePump(port=os.environ.get("PUMP_PORT", "COM3"))   # COM3 unless set
 ```
 
-Set `PUMP_PORT = COM4` under the profile's **Advanced** settings and restart. The same script can
-have two profiles, *Bench A* with COM3 and *Bench B* with COM4. The app also sets `IVORYOS_PORT`,
-`IVORYOS_HOST` and `IVORYOS_DATA_DIR` for the script, which `ivoryos_edge.run(__name__)` reads;
-that is how a script lands on its profile's port without being changed.
+Add `PUMP_PORT = COM4` and restart. The same script can have two profiles, *Bench A* with COM3
+and *Bench B* with COM4. A `PYTHONPATH` variable adds a folder to the imports. The app also sets
+`IVORYOS_PORT`, `IVORYOS_HOST` and `IVORYOS_DATA_DIR` for the script, which
+`ivoryos_edge.run(__name__)` reads; that is how a script lands on its profile's port without
+being changed.
 
 A script written for IvoryOS Classic (`import ivoryos`) is offered a conversion when started; the
 changed lines are kept above as comments so going back is uncommenting.
@@ -81,6 +95,8 @@ deletes that deck's run history.
 
 ## Python for your own editor
 
-Each profile's Settings shows the interpreter path to paste into PyCharm or VS Code, whether
-IvoryOS is importable there, and the Python version. A script profile can create a `.venv` in its
-project folder with this app's edge installed, so your editor and the app run the same thing.
+The app's Settings, under **Python**, shows the interpreter the app's decks run in, with **Copy
+path**. Point your editor at it and it has the same packages (IvoryOS and every driver installed
+from the Hub): in PyCharm, Settings → Python Interpreter → Add → Existing; in VS Code, "Python:
+Select Interpreter" → Enter path. The other way round, a script profile can run in your project's
+own interpreter (above).

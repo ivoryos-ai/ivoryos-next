@@ -41,7 +41,9 @@ function withDefaults(home, profile) {
         name: profile.name || (profile.kind === 'script' ? path.basename(profile.script || 'script.py') : 'New deck'),
         kind: profile.kind === 'script' ? 'script' : 'deck',
         port: Number(profile.port) || DEFAULT_PORT,
-        listenOnNetwork: !!profile.listenOnNetwork,
+        // On unless the person turned it off: a deck is usually opened from another computer in the
+        // lab too, and listening on the network was IvoryOS Classic's default.
+        listenOnNetwork: profile.listenOnNetwork == null ? true : !!profile.listenOnNetwork,
         autoStart: !!profile.autoStart,
         // No notifications from this deck at all (a demo, or one being developed).
         muteNotifications: !!profile.muteNotifications,

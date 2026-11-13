@@ -108,9 +108,9 @@ Choose **Add a deck**. A deck is one set of instruments, with its own workflows 
   ivoryos_edge.run(__name__)
   ```
 
-Each running deck is also a web page, so you can open it in a browser on the same computer. Turn
-on **Reachable from other computers on the network** in the deck's Settings to open it from
-elsewhere in the lab.
+Each running deck is also a web page, so you can open it in a browser on the same computer, or
+from elsewhere in the lab at this computer's address. Turn off **Reachable from other computers on
+the network** in the deck's Settings to keep it to this computer.
 
 ## Help
 

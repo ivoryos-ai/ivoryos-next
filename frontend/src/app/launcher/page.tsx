@@ -905,20 +905,16 @@ function ScriptOverview({ api, profile, openSettings, openCode }: { api: Desktop
         {!!profile.args?.length && <Row label="Arguments"><span className="font-mono">{profile.args.join(' ')}</span></Row>}
         <Row label="Data">{profile.dataDir ? <span className="font-mono break-all">{profile.dataDir}</span> : 'The script’s own runs and workflows'}</Row>
       </div>
-      <div className={`${cardClass} p-4`}>
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-semibold">Environment</h3>
-          <Button small onClick={openSettings}>Edit</Button>
-        </div>
-        {env.length ? (
+      {/* Only when some are set: few scripts read any, and an empty card explaining them was noise. */}
+      {env.length > 0 && (
+        <div className={`${cardClass} p-4`}>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold">Environment</h3>
+            <Button small onClick={openSettings}>Edit</Button>
+          </div>
           <div className="space-y-1">{env.map(([k, v]) => <div key={k} className="text-sm font-mono"><span className="text-gray-900 dark:text-white">{k}</span>={v}</div>)}</div>
-        ) : (
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            None yet. To change a COM port without editing the script, read it from a variable, e.g.
-            <code className="font-mono"> SyringePump(port=os.environ.get(&quot;PUMP_PORT&quot;, &quot;COM3&quot;))</code>, and set it here.
-          </p>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
