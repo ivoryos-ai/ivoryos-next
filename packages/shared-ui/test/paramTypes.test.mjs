@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { importSource } from './tsImport.mjs';
 
-const { bareTypeName, isNumericType, isBoolType, containerKind, parseContainerText, containerProblem, containerExample } = await importSource('paramTypes');
+const { bareTypeName, isNumericType, isBoolType, choiceProblem, containerKind, parseContainerText, containerProblem, containerExample } = await importSource('paramTypes');
 
 // As the edge publishes them (introspection.py).
 const OFFSETS = { type: 'Dict[str, float]', required: true, is_mapping: true, key_type: { type: 'str' }, value_type: { type: 'float', numeric: true } };
@@ -70,7 +70,7 @@ test('a dict is held to its key and value types, a list to its items', () => {
   assert.equal(containerProblem(LEVELS, '[1, 2.5]'), null);
   assert.match(containerProblem(LEVELS, '[1, "x"]'), /item 2 \("x"\) is not a number \(float\)/);
   assert.match(containerProblem(LEVELS, '{"a": 1}'), /expects a list/);
-  assert.match(containerProblem(COLORS, '["red", "green"]'), /item 2 \("green"\) is not one of red, blue/);
+  assert.match(containerProblem(COLORS, '["red", "green"]'), /item 2 \("green"\) is not one of its choices \(red, blue\)/);
   assert.equal(containerProblem(WINDOW, '[1, "a"]'), null);
   assert.match(containerProblem(WINDOW, '["a", "a"]'), /item 1/);
   assert.equal(containerProblem(ANY_DICT, '{"anything": [1, 2]}'), null);
@@ -87,4 +87,48 @@ test('an example is built from the types', () => {
   assert.equal(containerExample(COLORS), '["red", "red"]');
   assert.equal(containerExample(WINDOW), '[1, "text"]');
   assert.equal(containerExample(ANY_DICT), '{"name": 1}');
+});
+
+// A bool as the edge publishes it: `options` True and False, for a dropdown. Matched as choices,
+// the `true` the Designer stores for one was "not one of its choices (True, False)".
+const VERIFY = { type: 'bool', required: false, default: true, options: ['True', 'False'] };
+const SPEED = { type: 'Speed', choices: [{ label: 'FAST', value: 3 }, { label: 'SLOW', value: 1.5 }], options: [3, 1.5] };
+
+test('a bool is True or False as the cast reads it, not one of its options as text', () => {
+  for (const ok of [true, false, 'True', 'true', 'FALSE', ' false ', '#verify']) {
+    assert.equal(choiceProblem(VERIFY, ok), null, JSON.stringify(ok));
+    assert.equal(choiceProblem({ ...VERIFY, type: 'Optional[bool]' }, ok), null, JSON.stringify(ok));
+  }
+  for (const no of ['maybe', 1, 'yes', { a: 1 }]) assert.equal(choiceProblem(VERIFY, no), 'is not True or False', JSON.stringify(no));
+  const FLAGS = { type: 'List[bool]', is_list: true, item_type: VERIFY };
+  assert.equal(containerProblem(FLAGS, '[true, "False"]'), null);
+  assert.match(containerProblem(FLAGS, '[true, "maybe"]'), /item 2 \("maybe"\) is not True or False/);
+  const NAMED = { type: 'Dict[str, bool]', is_mapping: true, key_type: { type: 'str' }, value_type: VERIFY };
+  assert.equal(containerProblem(NAMED, { a: true, b: 'false' }), null);
+});
+
+test('a choice is named by its label, its value, its value as text, or as a number', () => {
+  for (const ok of ['FAST', 3, '3', 1.5, '1.50', ' SLOW ', '', undefined, null, '#speed']) {
+    assert.equal(choiceProblem(SPEED, ok), null, JSON.stringify(ok));
+  }
+  assert.equal(choiceProblem(SPEED, 'fast'), 'is not one of its choices (FAST, SLOW)');
+  assert.equal(choiceProblem(SPEED, true), 'is not one of its choices (FAST, SLOW)');
+  assert.equal(choiceProblem({ type: 'Literal', options: ['a', 'b'] }, 'c'), 'is not one of its choices (a, b)');
+  // A tuple-valued Enum: the whole value is one choice.
+  const PLATE = { type: 'Plate', choices: [{ label: 'WELL_96', value: [8, 12] }] };
+  assert.equal(choiceProblem(PLATE, [8, 12]), null);
+  assert.equal(choiceProblem(PLATE, 'WELL_96'), null);
+  // A field with neither says nothing.
+  assert.equal(choiceProblem({ type: 'str' }, 'anything'), null);
+});
+
+test("a step's bool field reads and shows True and False the way its dropdown offers them", async () => {
+  const { fieldText, parseField, changedArguments } = await importSource('stepEdits');
+  assert.equal(fieldText(true), 'True');
+  assert.equal(fieldText(false), 'False');
+  assert.equal(parseField('True', VERIFY, undefined), true, 'a bool, not the option kept as text');
+  assert.equal(parseField('False', { ...VERIFY, type: 'Optional[bool]' }, undefined), false);
+  assert.equal(parseField('FAST', SPEED, undefined), 'FAST');
+  assert.deepEqual(changedArguments({ verify_weight: 'True' }, { verify_weight: true }, { verify_weight: VERIFY }), {});
+  assert.deepEqual(changedArguments({ verify_weight: 'False' }, { verify_weight: true }, { verify_weight: VERIFY }), { verify_weight: false });
 });

@@ -9,7 +9,7 @@ import { TrayPicker } from './TrayPicker';
 import { formatReference, referenceStart, rowUnitOf } from './labware';
 import { blankChoiceOf, type BlankChoices } from './runConfig';
 import { BlankChoiceField, BlankChoiceOptions, blankLabel } from './BlankChoice';
-import { isNumericType } from './paramTypes';
+import { asBool, isBoolType, isNumericType, valueText } from './paramTypes';
 
 /**
  * The iteration table: one column per `#variable`, one row per sample.
@@ -148,9 +148,12 @@ export function SpreadsheetTable({
     const repeated = isDesignatedRow && !refused ? repeats(v, idx) : [];
 
     if (varOptions[v]) {
+      // A bool column's `true` (a CSV, an older table) is its True: the run sends either as a
+      // JSON true (runConfig.ts), so the dropdown shows it picked rather than blank.
+      const bool = isBoolType(varTypes[v]) ? asBool(row[v]) : undefined;
       return (
         <select
-          value={row[v] || ''}
+          value={bool !== undefined ? valueText(bool) : row[v] || ''}
           onChange={(e) => onRowChange(idx, v, e.target.value)}
           title={refused ? `${row[v]} ${refused}` : undefined}
           className={`w-full cursor-pointer border-b bg-transparent px-2 py-1 text-sm outline-none transition-colors ${

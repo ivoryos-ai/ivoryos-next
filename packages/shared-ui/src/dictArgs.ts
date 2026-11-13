@@ -15,7 +15,7 @@
  */
 
 import { blankChoiceOf, choiceLabels, NONE_VALUE } from './runConfig';
-import { isBoolType, isNumericType, isTextType } from './paramTypes';
+import { choiceProblem, isBoolType, isNumericType, isTextType, valueText } from './paramTypes';
 
 const isPlainObject = (value: unknown): value is Record<string, any> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -162,8 +162,9 @@ export function cellText(value: any, info: any): string {
 export function cellValue(text: string, info: any): any {
   const t = text.trim();
   if (isWholeReference(t) || blankChoiceOf(t)) return t;
-  if (choiceLabels(info)) return t;
+  // Before the choices: a bool's options (True, False) are not choices to keep as text.
   if (isBoolType(info)) return /^true$/i.test(t) ? true : /^false$/i.test(t) ? false : t;
+  if (choiceLabels(info)) return t;
   if (isNumericType(info)) return t !== '' && Number.isFinite(Number(t)) ? Number(t) : t;
   if (isTextType(info)) return text;
   try { return parseLiteral(t); } catch { return t; }
@@ -177,12 +178,8 @@ export function cellProblem(text: string, info: any): string | null {
   if (t === '#') return "needs a variable name after the '#'";
   if (isWholeReference(t) || blankChoiceOf(t)) return null;
   if (t === '') return isTextType(info) ? null : 'needs a value';
-  const labels = choiceLabels(info);
-  if (labels) {
-    const values = (info?.options || []).map(String);
-    return labels.includes(t) || values.includes(t) ? null : `is not one of its choices (${labels.join(', ')})`;
-  }
-  if (isBoolType(info)) return /^(true|false)$/i.test(t) ? null : 'is not True or False';
+  // True or False for a bool, one of its choices for an Enum or a Literal (paramTypes.ts).
+  if (isBoolType(info) || choiceLabels(info)) return choiceProblem(info, t);
   if (isNumericType(info)) {
     if (!Number.isFinite(Number(t))) return `expects a number (${info.type})`;
     if (isWholeType(info) && !Number.isInteger(Number(t))) return `expects a whole number (${info.type})`;
@@ -209,7 +206,7 @@ export function dictProblems(value: unknown, info: any): string[] {
 export function compactValue(value: any): string {
   if (Array.isArray(value)) return `[${value.map(compactValue).join(', ')}]`;
   if (isPlainObject(value)) return `{${Object.entries(value).map(([k, v]) => `${k}: ${compactValue(v)}`).join(', ')}}`;
-  return value === null ? 'None' : String(value);
+  return value === null ? 'None' : valueText(value);
 }
 
 /** Rows pasted from a spreadsheet: one key per line, its value after a tab. Null if it is not that. */

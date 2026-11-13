@@ -113,6 +113,25 @@ def _is_numeric_type(info):
     return name in ("int", "float")
 
 
+def _is_bool_type(info):
+    """`bool` or `Optional[bool]`, and not a list, dict or object of them. Its `options` (True,
+    False) are a dropdown for the pages, not choices to match: matched as choices, a step holding
+    True (the value itself) or "true" was refused, on every bool argument."""
+    if not isinstance(info, dict) or info.get("is_mapping") or info.get("is_list") or info.get("is_object"):
+        return False
+    name = str(info.get("type", "")).strip()
+    inner = re.fullmatch(r"Optional\[(.*)\]", name)
+    if inner:
+        name = inner.group(1).strip()
+    return name == "bool"
+
+
+def _bool_ok(value):
+    """What the cast takes for a bool (introspection._cast_bool): a bool, or True/False as text
+    in any case."""
+    return isinstance(value, bool) or (isinstance(value, str) and value.strip().lower() in ("true", "false"))
+
+
 def _value_problem(info, value):
     """Why `value` does not fit a key, value or item of a container, or None. A `#name` is a
     reference, checked once the run puts a value there."""
@@ -120,6 +139,8 @@ def _value_problem(info, value):
         return None
     if _is_numeric_type(info) and not _numeric_ok(value):
         return f"is not a number ({info.get('type')})"
+    if _is_bool_type(info):
+        return None if _bool_ok(value) else "is not True or False"
     options = info.get("options")
     if options and not _is_reference(value):
         # By label, value or value's text (introspection.match_choice): an Enum value inside a
@@ -252,6 +273,14 @@ def _check_params(where, entry, params, issues, known_vars, instrument, method):
                 hint=(f"Write the bare number in {unit}, with no unit text — 65, not '65 {unit}'." if unit
                       else "Write the bare number, with no unit — 65, not '65 C'."),
             ))
+
+        if _is_bool_type(info):
+            if not _bool_ok(value):
+                issues.append(_issue(
+                    "error", where, f"'{name}' expects True or False but got {value!r}.",
+                    hint="Write true or false (JSON), or the text True or False.",
+                ))
+            continue
 
         options = info.get("options")
         if options and not _is_reference(value):

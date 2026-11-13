@@ -9,6 +9,7 @@
  */
 
 import { readNamedOutput } from './returnValues';
+import { valueText } from './paramTypes';
 
 /**
  * An argument by its `_vars` key: its name, or dotted into a dict or an object for a `#name` inside
@@ -43,7 +44,8 @@ export const toDetail = (s: any) => ({
 export const cellText = (v: unknown): string => {
   if (v === undefined || v === null) return '';
   if (typeof v === 'object') return JSON.stringify(v);
-  return String(v);
+  // A bool as Python writes it, as it was picked (True / False), in the table and the CSV alike.
+  return valueText(v);
 };
 
 export const csvField = (v: unknown) => `"${cellText(v).replace(/"/g, '""')}"`;

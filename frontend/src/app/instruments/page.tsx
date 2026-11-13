@@ -8,7 +8,7 @@ import { restartEdge } from '@/restartEdge';
 import Sidebar from '@/components/Sidebar';
 import DeckHistory from '@/components/DeckHistory';
 import FieldGuardDialog, { type GuardedField } from '@/components/safety/FieldGuardDialog';
-import { DictInput, ExtraArguments, NONE_VALUE, ResultView, SuggestInput, TrayPicker, acceptsNone, choiceSuggestions, confirmDialog, fieldGuard, guardHint, guardProblem, guardSuggestions, isOptionalObject, objectGiven, trayOf, unitOf, useDocumentTheme, type TrayView } from '@ivoryos/shared-ui';
+import { BoolSelect, DictInput, ExtraArguments, ResultView, SuggestInput, TrayPicker, choiceSuggestions, confirmDialog, fieldGuard, guardHint, guardProblem, guardSuggestions, isOptionalObject, objectGiven, trayOf, unitOf, useDocumentTheme, type TrayView } from '@ivoryos/shared-ui';
 import { useEdgeTopic } from '@/edgeSocket';
 import { isNumericType, isBoolType, isTextType, bareTypeName, containerKind, containerExample, containerProblem, notify } from '@ivoryos/shared-ui';
 
@@ -545,22 +545,16 @@ export default function InstrumentsPage() {
                                     {pData.required && <span className="text-red-500/80 dark:text-red-400/70 ml-1 text-sm leading-none shrink-0">*</span>}
                                   </label>
                                   {isBoolType(pData) ? (
-                                    // A None default (`Optional[bool] = None`) is null: String() rather than
-                                    // .toString(), which took the whole page down. An Optional offers None as
-                                    // the <None> marker, which the edge reads as None (runConfig.ts NONE_VALUE).
-                                    <select
-                                      value={currentValue != null ? String(currentValue) : (pData.default != null ? String(pData.default) : '')}
+                                    // True, False or None, the same dropdown as the Designer's (shared-ui
+                                    // BoolSelect): a JSON true / false, or the <None> marker the edge reads
+                                    // as None. Nothing picked leaves the driver's default.
+                                    <BoolSelect
+                                      value={currentValue}
+                                      defaultValue={'default' in pData ? pData.default : undefined}
+                                      required={!!pData.required}
+                                      onChange={(v) => handleInputChange(instName, methodName, paramPath, v)}
                                       className={`w-full bg-gray-50 dark:bg-black/40 border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none transition-colors text-gray-900 dark:text-white ${fieldBorder}`}
-                                      onChange={(e) => {
-                                        const v = e.target.value;
-                                        handleInputChange(instName, methodName, paramPath, v === NONE_VALUE ? NONE_VALUE : v === '' ? '' : v === 'true');
-                                      }}
-                                    >
-                                      <option value="">Select boolean...</option>
-                                      <option value="true">True</option>
-                                      <option value="false">False</option>
-                                      {acceptsNone(pData) && <option value={NONE_VALUE}>None</option>}
-                                    </select>
+                                    />
                                   ) : (
                                     <div className="flex items-center gap-1.5">
                                       <SuggestInput

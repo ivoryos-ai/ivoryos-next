@@ -14,6 +14,7 @@ import React, { useEffect } from 'react';
 import { AlertTriangle, Layers, Link2, PencilLine, Scissors, X } from 'lucide-react';
 
 import { flattenSavedBody, type SavedWorkflowBody } from './workflowBody';
+import { valueText } from './paramTypes';
 
 export type WorkflowPeekTarget = {
   name: string;
@@ -209,7 +210,7 @@ export function WorkflowPeek({
                                   const substituted = value !== v;
                                   return (
                                     <span key={k} className={substituted ? 'text-gray-900 dark:text-white' : ''}>
-                                      {k}={typeof value === 'object' ? JSON.stringify(value) : String(value)}{' '}
+                                      {k}={typeof value === 'object' ? JSON.stringify(value) : valueText(value)}{' '}
                                     </span>
                                   );
                                 })}

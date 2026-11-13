@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, RefreshCcw, Save, Table2 } from 'lucide-react';
-import { changedArguments, choiceLabels, fieldText } from '@ivoryos/shared-ui';
+import { NONE_VALUE, changedArguments, choiceLabels, fieldText, isBoolType } from '@ivoryos/shared-ui';
 import { loadStepEdit, saveStepEdit, type StepEditInfo, type StepEditScope } from '@/runEdits';
 import { liveEditHref } from '@/queuedEdit';
 import { withBase } from '@/config';
@@ -86,8 +86,8 @@ export default function StepEditor({ runId, stepId, run, retry, cancelLabel = 'B
         {names.length === 0 && <p className="text-sm text-gray-500">This step takes no arguments.</p>}
         {names.map(name => {
           const decl = declared[name] || {};
-          const options: any[] | null = choiceLabels(decl)
-            ?? (String(decl.type || '').toLowerCase() === 'bool' ? ['True', 'False'] : null);
+          // A bool is True, False or None (the <None> marker), as the Designer's dropdown offers it.
+          const options: any[] | null = isBoolType(decl) ? ['True', 'False', NONE_VALUE] : choiceLabels(decl);
           const value = texts[name] ?? '';
           const changed = value !== fieldText(info.args[name]) && !(value === '' && info.args[name] === undefined);
           return (
@@ -102,7 +102,7 @@ export default function StepEditor({ runId, stepId, run, retry, cancelLabel = 'B
                 <select value={value} onChange={e => setTexts(t => ({ ...t, [name]: e.target.value }))} className={field}>
                   {value === '' && <option value="">{decl.default !== undefined ? `default: ${fieldText(decl.default)}` : 'choose'}</option>}
                   {!options.map(String).includes(value) && value !== '' && <option value={value}>{value}</option>}
-                  {options.map(o => <option key={String(o)} value={String(o)}>{String(o)}</option>)}
+                  {options.map(o => <option key={String(o)} value={String(o)}>{o === NONE_VALUE ? 'None' : String(o)}</option>)}
                 </select>
               ) : (
                 <input value={value} onChange={e => setTexts(t => ({ ...t, [name]: e.target.value }))}

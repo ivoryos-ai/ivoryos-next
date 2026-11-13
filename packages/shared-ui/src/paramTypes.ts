@@ -65,6 +65,52 @@ export const isTextType = (info: unknown): boolean => {
   return bareTypeName(info) === 'str';
 };
 
+/** True or False as the edge's cast reads them (`_cast_bool` in introspection.py): a boolean, or
+ *  the text true/false in any case. Nothing else: 1 and "yes" are refused there. */
+export const isBoolValue = (value: unknown): boolean =>
+  typeof value === 'boolean' || (typeof value === 'string' && /^(true|false)$/i.test(value.trim()));
+
+/** The bool a value stands for (a boolean, or True/False as text in any case), else undefined.
+ *  Every page sends a bool argument as this JSON true or false, whatever was typed or picked. */
+export const asBool = (value: unknown): boolean | undefined => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return undefined;
+  const t = value.trim().toLowerCase();
+  return t === 'true' ? true : t === 'false' ? false : undefined;
+};
+
+/** A value as a page shows it: a bool as Python writes it (True, False), which is what its
+ *  dropdown offers and what the call reads as, never JavaScript's `true`. Anything else as text. */
+export const valueText = (value: unknown): string =>
+  typeof value === 'boolean' ? (value ? 'True' : 'False') : String(value);
+
+/**
+ * Why one value is not what its field takes, judged as the edge's cast judges it, or null: True or
+ * False for a bool, and for an Enum or a Literal one of its choices, by its label (what a workflow
+ * stores), its value, its value's text, or as a number (`introspection.match_choice`). Null for a
+ * field with neither, and for nothing given or a `#name`.
+ *
+ * A bool's `options` (True, False) are what a form offers, never choices to match as text: matched
+ * that way, the `true` a step holds for one was "not one of its choices (True, False)", on every
+ * bool argument.
+ */
+export const choiceProblem = (info: unknown, value: unknown): string | null => {
+  const entry = asInfo(info);
+  if (!entry || value === undefined || value === null || value === '') return null;
+  if (typeof value === 'string' && /^#\w+$/.test(value.trim())) return null;
+  if (isBoolType(entry)) return isBoolValue(value) ? null : 'is not True or False';
+  const choices: { label: string; value: unknown }[] | null = Array.isArray(entry.choices)
+    ? entry.choices.map((c: any) => ({ label: String(c.label), value: c.value }))
+    : Array.isArray(entry.options) ? entry.options.map((o: unknown) => ({ label: String(o), value: o })) : null;
+  if (!choices) return null;
+  const asText = (v: unknown) => (typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v));
+  const given = asText(value).trim();
+  const number = given !== '' && typeof value !== 'boolean' ? Number(given) : NaN;
+  const named = choices.some((c) => c.label === given || asText(c.value) === given
+    || (typeof c.value === 'number' && c.value === number));
+  return named ? null : `is not one of its choices (${choices.map((c) => c.label).join(', ')})`;
+};
+
 export type ContainerKind = 'mapping' | 'list';
 
 /** A dict or a list field, from the schema's own flag, or from the type's name for a schema
@@ -116,14 +162,9 @@ const valueProblem = (info: unknown, value: unknown): string | null => {
     if (typeof value === 'boolean' || value === '' || typeof value === 'object' || isNaN(Number(value))) return `is not a number (${entry.type})`;
     return null;
   }
-  if (isBoolType(entry) && typeof value !== 'boolean' && !/^(true|false)$/i.test(String(value))) return 'is not true or false';
-  // A choice by its label (an Enum member's name, what a workflow stores) or by its value.
-  const labels: string[] = Array.isArray(entry.choices) ? entry.choices.map((c: any) => String(c.label))
-    : Array.isArray(entry.options) ? entry.options.map(String) : [];
-  const accepted = Array.isArray(entry.choices) ? entry.choices.flatMap((c: any) => [String(c.label), String(c.value)]) : labels;
-  if (labels.length && !accepted.includes(String(value))) {
-    return `is not one of ${labels.join(', ')}`;
-  }
+  // True or False for a bool (whose options are not matched as text), a choice by its label (an
+  // Enum member's name, what a workflow stores) or by its value.
+  if (isBoolType(entry) || Array.isArray(entry.choices) || Array.isArray(entry.options)) return choiceProblem(entry, value);
   return containerProblem(entry, value);
 };
 
