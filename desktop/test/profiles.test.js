@@ -5,7 +5,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { loadProfiles, saveProfiles, withDefaults, validateProfile, commandFor } = require('../src/profiles');
-const { updateInstrument, removeInstrument, setInstrumentEnabled, freeName, DeckEditError } = require('../src/deckEdit');
+const {
+    updateInstrument, removeInstrument, setInstrumentEnabled, freeName, DeckEditError, removePlugin, setPluginEnabled,
+} = require('../src/deckEdit');
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'ivoryos-prof-'));
 
@@ -125,6 +127,20 @@ test('instruments can be switched off, back on, and removed', () => {
     assert.equal(off.instruments[1].enabled, false);
     assert.equal('enabled' in setInstrumentEnabled(off, 'balance', true).instruments[1], false);
     assert.deepEqual(removeInstrument(deck, 'pump').instruments.map((i) => i.name), ['balance']);
+});
+
+test('plugins can be switched off, back on, and removed', () => {
+    const withPlugins = { ...deck, plugins: ['view_kit.plugin:plugin', 'other.plugin:plugin'] };
+    const off = setPluginEnabled(withPlugins, 'view_kit.plugin:plugin', false);
+    assert.deepEqual(off.plugins, [{ ref: 'view_kit.plugin:plugin', enabled: false }, 'other.plugin:plugin']);
+    assert.deepEqual(withPlugins.plugins[0], 'view_kit.plugin:plugin', 'original untouched');
+    // Back on is the plain string again, which any edge reads.
+    assert.deepEqual(setPluginEnabled(off, 'view_kit.plugin:plugin', true).plugins, withPlugins.plugins);
+    // Removed whichever form it is in; the last one removed takes the key with it.
+    assert.deepEqual(removePlugin(off, 'view_kit.plugin:plugin').plugins, ['other.plugin:plugin']);
+    assert.equal('plugins' in removePlugin(removePlugin(off, 'view_kit.plugin:plugin'), 'other.plugin:plugin'), false);
+    assert.throws(() => removePlugin(withPlugins, 'ghost:plugin'), /no plugin/);
+    assert.throws(() => setPluginEnabled(withPlugins, 'ghost:plugin', false), DeckEditError);
 });
 
 test('freeName makes a usable, unused instrument name', () => {

@@ -3,6 +3,7 @@
 // (tabs.ts); the Automation Hub is the real one, read anonymously through the app's own catalog code
 // (desktop/src/hubCatalog.js). Anything that would reach the machine or an account says it belongs
 // to the desktop app instead of pretending.
+import { pluginEnabled, pluginRef } from '@/desktop';
 import type { AccountInfo, DeckInstrument, DesktopApi, Snapshot } from '@/desktop';
 import { HubCatalog } from '../../../desktop/src/hubCatalog.js';
 import { HUB_AUTH } from '../../../desktop/src/hubProject.js';
@@ -169,13 +170,20 @@ export function makeDesktopApi(lab: Lab, realFetch: typeof fetch): DesktopApi {
         await simulate(id, inst, at === -1 ? undefined : instruments[at]);
         if (at === -1) instruments.push(inst); else instruments[at] = inst;
       }
-      d.deck = { ...d.deck, name: manifest.name || d.deck.name, packages: [...new Set([...(d.deck.packages || []), ...(manifest.packages || [])])], instruments };
+      // Plugins are listed on the deck (and can be switched off or removed there), never loaded.
+      const plugins = [...(d.deck.plugins || [])];
+      const pluginsAdded: string[] = [];
+      for (const ref of manifest.plugins || []) {
+        const at = plugins.findIndex(p => pluginRef(p) === ref);
+        if (at === -1) { plugins.push(ref); pluginsAdded.push(ref); } else if (!pluginEnabled(plugins[at])) { plugins[at] = ref; pluginsAdded.push(ref); }
+      }
+      d.deck = { ...d.deck, name: manifest.name || d.deck.name, packages: [...new Set([...(d.deck.packages || []), ...(manifest.packages || [])])], instruments, ...(plugins.length ? { plugins } : {}) };
       for (const pkg of manifest.packages || []) lab.log(id, `Would install ${pkg} (the tour downloads nothing)`);
       if ((manifest.plugins || []).length) lab.log(id, 'Plugins run in the desktop app; the tour lists them but does not load them.');
       changed();
       await start(id);
       const names = (manifest.instruments || []).map(i => i.name);
-      return { added: names.filter(n => !before.has(n)), replaced: names.filter(n => before.has(n)), pluginsAdded: [] };
+      return { added: names.filter(n => !before.has(n)), replaced: names.filter(n => before.has(n)), pluginsAdded };
     },
     addWorkflows: async (id, workflows) => {
       const edge = lab.get(id).edge;
@@ -210,6 +218,19 @@ export function makeDesktopApi(lab: Lab, realFetch: typeof fetch): DesktopApi {
       lab.setInstruments(id, (lab.get(id).deck.instruments || []).map(i => (i.name === name ? { ...i, enabled } : i)));
       await start(id);
       return lab.get(id).deck;
+    },
+    // The tour never loads plugins, so these only change what the deck lists.
+    removePlugin: async (id, ref) => {
+      const d = lab.get(id);
+      d.deck = { ...d.deck, plugins: (d.deck.plugins || []).filter(p => pluginRef(p) !== ref) };
+      changed();
+      return d.deck;
+    },
+    setPluginEnabled: async (id, ref, enabled) => {
+      const d = lab.get(id);
+      d.deck = { ...d.deck, plugins: (d.deck.plugins || []).map(p => (pluginRef(p) !== ref ? p : enabled ? ref : { ref, enabled: false })) };
+      changed();
+      return d.deck;
     },
     freeName: async (id, suggestion) => {
       const taken = new Set((lab.get(id).deck.instruments || []).map(i => i.name));

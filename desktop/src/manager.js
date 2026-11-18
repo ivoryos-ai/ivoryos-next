@@ -18,7 +18,7 @@ const {
 } = require('./profiles');
 const { normalizeNotifications, changeNotifications } = require('./notifyPrefs');
 const { validateManifest, mergeIntoDeck } = require('./manifest');
-const { updateInstrument, removeInstrument, setInstrumentEnabled } = require('./deckEdit');
+const { updateInstrument, removeInstrument, setInstrumentEnabled, removePlugin, setPluginEnabled } = require('./deckEdit');
 const { addWorkflows } = require('./library');
 const { selectionOf, withSelection } = require('./optimizers');
 
@@ -424,6 +424,15 @@ class ProfileManager extends EventEmitter {
 
     setInstrumentEnabled(id, name, enabled) {
         return this._editDeck(id, (deck) => setInstrumentEnabled(deck, name, enabled));
+    }
+
+    /** Take a plugin off the deck. Its package stays installed, as an instrument's driver does. */
+    removePlugin(id, ref) {
+        return this._editDeck(id, (deck) => removePlugin(deck, ref));
+    }
+
+    setPluginEnabled(id, ref, enabled) {
+        return this._editDeck(id, (deck) => setPluginEnabled(deck, ref, enabled));
     }
 
     /**

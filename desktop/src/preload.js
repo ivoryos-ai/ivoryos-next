@@ -47,6 +47,8 @@ contextBridge.exposeInMainWorld('ivoryosDesktop', {
     saveInstrument: (id, originalName, entry) => call('launcher:instrument:save', id, originalName, entry),
     removeInstrument: (id, name) => call('launcher:instrument:remove', id, name),
     setInstrumentEnabled: (id, name, enabled) => call('launcher:instrument:enable', id, name, enabled),
+    removePlugin: (id, ref) => call('launcher:plugin:remove', id, ref),
+    setPluginEnabled: (id, ref, enabled) => call('launcher:plugin:enable', id, ref, enabled),
     install: (id, manifest) => call('launcher:install', id, manifest),
     readScript: (id) => call('launcher:script:read', id),
     writeScript: (id, text) => call('launcher:script:write', id, text),

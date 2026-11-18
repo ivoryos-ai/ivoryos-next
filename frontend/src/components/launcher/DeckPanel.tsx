@@ -1,14 +1,17 @@
 "use client";
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Package, Pencil, Plus, Store, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Package, Pencil, Plus, Puzzle, Store, Trash2 } from 'lucide-react';
 import { confirmDialog, notify } from '@ivoryos/shared-ui';
-import type { Deck, DeckInstrument, DesktopApi, HubLinkRequest, Profile } from '@/desktop';
+import { pluginEnabled, pluginRef, type Deck, type DeckInstrument, type DesktopApi, type HubLinkRequest, type Profile } from '@/desktop';
 import HubBrowser, { type HubKind } from './HubBrowser';
 import InstrumentEditor from './InstrumentEditor';
 import type { InstrumentSeed } from './PrivateRepos';
 import { Button, cardClass } from './ui';
 
-type LoadState = { loaded: Set<string>; errors: Record<string, string> } | null;
+type Loaded = { loaded: Set<string>; errors: Record<string, string> };
+// Plugins are keyed by their deck reference ("package.module:attribute"), which /api/plugins
+// reports as `ref` on a loaded plugin and on an import (`plugin`) or on_start (`ref`) failure.
+type LoadState = { instruments: Loaded; plugins: Loaded | null } | null;
 
 /** One deck profile's instruments: what is on it, whether each loaded, and how to change it. */
 export default function DeckPanel({ api, profile, hubUrl, pro, onUpgrade, onOpenProfile, browsing, setBrowsing, hubKind, hubLink, seed: handedSeed, onSeedTaken }: {
@@ -44,11 +47,25 @@ export default function DeckPanel({ api, profile, hubUrl, pro, onUpgrade, onOpen
   useEffect(() => {
     if (!running || !profile.status.url) { setLoad(null); return; }
     let cancelled = false;
-    fetch(`${profile.status.url}/api/status`).then(r => r.json()).then(s => {
+    const base = profile.status.url;
+    Promise.all([
+      fetch(`${base}/api/status`).then(r => r.json()),
+      // An edge from before plugins reported their `ref` still answers; it just marks none loaded.
+      fetch(`${base}/api/plugins`).then(r => r.json()).catch(() => null),
+    ]).then(([s, p]) => {
       if (cancelled) return;
       const errors: Record<string, string> = {};
       for (const e of s.instrument_errors || []) if (e.name) errors[e.name] = `${e.error}`;
-      setLoad({ loaded: new Set(Object.keys(s.instruments || {})), errors });
+      let plugins: Loaded | null = null;
+      if (p) {
+        const pluginErrors: Record<string, string> = {};
+        for (const e of p.errors || []) {
+          const ref = e.ref || e.plugin;
+          if (ref) pluginErrors[ref] = `${e.error}`;
+        }
+        plugins = { loaded: new Set((p.plugins || []).map((x: { ref?: string }) => x.ref).filter(Boolean)), errors: pluginErrors };
+      }
+      setLoad({ instruments: { loaded: new Set(Object.keys(s.instruments || {})), errors }, plugins });
     }).catch(() => { if (!cancelled) setLoad(null); });
     return () => { cancelled = true; };
   }, [running, profile.status.url, deck]);
@@ -68,6 +85,7 @@ export default function DeckPanel({ api, profile, hubUrl, pro, onUpgrade, onOpen
   };
 
   const instruments = deck?.instruments || [];
+  const plugins = (deck?.plugins || []).filter(p => pluginRef(p));
   const hubTarget = useMemo(() => ({ id: profile.id, name: profile.name }), [profile.id, profile.name]);
   return (
     <div className="space-y-5">
@@ -90,8 +108,8 @@ export default function DeckPanel({ api, profile, hubUrl, pro, onUpgrade, onOpen
         <ul className={`${cardClass} divide-y divide-gray-100 dark:divide-white/5 overflow-hidden`}>
           {instruments.map(inst => {
             const off = inst.enabled === false;
-            const error = load?.errors[inst.name];
-            const loaded = load?.loaded.has(inst.name);
+            const error = load?.instruments.errors[inst.name];
+            const loaded = load?.instruments.loaded.has(inst.name);
             const args = Object.entries(inst.args || {}).filter(([, v]) => typeof v !== 'object' || v === null);
             return (
               <li key={inst.name} className={`px-4 py-3 flex items-start gap-3 ${off ? 'opacity-60' : ''}`}>
@@ -126,6 +144,44 @@ export default function DeckPanel({ api, profile, hubUrl, pro, onUpgrade, onOpen
             );
           })}
         </ul>
+      )}
+
+      {plugins.length > 0 && (
+        <div>
+          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5"><Puzzle className="w-3.5 h-3.5" /> Plugins</div>
+          <ul className={`${cardClass} divide-y divide-gray-100 dark:divide-white/5 overflow-hidden`}>
+            {plugins.map(entry => {
+              const ref = pluginRef(entry);
+              const off = !pluginEnabled(entry);
+              const error = load?.plugins?.errors[ref];
+              const loaded = load?.plugins?.loaded.has(ref);
+              return (
+                <li key={ref} className={`px-4 py-3 flex items-start gap-3 ${off ? 'opacity-60' : ''}`}>
+                  <div className="mt-0.5 w-4">
+                    {!off && error ? <AlertTriangle className="w-4 h-4 text-red-500" />
+                      : !off && loaded ? <CheckCircle2 className="w-4 h-4 text-green-500" /> : null}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="font-mono text-sm text-gray-900 dark:text-gray-100 break-all">{ref}</span>
+                      {off && <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">off</span>}
+                    </div>
+                    {!off && error && <div className="mt-1 text-xs text-red-600 dark:text-red-400 break-words">{error}</div>}
+                  </div>
+                  <label className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 cursor-pointer" title="Switched off plugins stay on the deck but are not loaded">
+                    <input type="checkbox" checked={!off} onChange={e => act(() => api.setPluginEnabled(profile.id, ref, e.target.checked))} className="accent-accent" />
+                    on
+                  </label>
+                  <Button small tone="ghost" title="Remove from the deck" onClick={async () => {
+                    if (await confirmDialog(`Remove the plugin ${ref} from this deck? Its package stays installed.`, { title: 'Remove plugin?', confirmLabel: 'Remove', tone: 'danger' })) {
+                      act(() => api.removePlugin(profile.id, ref));
+                    }
+                  }}><Trash2 className="w-3.5 h-3.5 text-red-500" /></Button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
 
       {(deck?.packages || []).length > 0 && (

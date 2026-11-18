@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Ban, Loader2, PanelsTopLeft, Puzzle } from 'lucide-react';
 import { confirmDialog } from '@ivoryos/shared-ui';
-import type { Deck, DesktopApi, HubPlugin } from '@/desktop';
+import { pluginEnabled, pluginRef, type Deck, type DesktopApi, type HubPlugin } from '@/desktop';
 import { Button } from './ui';
 import { addTo, deckLabel, CatalogCard, Notice, VisibilityBadge, type DeckAccess } from './hubUi';
 import { installFailed } from './ReportProblem';
@@ -52,7 +52,8 @@ export function PluginDetail({ api, access, deck, plugin, onDone }: {
 }) {
   const [busy, setBusy] = useState(false);
   const entry = plugin.entry;
-  const already = !entry.blocked && entry.plugins.every(ref => (deck?.plugins || []).includes(ref));
+  // On the deck and switched on: one switched off can be added again, which turns it back on.
+  const already = !entry.blocked && entry.plugins.every(ref => (deck?.plugins || []).some(p => pluginEnabled(p) && pluginRef(p) === ref));
   // A plugin made for particular drivers (not "agnostic") reaches instruments by name; say when
   // this deck has none of the Hub drivers it was made for, without refusing.
   const deckModules = new Set((deck?.instruments || []).map(i => Number(i.hub?.moduleId)).filter(Number.isFinite));

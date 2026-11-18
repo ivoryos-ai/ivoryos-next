@@ -165,7 +165,20 @@ export type DeckInstrument = {
   signature?: { init_args: ArgDef[]; kwargs: boolean };
 };
 
-export type Deck = { format?: string; name?: string; packages?: string[]; paths?: string[]; instruments?: DeckInstrument[]; plugins?: string[] };
+/** A deck's `plugins` entry: "package.module:attribute" while on, an object while switched off
+ * (desktop/src/deckEdit.js, ivoryos_edge.plugins.plugin_ref). */
+export type DeckPlugin = string | { ref: string; enabled?: boolean };
+
+export type Deck = { format?: string; name?: string; packages?: string[]; paths?: string[]; instruments?: DeckInstrument[]; plugins?: DeckPlugin[] };
+
+/** The reference a deck's `plugins` entry names, whether or not it is switched off. */
+export function pluginRef(entry: DeckPlugin): string {
+  return (typeof entry === 'string' ? entry : entry?.ref || '').trim();
+}
+
+export function pluginEnabled(entry: DeckPlugin): boolean {
+  return !(typeof entry === 'object' && entry && entry.enabled === false);
+}
 
 /**
  * Who may see a Hub row. `private`: its contributor; `org`: every member of its organization. The
@@ -326,6 +339,10 @@ export interface DesktopApi {
   saveInstrument(id: string, originalName: string | null, entry: DeckInstrument): Promise<Deck>;
   removeInstrument(id: string, name: string): Promise<Deck>;
   setInstrumentEnabled(id: string, name: string, enabled: boolean): Promise<Deck>;
+  /** Take a plugin (by its "package.module:attribute") off the deck; its package stays installed. */
+  removePlugin(id: string, ref: string): Promise<Deck>;
+  /** Keep a plugin listed on the deck but do not load it. */
+  setPluginEnabled(id: string, ref: string, enabled: boolean): Promise<Deck>;
   install(id: string, manifest: { name?: string; packages: string[]; instruments: DeckInstrument[]; plugins?: string[] }): Promise<{ added: string[]; replaced: string[]; pluginsAdded?: string[] }>;
   /** Add workflows to a profile's library without replacing any; a name in use gets a number. */
   addWorkflows(id: string, workflows: { name: string; body: Record<string, unknown> }[]): Promise<{ requested: string; saved: string }[]>;

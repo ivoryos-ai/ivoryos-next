@@ -81,7 +81,7 @@ A deck file describes the same thing as data, which is what the desktop app and 
 | `import`, `class`, `args` | `cls = getattr(import_module(import), class); obj = cls(**args)`. A value `{"$object": {import, class, args}}` builds a nested object first. |
 | `calls` | methods run after construction, in order (`connect()`). |
 | `enabled: false` | kept in the file, not loaded (an unplugged device). |
-| `plugins` | `package.module:attribute` of `Plugin` objects. |
+| `plugins` | `package.module:attribute` of `Plugin` objects. `{"ref": "package.module:attribute", "enabled": false}` keeps one listed without loading it (the launcher writes this when a plugin is switched off). |
 
 ```bash
 ivoryos-edge --deck deck.json --port 8090 --data-dir ~/decks/suzuki
