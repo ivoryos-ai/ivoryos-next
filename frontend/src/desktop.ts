@@ -165,7 +165,39 @@ export type DeckInstrument = {
   signature?: { init_args: ArgDef[]; kwargs: boolean };
 };
 
-export type Deck = { format?: string; name?: string; packages?: string[]; paths?: string[]; instruments?: DeckInstrument[]; plugins?: string[] };
+/** A deck's `plugins` entry: "package.module:attribute" while on, an object while switched off
+ * (desktop/src/deckEdit.js, ivoryos_edge.plugins.plugin_ref). */
+export type DeckPlugin = string | { ref: string; enabled?: boolean };
+
+export type Deck = { format?: string; name?: string; packages?: string[]; paths?: string[]; instruments?: DeckInstrument[]; plugins?: DeckPlugin[] };
+
+/** One of a deck's `packages`, as the launcher describes it (desktop/src/deckPackages.js describePackages). */
+export type DeckPackage = {
+  requirement: string;
+  key: string;
+  name: string;
+  /** The version part as written (`==1.2.0`, `>=0.3`), empty when unpinned. */
+  spec: string;
+  /** `name` is an index package; `path` a local archive (a private repository); `url` a VCS or URL requirement. */
+  kind: 'name' | 'path' | 'url';
+  version: string | null;
+  /** Ax, BayBE or NIMO: managed on the deck's Optimizers card. */
+  optimizer: string | null;
+  usedBy: string[];
+  /** `unused`: installed, and nothing on the deck needs it. `unknown`: not installed, or not identified. */
+  status: 'used' | 'unused' | 'unknown';
+};
+
+export type PackageUpdate = { latest: string | null; changes: { change: '+' | '-'; name: string; version: string }[]; error?: string };
+
+/** The reference a deck's `plugins` entry names, whether or not it is switched off. */
+export function pluginRef(entry: DeckPlugin): string {
+  return (typeof entry === 'string' ? entry : entry?.ref || '').trim();
+}
+
+export function pluginEnabled(entry: DeckPlugin): boolean {
+  return !(typeof entry === 'object' && entry && entry.enabled === false);
+}
 
 /**
  * Who may see a Hub row. `private`: its contributor; `org`: every member of its organization. The
@@ -326,6 +358,18 @@ export interface DesktopApi {
   saveInstrument(id: string, originalName: string | null, entry: DeckInstrument): Promise<Deck>;
   removeInstrument(id: string, name: string): Promise<Deck>;
   setInstrumentEnabled(id: string, name: string, enabled: boolean): Promise<Deck>;
+  /** Take a plugin (by its "package.module:attribute") off the deck; its package stays installed. */
+  removePlugin(id: string, ref: string): Promise<Deck>;
+  /** Keep a plugin listed on the deck but do not load it. */
+  setPluginEnabled(id: string, ref: string, enabled: boolean): Promise<Deck>;
+  /** The deck's packages with installed versions and what needs each (desktop/src/deckPackages.js). */
+  deckPackages(id: string): Promise<{ rows: DeckPackage[]; error: string | null }>;
+  /** Per package key, the newest version that installs with the rest of the deck; latest null = up to date. */
+  checkPackageUpdates(id: string): Promise<Record<string, PackageUpdate>>;
+  /** Pin one package to `version` and install it with the deck's list; a running deck restarts. */
+  updatePackage(id: string, key: string, version: string): Promise<Deck>;
+  /** Take packages off the deck's list. Nothing is uninstalled. */
+  removePackages(id: string, keys: string[]): Promise<Deck>;
   install(id: string, manifest: { name?: string; packages: string[]; instruments: DeckInstrument[]; plugins?: string[] }): Promise<{ added: string[]; replaced: string[]; pluginsAdded?: string[] }>;
   /** Add workflows to a profile's library without replacing any; a name in use gets a number. */
   addWorkflows(id: string, workflows: { name: string; body: Record<string, unknown> }[]): Promise<{ requested: string; saved: string }[]>;

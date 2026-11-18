@@ -3,10 +3,12 @@
 // (tabs.ts); the Automation Hub is the real one, read anonymously through the app's own catalog code
 // (desktop/src/hubCatalog.js). Anything that would reach the machine or an account says it belongs
 // to the desktop app instead of pretending.
+import { pluginEnabled, pluginRef } from '@/desktop';
 import type { AccountInfo, DeckInstrument, DesktopApi, Snapshot } from '@/desktop';
 import { HubCatalog } from '../../../desktop/src/hubCatalog.js';
 import { HUB_AUTH } from '../../../desktop/src/hubProject.js';
 import { OPTIMIZERS, selectionOf } from '../../../desktop/src/optimizers.js';
+import { deckEntries, describePackages, normalize, parseRequirement } from '../../../desktop/src/deckPackages.js';
 import { addDeck, EXAMPLE_ID } from './example';
 import { type Lab, type MethodSchema, TOUR_BASE } from './lab';
 import { TourTabs } from './tabs';
@@ -169,13 +171,20 @@ export function makeDesktopApi(lab: Lab, realFetch: typeof fetch): DesktopApi {
         await simulate(id, inst, at === -1 ? undefined : instruments[at]);
         if (at === -1) instruments.push(inst); else instruments[at] = inst;
       }
-      d.deck = { ...d.deck, name: manifest.name || d.deck.name, packages: [...new Set([...(d.deck.packages || []), ...(manifest.packages || [])])], instruments };
+      // Plugins are listed on the deck (and can be switched off or removed there), never loaded.
+      const plugins = [...(d.deck.plugins || [])];
+      const pluginsAdded: string[] = [];
+      for (const ref of manifest.plugins || []) {
+        const at = plugins.findIndex(p => pluginRef(p) === ref);
+        if (at === -1) { plugins.push(ref); pluginsAdded.push(ref); } else if (!pluginEnabled(plugins[at])) { plugins[at] = ref; pluginsAdded.push(ref); }
+      }
+      d.deck = { ...d.deck, name: manifest.name || d.deck.name, packages: [...new Set([...(d.deck.packages || []), ...(manifest.packages || [])])], instruments, ...(plugins.length ? { plugins } : {}) };
       for (const pkg of manifest.packages || []) lab.log(id, `Would install ${pkg} (the tour downloads nothing)`);
       if ((manifest.plugins || []).length) lab.log(id, 'Plugins run in the desktop app; the tour lists them but does not load them.');
       changed();
       await start(id);
       const names = (manifest.instruments || []).map(i => i.name);
-      return { added: names.filter(n => !before.has(n)), replaced: names.filter(n => before.has(n)), pluginsAdded: [] };
+      return { added: names.filter(n => !before.has(n)), replaced: names.filter(n => before.has(n)), pluginsAdded };
     },
     addWorkflows: async (id, workflows) => {
       const edge = lab.get(id).edge;
@@ -210,6 +219,47 @@ export function makeDesktopApi(lab: Lab, realFetch: typeof fetch): DesktopApi {
       lab.setInstruments(id, (lab.get(id).deck.instruments || []).map(i => (i.name === name ? { ...i, enabled } : i)));
       await start(id);
       return lab.get(id).deck;
+    },
+    // The tour never loads plugins, so these only change what the deck lists.
+    removePlugin: async (id, ref) => {
+      const d = lab.get(id);
+      d.deck = { ...d.deck, plugins: (d.deck.plugins || []).filter(p => pluginRef(p) !== ref) };
+      changed();
+      return d.deck;
+    },
+    setPluginEnabled: async (id, ref, enabled) => {
+      const d = lab.get(id);
+      d.deck = { ...d.deck, plugins: (d.deck.plugins || []).map(p => (pluginRef(p) !== ref ? p : enabled ? ref : { ref, enabled: false })) };
+      changed();
+      return d.deck;
+    },
+    // No Python in the tour: a package counts as installed at the version it is pinned to, and as
+    // needed by an entry whose module has its name (the app asks the environment instead).
+    deckPackages: async id => {
+      const deck = lab.get(id).deck;
+      const requirements: Record<string, { dist: string; version: string } | null> = {};
+      for (const req of deck.packages || []) {
+        const r = parseRequirement(req);
+        const pinned = /^==\s*(\S+)$/.exec(r.spec || '');
+        requirements[r.key] = r.name && pinned ? { dist: r.name, version: pinned[1] } : null;
+      }
+      const entries: Record<string, string[]> = {};
+      for (const e of deckEntries(deck)) {
+        const mods = new Set(e.modules.map((m: string) => normalize(m)));
+        entries[e.id] = (deck.packages || []).map(parseRequirement).filter(r => r.name && mods.has(r.name)).map(r => r.key);
+      }
+      return { rows: describePackages(deck, { requirements, entries }), error: null };
+    },
+    checkPackageUpdates: async id => Object.fromEntries((lab.get(id).deck.packages || []).map(req => [
+      parseRequirement(req).key, { latest: null, changes: [], error: 'The tour downloads nothing, so it does not look for updates.' },
+    ])),
+    updatePackage: async () => { throw new Error(DESKTOP_ONLY); },
+    removePackages: async (id, keys) => {
+      const d = lab.get(id);
+      const drop = new Set(keys);
+      d.deck = { ...d.deck, packages: (d.deck.packages || []).filter(req => !drop.has(parseRequirement(req).key)) };
+      changed();
+      return d.deck;
     },
     freeName: async (id, suggestion) => {
       const taken = new Set((lab.get(id).deck.instruments || []).map(i => i.name));

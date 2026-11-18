@@ -17,8 +17,11 @@ const {
     loadProfiles, saveProfiles, withDefaults, validateProfile, commandFor, usesOwnInterpreter, readDeckFile, writeDeckFile,
 } = require('./profiles');
 const { normalizeNotifications, changeNotifications } = require('./notifyPrefs');
-const { validateManifest, mergeIntoDeck } = require('./manifest');
-const { updateInstrument, removeInstrument, setInstrumentEnabled } = require('./deckEdit');
+const { validateManifest, mergeIntoDeck, packageKey } = require('./manifest');
+const {
+    parseRequirement, withVersion, probeInput, describePackages, packagesAfterRemoving, withPackages, optimizerOf,
+} = require('./deckPackages');
+const { updateInstrument, removeInstrument, setInstrumentEnabled, removePlugin, setPluginEnabled } = require('./deckEdit');
 const { addWorkflows } = require('./library');
 const { selectionOf, withSelection } = require('./optimizers');
 
@@ -397,11 +400,11 @@ class ProfileManager extends EventEmitter {
         return readDeckFile(this._deckProfile(id).deck);
     }
 
-    /** Apply a deck edit and, if the profile is running, restart it so the edge loads it. */
+    /** Apply a deck edit (sync or async) and, if the profile is running, restart it so the edge loads it. */
     _editDeck(id, edit) {
         return this._exclusive(id, async () => {
             const profile = this._deckProfile(id);
-            const next = edit(readDeckFile(profile.deck));
+            const next = await edit(readDeckFile(profile.deck));
             writeDeckFile(profile.deck, next);
             this.emit('changed');
             if (this.running.has(id)) {
@@ -418,12 +421,126 @@ class ProfileManager extends EventEmitter {
             : mergeIntoDeck(deck, { instruments: [entry] }).deck));
     }
 
+    /**
+     * Take an instrument off the deck, and off the deck's package list whatever only it needed
+     * (deckPackages.packagesAfterRemoving). Nothing is uninstalled.
+     */
     removeInstrument(id, name) {
-        return this._editDeck(id, (deck) => removeInstrument(deck, name));
+        return this._editDeck(id, async (deck) => {
+            const neededBy = await this._neededBy(deck);
+            const next = removeInstrument(deck, name);
+            return withPackages(next, packagesAfterRemoving(deck, neededBy, [`instrument:${name}`]));
+        });
+    }
+
+    /** Which of the deck's packages each entry needs, or null when Python cannot say (not set up yet). */
+    async _neededBy(deck) {
+        try {
+            const runtime = await this.getRuntime();
+            if (!runtime.probeDeckPackages) return null;
+            return (await runtime.probeDeckPackages(probeInput(deck))).entries;
+        } catch {
+            return null;
+        }
     }
 
     setInstrumentEnabled(id, name, enabled) {
         return this._editDeck(id, (deck) => setInstrumentEnabled(deck, name, enabled));
+    }
+
+    /** Take a plugin off the deck, and its package off the list when nothing else needs it (still installed). */
+    removePlugin(id, ref) {
+        return this._editDeck(id, async (deck) => {
+            const neededBy = await this._neededBy(deck);
+            return withPackages(removePlugin(deck, ref), packagesAfterRemoving(deck, neededBy, [`plugin:${ref}`]));
+        });
+    }
+
+    // --- the deck's packages (deckPackages.js) ------------------------------------------------
+
+    /** The deck's packages with installed versions and what needs each: {rows, error}. */
+    async deckPackages(id) {
+        const deck = this.readDeck(id);
+        try {
+            const runtime = await this.getRuntime();
+            const probe = await runtime.probeDeckPackages(probeInput(deck));
+            return { rows: describePackages(deck, probe), error: null };
+        } catch (e) {
+            return { rows: describePackages(deck, null), error: `Could not read the installed packages: ${e.message}` };
+        }
+    }
+
+    /**
+     * For each index package on the deck (optimizers aside: their versions are the tested ones the
+     * Optimizers card offers), the newest version that installs with the rest of the deck's list.
+     * {key: {latest, changes, error?}}; `latest` null means it is up to date.
+     */
+    async checkPackageUpdates(id) {
+        const deck = this.readDeck(id);
+        const runtime = await this.getRuntime();
+        const probe = await runtime.probeDeckPackages(probeInput(deck)).catch(() => null);
+        const requirements = deck.packages || [];
+        const targets = requirements.map(parseRequirement).filter((r) => r.kind === 'name' && !optimizerOf(r.requirement));
+        const results = {};
+        // A few at a time: each is a resolution against the index.
+        for (let i = 0; i < targets.length; i += 3) {
+            await Promise.all(targets.slice(i, i + 3).map(async (r) => {
+                const found = probe && probe.requirements ? probe.requirements[r.key] : null;
+                results[r.key] = await runtime.upgradeCandidate(requirements, r, found ? found.version : null);
+            }));
+        }
+        return results;
+    }
+
+    /**
+     * Pin one of the deck's packages to `version` and install it with the rest of the deck's list,
+     * the way an install from the Hub does: a conflict is refused before anything changes, the
+     * deck is written only once it installed, and a running deck is restarted.
+     */
+    updatePackage(id, key, version) {
+        return this._exclusive(id, async () => {
+            const profile = this._deckProfile(id);
+            const deck = readDeckFile(profile.deck);
+            const at = (deck.packages || []).findIndex((r) => packageKey(r) === key);
+            if (at === -1) throw new Error(`This deck does not list ${key}.`);
+            const packages = deck.packages.slice();
+            packages[at] = withVersion(packages[at], version);
+            const wasRunning = this.running.has(id);
+            await this._stop(id);
+            try {
+                this._setStatus(id, { state: 'installing', message: `Updating ${key}…` });
+                const runtime = await this.getRuntime();
+                await runtime.ensurePackages(packages, { key: id, onProgress: (message) => this._setStatus(id, { message }) });
+                writeDeckFile(profile.deck, { ...deck, packages });
+                this._setStatus(id, { state: 'stopped', message: 'Updated' });
+            } catch (e) {
+                this._setStatus(id, { state: 'error', message: `Update failed: ${e.message}`, error: e.message, logTail: e.output || '' });
+                if (wasRunning) await this._start(id).catch(() => {});
+                throw e;
+            }
+            if (wasRunning) await this._start(id);
+            return readDeckFile(profile.deck);
+        });
+    }
+
+    /**
+     * Take packages off the deck's list. They stay installed (decks share one environment), and
+     * the deck is not restarted: what it loads does not change.
+     */
+    removePackages(id, keys) {
+        return this._exclusive(id, async () => {
+            const profile = this._deckProfile(id);
+            const deck = readDeckFile(profile.deck);
+            const drop = new Set(keys);
+            const next = withPackages(deck, (deck.packages || []).filter((r) => !drop.has(packageKey(r))));
+            writeDeckFile(profile.deck, next);
+            this.emit('changed');
+            return next;
+        });
+    }
+
+    setPluginEnabled(id, ref, enabled) {
+        return this._editDeck(id, (deck) => setPluginEnabled(deck, ref, enabled));
     }
 
     /**

@@ -1095,6 +1095,12 @@ function registerIpc() {
     handle('launcher:instrument:save', (id, originalName, entry) => manager.saveInstrument(id, originalName, entry));
     handle('launcher:instrument:remove', (id, name) => manager.removeInstrument(id, name));
     handle('launcher:instrument:enable', (id, name, enabled) => manager.setInstrumentEnabled(id, name, enabled));
+    handle('launcher:plugin:remove', (id, ref) => manager.removePlugin(id, ref));
+    handle('launcher:plugin:enable', (id, ref, enabled) => manager.setPluginEnabled(id, ref, enabled));
+    handle('launcher:packages', (id) => manager.deckPackages(id));
+    handle('launcher:packages:check', (id) => manager.checkPackageUpdates(id));
+    handle('launcher:packages:update', (id, key, version) => announceOutcome(id, 'install', manager.updatePackage(id, key, version)));
+    handle('launcher:packages:remove', (id, keys) => manager.removePackages(id, keys));
     handle('launcher:install', (id, manifest) => announceOutcome(id, 'install', manager.install(id, manifest)));
     handle('launcher:free-name', (id, suggestion) => freeName(manager.readDeck(id), suggestion));
     handle('launcher:rebuild-python', async () => {

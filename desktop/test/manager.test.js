@@ -133,6 +133,55 @@ test('install writes the deck only after packages install, and a failure leaves 
     assert.equal(mgr.readDeck(deckProfile.id).instruments[0].enabled, false);
 });
 
+test("a deck's package list follows its instruments, and packages update and come off it without uninstalling", async () => {
+    const installs = [];
+    let fail = false;
+    // What the environment says each entry needs (runtime.probeDeckPackages): the pump needs its
+    // driver, the plugin its own package, nothing needs `leftover`.
+    const probeDeckPackages = async ({ entries, requirements }) => ({
+        requirements: Object.fromEntries(requirements.map((r) => [r.key, { dist: r.name, version: '1.0' }])),
+        entries: Object.fromEntries(entries.map((e) => [e.id, e.id === 'instrument:pump' ? ['vendor-pumps'] : e.id.startsWith('plugin:') ? ['view-kit'] : []])),
+    });
+    const mgr = new ProfileManager({ home: tmp(), getRuntime: async () => fakeRuntime({
+        probeDeckPackages,
+        ensurePackages: async (reqs) => { installs.push([...reqs]); if (fail) throw Object.assign(new Error('uv pip failed'), { output: 'No solution found' }); },
+        upgradeCandidate: async (reqs, target, installed) => ({ latest: target.name === 'vendor-pumps' ? '1.4' : null, changes: [], installed }),
+    }) });
+    const [deckProfile] = mgr.list();
+    await mgr.install(deckProfile.id, {
+        packages: ['vendor-pumps==1.0', 'view-kit==1.0', 'leftover==1.0', 'ax-platform==1.3.1'],
+        instruments: [{ name: 'pump', import: 'vendor_pumps', class: 'Pump' }],
+        plugins: ['view_kit.plugin:plugin'],
+    });
+
+    const { rows } = await mgr.deckPackages(deckProfile.id);
+    assert.deepEqual(rows.map((r) => [r.key, r.status]), [['vendor-pumps', 'used'], ['view-kit', 'used'], ['leftover', 'unused'], ['ax-platform', 'used']]);
+
+    // Optimizers are not checked here: their versions are the tested ones on the Optimizers card.
+    const updates = await mgr.checkPackageUpdates(deckProfile.id);
+    assert.deepEqual(Object.keys(updates).sort(), ['leftover', 'vendor-pumps', 'view-kit']);
+    assert.equal(updates['vendor-pumps'].latest, '1.4');
+    assert.equal(updates['vendor-pumps'].installed, '1.0', 'checked from the installed version');
+
+    // An update that does not install leaves the deck as it was.
+    fail = true;
+    await assert.rejects(mgr.updatePackage(deckProfile.id, 'vendor-pumps', '1.4'), /uv pip failed/);
+    assert.ok(mgr.readDeck(deckProfile.id).packages.includes('vendor-pumps==1.0'));
+    fail = false;
+    await mgr.updatePackage(deckProfile.id, 'vendor-pumps', '1.4');
+    assert.ok(mgr.readDeck(deckProfile.id).packages.includes('vendor-pumps==1.4'));
+    assert.ok(installs.at(-1).includes('vendor-pumps==1.4'), 'installed with the rest of the deck');
+
+    // Removing the pump and the plugin takes off what only they needed; `leftover` is for the person.
+    await mgr.removeInstrument(deckProfile.id, 'pump');
+    await mgr.removePlugin(deckProfile.id, 'view_kit.plugin:plugin');
+    assert.deepEqual(mgr.readDeck(deckProfile.id).packages, ['leftover==1.0', 'ax-platform==1.3.1']);
+    const before = installs.length;
+    await mgr.removePackages(deckProfile.id, ['leftover']);
+    assert.deepEqual(mgr.readDeck(deckProfile.id).packages, ['ax-platform==1.3.1']);
+    assert.equal(installs.length, before, 'taking a package off the list installs and uninstalls nothing');
+});
+
 test('optimizers install with the rest of the deck, and the deck changes only once they did', async () => {
     let fail = true;
     const installs = [];

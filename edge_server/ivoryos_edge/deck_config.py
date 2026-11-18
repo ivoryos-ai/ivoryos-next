@@ -36,7 +36,8 @@ same information lives in a JSON file:
 - `"enabled": false` keeps an entry without loading it, e.g. an instrument that is unplugged.
 - `plugins` lists Python plugins as "package.module:attribute" (ivoryos_edge.plugins.Plugin
   objects). They are imported after the instruments are built and receive those same objects;
-  see docs/plugins.md.
+  see docs/plugins.md. An entry `{"ref": "package.module:attribute", "enabled": false}` keeps a
+  plugin listed without loading it (the launcher writes this when a plugin is switched off).
 
 **One instrument failing never stops the others.** A driver whose constructor cannot open its
 serial port, a package that is not installed, a typo in a class name: each becomes an entry in
