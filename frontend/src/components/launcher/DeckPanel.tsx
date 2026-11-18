@@ -1,8 +1,9 @@
 "use client";
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Package, Pencil, Plus, Puzzle, Store, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Pencil, Plus, Puzzle, Store, Trash2 } from 'lucide-react';
 import { confirmDialog, notify } from '@ivoryos/shared-ui';
 import { pluginEnabled, pluginRef, type Deck, type DeckInstrument, type DesktopApi, type HubLinkRequest, type Profile } from '@/desktop';
+import DeckPackages from './DeckPackages';
 import HubBrowser, { type HubKind } from './HubBrowser';
 import InstrumentEditor from './InstrumentEditor';
 import type { InstrumentSeed } from './PrivateRepos';
@@ -136,7 +137,7 @@ export default function DeckPanel({ api, profile, hubUrl, pro, onUpgrade, onOpen
                 </label>
                 <Button small tone="ghost" title="Edit" onClick={() => setEditing(inst)}><Pencil className="w-3.5 h-3.5" /></Button>
                 <Button small tone="ghost" title="Remove from the deck" onClick={async () => {
-                  if (await confirmDialog(`Remove ${inst.name} from this deck? Its driver stays installed, and workflows that use it will stop matching the deck.`, { title: 'Remove instrument?', confirmLabel: 'Remove', tone: 'danger' })) {
+                  if (await confirmDialog(`Remove ${inst.name} from this deck? Packages only it needed come off the deck's list but stay installed, and workflows that use it will stop matching the deck.`, { title: 'Remove instrument?', confirmLabel: 'Remove', tone: 'danger' })) {
                     act(() => api.removeInstrument(profile.id, inst.name));
                   }
                 }}><Trash2 className="w-3.5 h-3.5 text-red-500" /></Button>
@@ -173,7 +174,7 @@ export default function DeckPanel({ api, profile, hubUrl, pro, onUpgrade, onOpen
                     on
                   </label>
                   <Button small tone="ghost" title="Remove from the deck" onClick={async () => {
-                    if (await confirmDialog(`Remove the plugin ${ref} from this deck? Its package stays installed.`, { title: 'Remove plugin?', confirmLabel: 'Remove', tone: 'danger' })) {
+                    if (await confirmDialog(`Remove the plugin ${ref} from this deck? A package only it needed comes off the deck's list but stays installed.`, { title: 'Remove plugin?', confirmLabel: 'Remove', tone: 'danger' })) {
                       act(() => api.removePlugin(profile.id, ref));
                     }
                   }}><Trash2 className="w-3.5 h-3.5 text-red-500" /></Button>
@@ -184,14 +185,7 @@ export default function DeckPanel({ api, profile, hubUrl, pro, onUpgrade, onOpen
         </div>
       )}
 
-      {(deck?.packages || []).length > 0 && (
-        <div>
-          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5"><Package className="w-3.5 h-3.5" /> Driver packages</div>
-          <div className="flex flex-wrap gap-1.5">
-            {deck!.packages!.map(p => <span key={p} className="px-2 py-0.5 rounded-md bg-gray-100 dark:bg-white/10 text-xs font-mono text-gray-600 dark:text-gray-300">{p}</span>)}
-          </div>
-        </div>
-      )}
+      <DeckPackages api={api} profileId={profile.id} deck={deck} running={running} onChanged={refresh} />
 
       {editing && (
         <InstrumentEditor api={api} profileId={profile.id} entry={editing === 'new' ? null : editing} seed={editing === 'new' ? seed : null} running={running} onClose={() => { setEditing(null); setSeed(null); }} onSaved={refresh} />

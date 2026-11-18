@@ -1,6 +1,7 @@
 'use strict';
 // Edits the launcher makes to a deck file: change an instrument (its COM port, say), rename it,
-// switch it off, remove it; and the same for a plugin. Adding goes through manifest.js's mergeIntoDeck, the same path an
+// switch it off, remove it; and the same for a plugin (the packages they leave behind are
+// deckPackages.js's, applied by manager.js). Adding goes through manifest.js's mergeIntoDeck, the same path an
 // install from the Hub takes. Pure functions over the parsed deck; the caller writes the file.
 
 const NAME_RE = /^[A-Za-z][A-Za-z0-9_]*$/;

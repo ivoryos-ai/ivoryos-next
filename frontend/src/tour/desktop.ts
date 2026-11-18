@@ -8,6 +8,7 @@ import type { AccountInfo, DeckInstrument, DesktopApi, Snapshot } from '@/deskto
 import { HubCatalog } from '../../../desktop/src/hubCatalog.js';
 import { HUB_AUTH } from '../../../desktop/src/hubProject.js';
 import { OPTIMIZERS, selectionOf } from '../../../desktop/src/optimizers.js';
+import { deckEntries, describePackages, normalize, parseRequirement } from '../../../desktop/src/deckPackages.js';
 import { addDeck, EXAMPLE_ID } from './example';
 import { type Lab, type MethodSchema, TOUR_BASE } from './lab';
 import { TourTabs } from './tabs';
@@ -229,6 +230,34 @@ export function makeDesktopApi(lab: Lab, realFetch: typeof fetch): DesktopApi {
     setPluginEnabled: async (id, ref, enabled) => {
       const d = lab.get(id);
       d.deck = { ...d.deck, plugins: (d.deck.plugins || []).map(p => (pluginRef(p) !== ref ? p : enabled ? ref : { ref, enabled: false })) };
+      changed();
+      return d.deck;
+    },
+    // No Python in the tour: a package counts as installed at the version it is pinned to, and as
+    // needed by an entry whose module has its name (the app asks the environment instead).
+    deckPackages: async id => {
+      const deck = lab.get(id).deck;
+      const requirements: Record<string, { dist: string; version: string } | null> = {};
+      for (const req of deck.packages || []) {
+        const r = parseRequirement(req);
+        const pinned = /^==\s*(\S+)$/.exec(r.spec || '');
+        requirements[r.key] = r.name && pinned ? { dist: r.name, version: pinned[1] } : null;
+      }
+      const entries: Record<string, string[]> = {};
+      for (const e of deckEntries(deck)) {
+        const mods = new Set(e.modules.map((m: string) => normalize(m)));
+        entries[e.id] = (deck.packages || []).map(parseRequirement).filter(r => r.name && mods.has(r.name)).map(r => r.key);
+      }
+      return { rows: describePackages(deck, { requirements, entries }), error: null };
+    },
+    checkPackageUpdates: async id => Object.fromEntries((lab.get(id).deck.packages || []).map(req => [
+      parseRequirement(req).key, { latest: null, changes: [], error: 'The tour downloads nothing, so it does not look for updates.' },
+    ])),
+    updatePackage: async () => { throw new Error(DESKTOP_ONLY); },
+    removePackages: async (id, keys) => {
+      const d = lab.get(id);
+      const drop = new Set(keys);
+      d.deck = { ...d.deck, packages: (d.deck.packages || []).filter(req => !drop.has(parseRequirement(req).key)) };
       changed();
       return d.deck;
     },

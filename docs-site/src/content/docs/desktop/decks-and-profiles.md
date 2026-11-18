@@ -24,6 +24,25 @@ to reorder them; <kbd>Ctrl</kbd>+<kbd>B</kbd> hides the sidebar from anywhere.
 
 Several profiles run at the same time, each on its own port.
 
+## A deck's instruments, plugins and packages
+
+A deck profile's **Instruments** tab lists what is on the deck. Each instrument and each plugin has
+an **on** switch, which keeps it in the deck file without loading it (an unplugged device, a plugin
+you do not need today), and **Remove**. A change restarts a running deck.
+
+Under them, **Driver packages** lists the Python packages the deck asks for, each with the version
+installed and what on the deck uses it. All decks share one Python environment, so **nothing is
+ever uninstalled**; the list only says what this deck needs:
+
+- Removing an instrument or plugin also takes off the list the packages only it needed (worked out
+  from what the installed packages depend on). They stay installed.
+- A package nothing on the deck uses (left from before this existed, or added by hand) says so.
+  Remove it, or **Remove unused** for all of them.
+- **Check for updates** looks for the newest version of each that still installs with the rest of
+  the deck's packages. **Update** installs it and pins the deck to it; if it cannot be installed,
+  the deck is left as it was. Optimizers are chosen in the deck's Settings instead, from versions
+  tested together, and a private repository moves to a newer commit by importing it again.
+
 ## Start, Open, Stop, Restart
 
 **Start** checks the Python environment (the first time it downloads Python and installs the edge),
