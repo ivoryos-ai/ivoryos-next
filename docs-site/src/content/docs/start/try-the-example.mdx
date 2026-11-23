@@ -1,95 +1,88 @@
 ---
 title: Try the example
-description: "A ten-minute tour on a simulated lab: load a workflow, run it, and read the result back."
+description: "A ten-minute tour on a simulated lab: build a three-step workflow, run it, and read the result back."
 sidebar:
-  order: 3
+  order: 4
 ---
 
 import { Steps, Aside } from '@astrojs/starlight/components';
+import Shot from '../../../components/Shot.astro';
 
-The example deck is a simulated Suzuki coupling screen: three syringe pumps charge a vial, a
-heater-stirrer holds it at temperature, and a UV-Vis probe and an HPLC read out how much product
-formed. There is nothing to plug in, and the chemistry responds the way a real screen would: yield
-depends on temperature, catalyst loading and reaction time, with a genuine optimum for the
-optimizer to find. Simulated time is compressed, so a two-hour hold takes a couple of seconds.
+The example deck is a simulated chemistry bench: three syringe pumps, a heater-stirrer (the
+reactor), a balance, a UV-Vis probe and an HPLC. Nothing to plug in, and simulated time is
+compressed, so an hour's hold takes about a second.
 
 ## Start it
 
-In the desktop app, choose **Try the example** on the welcome page (or **Add a deck → Try the
-example** later). The app writes a short script and the example drivers into an `example` folder in
-your home directory, starts it, and opens its page when it is ready.
+- **Desktop app:** choose **Try the example** on the welcome page (or **Add a deck → Try the
+  example** later). The deck opens by itself when it is ready.
+- **From a source checkout:** `python example/demo.py`, then open `http://localhost:8080`.
 
-From a source checkout, run it from a terminal instead and open `http://localhost:8080`:
+<Shot name="launcher-welcome" alt="The desktop app's welcome page, with Try the example" />
 
-```bash
-python example/demo.py
-```
+Either way you land on the **Designer**.
 
-Either way you land on the **Designer**, with the deck's instruments listed down the left as steps
-you can drag.
+## Build a workflow
 
-![The Designer on the example deck, with an empty canvas](../../../assets/screenshots/designer-empty.png)
-
-## Load the ready-made workflow
+Three steps: put a vial in the reactor, heat it to a temperature you choose when you run, and read
+the temperature back.
 
 <Steps>
 
-1. Open **Library** in the sidebar. The example ships with one saved workflow, *Suzuki coupling
-   screen*.
+1. Find **load vial** and drag it onto the canvas.
 
-   ![The Library with the example workflow](../../../assets/screenshots/library.png)
+   <Shot name="first-drag" alt="Dragging the load vial step from the toolbox onto the canvas" />
 
-2. Click **Load to Designer**. The Designer opens with the workflow on its canvas: load a vial,
-   dispense three reagents, stir, heat, hold, cool, then measure absorbance and yield.
+2. Do the same with **set temperature**. Leave its value open.
 
-   ![The example workflow on the Designer canvas](../../../assets/screenshots/designer-workflow.png)
+   <Shot name="first-variable" alt="The set temperature step with #temperature_c typed as its setpoint" />
 
-3. Read the steps. Some values are typed in (`volume_ml=0.2`); others are written as a
-   `#variable` (`setpoint_c=#temperature_c`). A `#variable` is a value left open, to be filled in
-   when the workflow is run. The last two steps save what they measure (`→ absorbance_312`,
-   `→ yield_percent`).
+3. Add **read temperature**, and save what it returns.
+
+   <Shot name="first-result" alt="The read temperature step saving its result as temperature" />
+
+4. Name the workflow and save it.
+
+   <Shot name="first-save" alt="The named workflow, saved, with the Configure button" />
 
 </Steps>
 
-## Run it once
+## Run it
 
 <Steps>
 
-1. Click **Configure** at the top right (the button reads **Run** when a workflow has no open
-   values). It opens the **Run** page on its **Once** tab, with one field per `#variable`.
+1. **Configure** opens the Run page. Choose **Once**, give the temperature, and run.
 
-   ![The Once tab, one field per open value](../../../assets/screenshots/run-once-filled.png)
+   <Shot name="first-run" alt="The Once tab with temperature_c set to 60" />
 
-2. Fill in a sample: `vial_id` A1, `boronic_acid_ml` 0.25, `catalyst_ml` 0.3, `temperature_c` 70,
-   `reaction_time_min` 60. Give the run a name if you like; left blank, it is numbered.
+2. Open **Data**. The run is at the top of the list.
 
-3. Click **Preview** to see exactly what will run, step by step, then **Run**.
-
-4. Watch the run bar at the bottom of the page: it names the step the deck is on, and opens to show
-   every step with its result as it comes in. The whole run takes about ten seconds here.
-
-   ![A run in progress in the run bar](../../../assets/screenshots/live-run.png)
+   <Shot name="first-data" alt="The finished run in Data History: the value given and the temperature read back" />
 
 </Steps>
 
-## Read the result
+That is the whole loop: steps from the toolbox, a value left open, a result saved, a run, a
+record.
 
-Open **Data History**. The run is at the top of the list; select it to see every step, its
-arguments and what it returned, and a timeline of how long each took. **Export Data** gives you a
-CSV with one column per value you typed in and one per value a step saved.
+## A fuller workflow to explore
 
-![The finished run in Data History](../../../assets/screenshots/data-history-run.png)
+The rest of this guide uses a Suzuki coupling screen on the same deck: charge a vial from three
+pumps, stir and heat it, then measure absorbance and yield. The yield really depends on the
+temperature, the catalyst and the time, so there is an optimum for an optimizer to find.
+
+Download [suzuki-coupling-screen.json](/examples/suzuki-coupling-screen.json), then in the Designer
+choose **⋯ → Import JSON…** and **Save**.
+
+<Shot name="designer-overview" alt="The Suzuki coupling screen workflow in the Designer" />
 
 ## Where next
 
-- [Iterate](/run/iterate/) runs the same workflow over a spreadsheet of samples.
-- [Optimize](/run/optimize/) lets a Bayesian optimizer choose the temperature and catalyst loading
-  for you. On the example deck, first add an optimizer under the deck's **Settings** in the desktop
-  app.
-- [The Designer](/guide/designer/) is where to change the workflow or build your own.
+- [Iterate](/run/iterate/) runs a workflow over a table of samples.
+- [Optimize](/run/optimize/) lets an optimizer choose the temperature and the catalyst loading. In
+  the desktop app, first add an optimizer under the deck's **Settings**.
+- [The Designer](/guide/designer/) covers everything a workflow can hold.
 
 <Aside type="tip" title="Bring your own instruments">
-When you are ready for real hardware, [Write a driver](/dev/instruments/write-a-driver/) shows what
-IvoryOS reads from a Python class, and the desktop app's **Add a deck** installs drivers from the
-Automation Hub or from your own package.
+[Write a driver](/dev/instruments/write-a-driver/) shows what IvoryOS reads from a Python class.
+The desktop app's **Add a deck** installs drivers from the Automation Hub or from your own package.
 </Aside>

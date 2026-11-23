@@ -19,11 +19,14 @@ DATA_DIR = os.path.join(ROOT, "docs-site", ".deck-data")
 os.environ.setdefault("IVORYOS_DATA_DIR", DATA_DIR)
 os.makedirs(os.path.join(DATA_DIR, "workflows"), exist_ok=True)
 
-# The ready-made workflow the example ships with, copied once so the Library is not empty.
-_shipped = os.path.join(ROOT, "edge_server", "ivoryos_edge", "workflows", "Suzuki coupling screen.json")
-_seeded = os.path.join(DATA_DIR, "workflows", "Suzuki coupling screen.json")
-if os.path.exists(_shipped) and not os.path.exists(_seeded):
-    shutil.copyfile(_shipped, _seeded)
+# The workflow the documentation walks through, copied once so the Library is not empty. It is the
+# docs' own copy (scripts/seed/), so the pictures do not change with whatever a developer last
+# saved over the example's.
+_seed = os.path.join(ROOT, "docs-site", "scripts", "seed")
+for _name in sorted(os.listdir(_seed)):
+    _seeded = os.path.join(DATA_DIR, "workflows", _name)
+    if _name.endswith(".json") and not os.path.exists(_seeded):
+        shutil.copyfile(os.path.join(_seed, _name), _seeded)
 
 sys.path.insert(0, os.path.join(ROOT, "edge_server"))
 sys.path.insert(0, os.path.join(ROOT, "example"))

@@ -6,6 +6,7 @@ sidebar:
 ---
 
 import { Aside } from '@astrojs/starlight/components';
+import Shot from '../../../../components/Shot.astro';
 
 Prose in, reviewable workflow out. A deck exposes one set of agent tools (`/api/agent/*`) and
 two ways to use them: the **Assistant** panel in the Designer, which runs its own model loop, and
@@ -30,7 +31,9 @@ is usable here because of this loop.
 
 ## The in-app panel
 
-Open **Assistant** in the Designer. With nothing configured it assumes Ollama on
+<Shot name="assistant" alt="The Assistant panel beside the Designer" />
+
+Open **Assistant** in the navigation. With nothing configured it assumes Ollama on
 `localhost:11434`:
 
 ```bash

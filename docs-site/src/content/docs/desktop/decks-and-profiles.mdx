@@ -1,0 +1,123 @@
+---
+title: Decks and profiles
+description: "How the desktop app runs decks: profiles, Start, ports, logs, restarts, and where everything is on disk."
+sidebar:
+  order: 1
+---
+
+import Shot from '../../../components/Shot.astro';
+
+The desktop app is a manager and a window. Underneath, each deck is the same Python edge server
+you could start from a terminal: the app starts it, watches it, keeps its output, and shows its
+page in a tab.
+
+<Shot name="launcher-welcome" alt="The app's welcome page, with no decks yet" />
+
+## The window
+
+<Shot name="launcher-sidebar" alt="The app with a deck's page open: the list of decks on the left" />
+
+<Shot name="launcher-tab" alt="A deck's page inside the app: the page controls and the deck's own navigation" />
+
+- Drag rows in the list to reorder them. <kbd>Ctrl</kbd>+<kbd>B</kbd> hides the list from anywhere.
+- Closing a deck's page does not stop the deck.
+
+## Add a deck
+
+<Shot name="launcher-add-deck" alt="The Add a deck dialog: an empty deck, or a Python script" />
+
+| | **Deck profile** | **Python script profile** |
+|---|---|---|
+| What starts | `python -m ivoryos_edge --deck deck.json …` | `python your_script.py …` |
+| Instruments come from | a deck file (data), edited on the deck's **Instruments** tab | your script's own code |
+| Change a COM port | Instruments → Edit → change `port` | an environment variable (below), or edit the script on the **Code** tab |
+| One broken instrument | the others still load; the broken one is listed with its error | the script stops, unless it handles the error itself |
+| Add a driver from the Hub | yes | no; install it and edit the script |
+
+Several profiles run at the same time, each on its own port.
+
+## A deck's page in the app
+
+<Shot name="launcher-deck" alt="A deck profile's page: Start, Restart and Open, its tabs, and its instruments" />
+
+- **Start** checks the Python environment (the first time it downloads Python and installs
+  IvoryOS), checks the port is free, starts the process and waits until it answers. The deck then
+  opens by itself, unless you have moved on to something else meanwhile.
+- A deck whose instruments did not all load opens on its Instruments tab, with the failures in red.
+- **Stop** asks the process to shut down and forces it after a few seconds.
+- **Restart** is always a new process: it re-reads the deck file, re-imports the drivers and
+  reconnects every instrument.
+
+<Shot name="launcher-add-driver" alt="Adding a driver that is already installed, by module and class" />
+
+<Shot name="launcher-deck-settings" alt="A deck's Settings: start with the app, network access, files on disk, and optimizers" />
+
+Anyone who can reach the port can drive the instruments, so turn **Reachable from other
+computers** off for a deck only this computer should open. Others open it at
+`http://<this computer's address>:<port>`.
+
+## A script profile
+
+<Shot name="launcher-script" alt="A script profile's page: the same buttons, four tabs, and the script it runs" />
+
+<Shot name="launcher-script-code" alt="The Code tab: the script, edited in place" />
+
+A script written for IvoryOS Classic (`import ivoryos`) is offered a conversion when started. The
+changed lines are kept above as comments, so going back is uncommenting.
+
+## Script profile settings
+
+<Shot name="launcher-script-settings" alt="A script profile's Configuration tab with Advanced open" />
+
+A script profile needs its Python file and nothing else. Everything under **Advanced** can stay
+empty.
+
+| Setting | Empty means | Set it when |
+|---|---|---|
+| **Python interpreter** | the app's own Python, which has IvoryOS and every driver installed from the Hub | the script needs a project's packages: choose that project's `.venv/bin/python` (`.venv\Scripts\python.exe` on Windows). The line under the field says whether IvoryOS is installed there, and offers to install it. |
+| **Working folder** | the script's own folder | the script expects to run somewhere else |
+| **Environment variables** | none | something should change without editing the script, usually a port |
+
+Imports are found in the script's folder, the working folder, and the project above the script
+(the folders holding `pyproject.toml`, `setup.py`, `requirements.txt`, `.git` or `.idea`, and their
+`src/`), as PyCharm does. A `PYTHONPATH` variable adds a folder.
+
+```python
+import os
+pump_1 = SyringePump(port=os.environ.get("PUMP_PORT", "COM3"))   # COM3 unless set
+```
+
+Add `PUMP_PORT = COM4` and restart. The same script can have two profiles, *Bench A* with COM3 and
+*Bench B* with COM4. The app also sets `IVORYOS_PORT`, `IVORYOS_HOST` and `IVORYOS_DATA_DIR`, which
+`ivoryos_edge.run(__name__)` reads: that is how a script lands on its profile's port unchanged.
+
+## The Log tab
+
+<Shot name="launcher-log" alt="The Log tab: follow, copy, the log file, and Send to IvoryOS" />
+
+Everything the process prints: driver output, the deck's own messages (which instrument loaded,
+which optimizer failed to import and why), Python tracebacks. See
+[When something goes wrong](/desktop/when-something-goes-wrong/).
+
+## The app's settings
+
+<Shot name="launcher-settings" alt="The app's Settings: theme, help, and notifications" />
+
+<Shot name="launcher-settings-python" alt="The app's Settings: updates, the app's Python, and where everything is on disk" />
+
+**Copy path** under Python gives the interpreter the app's decks run in. Point your editor at it
+and it has the same packages: in PyCharm, Settings → Python Interpreter → Add → Existing; in
+VS Code, *Python: Select Interpreter* → Enter path.
+
+## Where things are on disk
+
+| Path (macOS: `~/Library/Application Support/IvoryOS/`; Windows: `%APPDATA%\IvoryOS`; Linux: `~/.config/IvoryOS`) | What |
+|---|---|
+| `profiles.json` | your profiles and the app's settings |
+| `profiles/<id>/deck.json` | a deck profile's instruments (Settings → Show deck file) |
+| `profiles/<id>/data/` | that deck's runs, workflows, safety configuration and Cloud pairing |
+| `runtime/venv/` | the Python environment all decks share, managed by uv |
+| `logs/<id>.log` | each profile's output |
+
+Deleting `runtime/` is safe: it is rebuilt on the next start. Deleting `profiles/<id>/data/`
+deletes that deck's run history.
