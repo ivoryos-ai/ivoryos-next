@@ -3,6 +3,7 @@
 import React, { useEffect } from 'react';
 import { Code, Download, X } from 'lucide-react';
 import { PythonCodeView, downloadPython } from './PythonCodeView';
+import { drawerBesideDock } from './dockSpace';
 
 /**
  * The workflow as the Python script it runs, in a drawer beside the canvas. It used to replace
@@ -39,7 +40,8 @@ export function PythonDrawer({
     <aside
       role="dialog"
       aria-label="Python"
-      className="fixed inset-y-0 right-0 z-[120] w-full max-w-xl flex flex-col bg-white dark:bg-[#111] border-l border-gray-200 dark:border-white/10 shadow-2xl"
+      style={drawerBesideDock('36rem')}
+      className="fixed inset-y-0 right-0 z-[120] w-full flex flex-col bg-white dark:bg-[#111] border-l border-gray-200 dark:border-white/10 shadow-2xl"
     >
       <header className="shrink-0 flex items-center gap-3 px-4 h-14 border-b border-gray-200 dark:border-white/10">
         <Code className="w-4 h-4 shrink-0 text-gray-400" />

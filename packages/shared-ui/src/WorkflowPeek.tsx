@@ -15,6 +15,7 @@ import { AlertTriangle, Layers, Link2, PencilLine, Scissors, X } from 'lucide-re
 
 import { flattenSavedBody, type SavedWorkflowBody } from './workflowBody';
 import { valueText } from './paramTypes';
+import { besideDock, drawerBesideDock } from './dockSpace';
 
 export type WorkflowPeekTarget = {
   name: string;
@@ -100,9 +101,9 @@ export function WorkflowPeek({
     <>
       {/* Deliberately light: the canvas behind stays legible, since the reason to open this is to
           read the linked steps against the steps around them. */}
-      <div className="fixed inset-0 z-[110] bg-black/20" onClick={onClose} />
+      <div className="fixed inset-0 z-[110] bg-black/20" style={besideDock} onClick={onClose} />
 
-      <aside className="fixed inset-y-0 right-0 z-[120] w-full max-w-sm flex flex-col bg-white dark:bg-[#111] border-l border-gray-200 dark:border-white/10 shadow-2xl">
+      <aside style={drawerBesideDock('24rem')} className="fixed inset-y-0 right-0 z-[120] w-full flex flex-col bg-white dark:bg-[#111] border-l border-gray-200 dark:border-white/10 shadow-2xl">
         <header className="shrink-0 px-4 py-3.5 border-b border-gray-200 dark:border-white/10">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
