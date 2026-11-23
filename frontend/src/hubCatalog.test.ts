@@ -71,3 +71,20 @@ test('repointing renames only the instrument field of steps, in every phase', ()
 test('packages are merged once each, in order', () => {
   assert.deepEqual(unionPackages(['a', 'b'], ['b', 'c'], ['']), ['a', 'b', 'c']);
 });
+
+test('requirements naming one package become one (issue 78)', () => {
+  assert.deepEqual(
+    unionPackages(['colour-match-sdl'], ['colour-match-sdl>=0.1.7'], ['colour_match_sdl >= 0.1.9', 'numpy']),
+    ['colour-match-sdl>=0.1.9', 'numpy'],
+  );
+  // Extras are the union, and an upper bound keeps the lowest.
+  assert.deepEqual(unionPackages(['pkg[full]>=1,<3'], ['Pkg[cli]<2.5']), ['pkg[cli,full]>=1,<2.5']);
+  // What cannot be settled by picking one is left for the resolver to report.
+  assert.deepEqual(unionPackages(['pkg==1.0'], ['pkg>=2']), ['pkg==1.0,>=2']);
+  assert.deepEqual(unionPackages(['pkg==1.0'], ['pkg==1.0']), ['pkg==1.0']);
+  // Not plain named requirements: kept by their text, never merged by a guessed name.
+  assert.deepEqual(
+    unionPackages(['C:\wheels\pkg.whl', 'pkg @ git+https://x/y@abc'], ['C:\wheels\pkg.whl']),
+    ['C:\wheels\pkg.whl', 'pkg @ git+https://x/y@abc'],
+  );
+});
