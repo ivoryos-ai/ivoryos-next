@@ -668,6 +668,8 @@ function batchOfRows(run: any): Map<number, number> | null {
 }
 
 const PAGE_SIZE = 50;
+// The least time between two reloads of the run list while runs are under way.
+const LIST_REFRESH_MS = 2000;
 
 const SORTS: { value: string; label: string }[] = [
   { value: 'newest', label: 'Newest first' },
@@ -684,12 +686,28 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: 'active', label: 'Queued / running' },
 ];
 
-const LIST_DOT: Record<string, string> = {
-  completed: 'bg-green-500',
-  error: 'bg-red-500',
-  cancelled: 'bg-gray-400',
-  running: 'bg-accent animate-pulse',
-  waiting_input: 'bg-amber-500 animate-pulse',
+// A run's state in a list of runs. Colour says how it ended or that it needs someone: green done,
+// amber done with issues or waiting for a person, red error, grey stopped. Shape says whether it
+// is over: a run that is not over is a ring, turning while it runs and still while it waits in the
+// queue. Running used to be a pulsing accent dot, and the accent is a grey-blue: at six pixels it
+// could not be told from the grey of a stopped run or of a queued one.
+const RunDot = ({ status, issues, waiting }: { status?: string; issues?: any; waiting?: boolean }) => {
+  const dot = 'h-1.5 w-1.5 rounded-full';
+  const ring = 'box-border h-[9px] w-[9px] rounded-full border-[1.5px]';
+  // A run stopped at a failed step is still "running" to the edge; to a person it is waiting.
+  const look = waiting || status === 'waiting_input' ? `${dot} bg-amber-500 animate-pulse`
+    : status === 'running' ? `${ring} border-accent border-r-transparent animate-spin motion-reduce:animate-none`
+    : status === 'completed' ? `${dot} ${issues ? 'bg-amber-500' : 'bg-green-500'}`
+    : status === 'error' ? `${dot} bg-red-500`
+    : status === 'cancelled' ? `${dot} bg-gray-400`
+    : `${ring} border-gray-400 dark:border-gray-500`; // queued: not started yet
+  const title = waiting ? 'waiting for you' : issues ? `${status} · ${issuesLabel(issues)}` : status;
+  // A slot as wide as the ring, so the name beside it does not move when the run starts or ends.
+  return (
+    <span title={title} className="flex h-[9px] w-[9px] shrink-0 items-center justify-center">
+      <span className={look} />
+    </span>
+  );
 };
 
 export default function DataPage() {
@@ -778,18 +796,29 @@ export default function DataPage() {
   }, []);
 
   // The broadcast carries live and recent runs with their steps: enough to keep an open run
-  // current as it executes. The list itself is refreshed at most every couple of seconds --
-  // the broadcast fires after every step.
+  // current as it executes. The list itself is refreshed at most every couple of seconds (the
+  // broadcast fires after every step), and always once more after the last broadcast. A
+  // broadcast inside those two seconds used to be dropped, and the last one of a run, the one
+  // saying it finished, usually was: the open run showed its results while its dot in the list
+  // stayed "running" until the page was reloaded.
   const lastListRefresh = useRef(0);
+  const listRefreshDue = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (listRefreshDue.current) clearTimeout(listRefreshDue.current); }, []);
+  const refreshList = () => {
+    if (listRefreshDue.current) return; // one is already on its way, and will read what is current then
+    const wait = LIST_REFRESH_MS - (Date.now() - lastListRefresh.current);
+    listRefreshDue.current = setTimeout(() => {
+      listRefreshDue.current = null;
+      lastListRefresh.current = Date.now();
+      setListVersion(v => v + 1);
+    }, Math.max(0, wait));
+  };
   useEdgeTopic('queue', data => {
     if (data.status) setEdgeStatus(data.status);
     if (data.runs) {
       const open = data.runs.find((r: any) => r.id === selectedIdRef.current);
       if (open) setSelectedRun(formatRun(open));
-      if (Date.now() - lastListRefresh.current > 2000) {
-        lastListRefresh.current = Date.now();
-        setListVersion(v => v + 1);
-      }
+      refreshList();
     }
   });
 
@@ -1095,10 +1124,7 @@ export default function DataPage() {
                       )}
                       {/* Completed, but only after retries or skipping a failed step: not the
                           same outcome as a clean run, so not the same green. */}
-                      <span
-                        title={run.issues ? `${run.status} · ${issuesLabel(run.issues)}` : run.status}
-                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${run.status === 'completed' && run.issues ? 'bg-amber-500' : LIST_DOT[run.status] || 'bg-gray-300 dark:bg-gray-600'}`}
-                      />
+                      <RunDot status={run.status} issues={run.issues} waiting={edgeStatus?.awaiting_decision === run.id} />
                       <span className="text-xs font-bold text-gray-800 dark:text-gray-200 truncate">{String(run.name).split(' - ')[0]}</span>
                     </span>
                     <span className="flex items-center gap-1.5 shrink-0">
@@ -1207,7 +1233,7 @@ export default function DataPage() {
                         title={s.issues ? `${s.status} · ${issuesLabel(s.issues)}` : s.status}
                         className={`flex items-center gap-1.5 rounded-md border px-2 py-0.5 font-medium ${s.id === selectedId ? 'border-accent-tint bg-accent-soft text-accent-fg' : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-white/10 dark:text-gray-300 dark:hover:bg-white/10'}`}
                       >
-                        <span className={`h-1.5 w-1.5 rounded-full ${s.status === 'completed' ? (s.issues ? 'bg-amber-500' : 'bg-green-500') : s.status === 'error' ? 'bg-red-500' : s.status === 'cancelled' ? 'bg-gray-400' : 'bg-amber-500'}`} />
+                        <RunDot status={s.status} issues={s.issues} waiting={edgeStatus?.awaiting_decision === s.id} />
                         {s.group.index}. {s.group.stage}
                       </button>
                     ))}

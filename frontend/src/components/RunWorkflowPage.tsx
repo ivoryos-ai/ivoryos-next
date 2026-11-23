@@ -84,8 +84,13 @@ async function expandLinkedBlocks(seqs: { prep: any[]; sequence: any[]; cleanup:
       instrument: step.instrument,
       method: step.method,
       schema: instruments?.[step.instrument]?.[step.method] || { parameters: {} },
+      // The expander's bookkeeping (`_phase`, `_parent_workflow`, ...) is not an argument, so it
+      // is left out. `_return_aliases` stays: it is the rename a link gave an inner output
+      // (`classification` saved here as `class_IBP`), and the queue binds the value under both
+      // names from it (with_aliases). Dropped, the run was refused before it started, because
+      // a later step reading the renamed name had nothing before it that saved it.
       params: Object.fromEntries(
-        Object.entries(step.params || {}).filter(([k]) => !k.startsWith('_'))
+        Object.entries(step.params || {}).filter(([k]) => !k.startsWith('_') || k === '_return_aliases')
       ),
       returnVar: step.params?._return_var || step.returnVar || '',
       ...(step.params?._return_bindings || step.returnBindings

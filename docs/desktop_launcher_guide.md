@@ -58,8 +58,8 @@ python  demo.py  --simulate
 
 **Argument.** A word after the program name. Python hands the ones after the script name to the
 script as `sys.argv`. A script only uses arguments it was written to read, so if your script does
-not look at `sys.argv`, you never need to set any. That is why the launcher's "Arguments" field is
-empty by default.
+not look at `sys.argv`, you never need to set any. `ivoryos_edge.run()` reads none, which is why
+the launcher does not ask for them.
 
 **Environment variable.** A named setting that a process inherits from whoever started it, like
 `PUMP_PORT=COM3`. A Python script reads it with `os.environ`. The point: you can change a value
@@ -172,12 +172,10 @@ import os
 pump_1 = SyringePump(port=os.environ.get("PUMP_PORT", "COM3"))   # COM3 if nothing is set
 ```
 
-Then, in the profile's **Configuration** tab, set `PUMP_PORT = COM4` and press Restart. The
+Then, in the profile's **Configuration** tab, under **Advanced**, add the environment variable
+`PUMP_PORT = COM4` and press Restart. The
 script is unchanged; the next process simply starts with `PUMP_PORT` set. The same script can
 have two profiles: "Bench A" with `PUMP_PORT=COM3`, "Bench B" with `COM4`.
-
-**Arguments** do the same job for scripts written to read them, e.g. with `argparse`:
-`python demo.py --simulate`. Most IvoryOS scripts do not read any, so leave the field empty.
 
 **Imports from your own project.** Python looks for imports in the script's own folder; PyCharm
 also looks in the project you opened. The launcher does the same: the folders above the script
@@ -237,8 +235,9 @@ Closing a tab does not stop the edge; Stop does. The same interface is also an o
 
 - The ↗ button next to Open opens it in your normal browser.
 - Typing `http://localhost:8090` (the profile's port) in any browser **on this computer** works too.
-- **Other computers** can reach it only if the profile's "Reachable from other computers" setting
-  is on. It is off by default, because anyone who can reach the port can drive the instruments.
+- **Other computers** on your network can open it at this computer's address and the same port,
+  unless the profile's "Reachable from other computers" setting is turned off. It is on by
+  default; anyone who can reach the port can drive the instruments.
 
 So the launcher replaces the terminal, not the browser.
 

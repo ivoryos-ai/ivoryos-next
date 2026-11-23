@@ -1,12 +1,12 @@
 "use client";
 import React, { useEffect, useMemo, useState } from 'react';
-import { FolderOpen, Trash2 } from 'lucide-react';
+import { ExternalLink, FolderOpen, Trash2 } from 'lucide-react';
 import { confirmDialog, notify } from '@ivoryos/shared-ui';
 import type { DesktopApi, Profile, CloudLink } from '@/desktop';
 import PythonEnvironment from './PythonEnvironment';
 import CloudConnection from './CloudConnection';
 import OptimizerSettings from './OptimizerSettings';
-import { Button, Field, KeyValueRows, cardClass, inputClass } from './ui';
+import { Button, DOCS_URL, Field, KeyValueRows, cardClass, inputClass } from './ui';
 
 type Draft = Pick<Profile, 'name' | 'port' | 'listenOnNetwork' | 'autoStart' | 'env' | 'script' | 'cwd' | 'args' | 'python' | 'dataDir'>;
 
@@ -16,10 +16,8 @@ const draftOf = (p: Profile): Draft => ({
 });
 
 /**
- * How a profile starts. For a script this is where its instruments are configured too: a script
- * reads its serial port from an environment variable set here (`os.environ["PUMP_PORT"]`), since
- * the launcher cannot reach inside the Python code. Saved explicitly, and applied on the next
- * start, so half-typed values never restart a running bench.
+ * How a profile starts. Saved explicitly, and applied on the next start, so half-typed values
+ * never restart a running bench.
  */
 export default function ProfileSettings({ api, profile, link, sharedWith, onRemoved, cloudOffered = true }: {
   api: DesktopApi; profile: Profile; link?: CloudLink; sharedWith: Profile[]; onRemoved: () => void;
@@ -27,16 +25,15 @@ export default function ProfileSettings({ api, profile, link, sharedWith, onRemo
   cloudOffered?: boolean;
 }) {
   const [draft, setDraft] = useState<Draft>(() => draftOf(profile));
-  const [argsText, setArgsText] = useState((profile.args || []).join(' '));
   const [saving, setSaving] = useState(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { setDraft(draftOf(profile)); setArgsText((profile.args || []).join(' ')); }, [profile.id]);
+  useEffect(() => { setDraft(draftOf(profile)); }, [profile.id]);
 
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft(d => ({ ...d, [key]: value }));
   const running = profile.status.state === 'running';
   const script = profile.kind === 'script';
   // How many of the Advanced settings hold something, so a value in use is never folded away unseen.
-  const advancedInUse = [Object.keys(draft.env || {}).length > 0, argsText.trim() !== '', !!draft.python].filter(Boolean).length;
+  const advancedInUse = [Object.keys(draft.env || {}).length > 0, !!draft.python].filter(Boolean).length;
   // Open or folded is decided once per profile: following the live count would fold the section
   // under the cursor the moment its last value was cleared.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -45,9 +42,9 @@ export default function ProfileSettings({ api, profile, link, sharedWith, onRemo
   const save = async () => {
     setSaving(true);
     try {
-      // Arguments split like a shell would for the simple case; quote a value that has spaces.
-      const args = (argsText.match(/"[^"]*"|'[^']*'|\S+/g) || []).map(a => a.replace(/^["']|["']$/g, ''));
-      await api.updateProfile(profile.id, { ...draft, port: Number(draft.port), args });
+      // `args` goes back as saved: the page no longer edits arguments (run() reads none), and a
+      // profile that has some keeps them (shown on its Overview tab).
+      await api.updateProfile(profile.id, { ...draft, port: Number(draft.port) });
       if (running && await confirmDialog('Saved. Restart now so the running edge uses these settings?', { title: 'Restart?', confirmLabel: 'Restart' })) {
         await api.restart(profile.id);
       }
@@ -75,36 +72,32 @@ export default function ProfileSettings({ api, profile, link, sharedWith, onRemo
             </div>
           </Field>
           {/* For people who wire a script up by hand. Most scripts set their ports in the code or
-              come from the Hub, so these stay folded unless one is already in use. */}
+              come from the Hub, so these stay folded unless one is already in use. Labels and
+              placeholders only: what each does is the Help page's to say, not a paragraph here. */}
           <details key={profile.id} open={advancedStartsOpen} className="rounded-lg border border-gray-200 dark:border-white/10">
             <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200">
               Advanced{advancedInUse > 0 && <span className="ml-1.5 text-xs font-normal text-gray-500 dark:text-gray-400">{advancedInUse} set</span>}
+              <a href={`${DOCS_URL}/desktop/decks-and-profiles/#script-profile-settings`} target="_blank" rel="noreferrer" className="float-right inline-flex items-center gap-1 text-xs font-normal text-gray-500 hover:text-accent-fg hover:underline dark:text-gray-400">
+                Help <ExternalLink className="w-3 h-3" />
+              </a>
             </summary>
             <div className="px-3 pb-3 space-y-4">
-            <Field label="Python interpreter" hint="Empty: the launcher’s own Python, which has the edge and every driver installed from the Hub. Choose another to use a project’s own virtual environment.">
+            <Field label="Python interpreter">
               <div className="flex gap-2">
-                <input value={draft.python || ''} onChange={e => set('python', e.target.value || null)} placeholder="Launcher Python" className={`${inputClass} font-mono`} />
+                <input value={draft.python || ''} onChange={e => set('python', e.target.value || null)} placeholder="Launcher Python, or a project’s .venv" className={`${inputClass} font-mono`} />
                 <Button onClick={() => pick('python', p => set('python', p))}>Browse…</Button>
               </div>
+              {/* Only for an interpreter of the person's own: whether the script can start in it. */}
+              {draft.python && <div className="mt-1.5"><PythonEnvironment api={api} python={draft.python} compact /></div>}
             </Field>
-            <PythonEnvironment
-              api={api}
-              python={draft.python || null}
-              folder={draft.cwd || (draft.script ? draft.script.replace(/[\\/][^\\/]*$/, '') : null)}
-              onChoose={p => set('python', p)}
-            />
-            <Field label="Working folder" hint="Where the script runs. Python finds imports in the script’s own folder, here, and in the project above the script (the folders holding pyproject.toml, setup.py, requirements.txt, .git or .idea, and their src/), as PyCharm does. For another folder, add a PYTHONPATH variable below.">
+            <Field label="Working folder">
               <div className="flex gap-2">
                 <input value={draft.cwd || ''} onChange={e => set('cwd', e.target.value)} className={`${inputClass} font-mono`} />
                 <Button onClick={() => pick('folder', p => set('cwd', p))}>Browse…</Button>
               </div>
             </Field>
-            <Field label="Environment variables" hint={<>Where a script’s COM ports and addresses go: read them with <code className="font-mono">os.environ[&quot;PUMP_PORT&quot;]</code>. Applied on the next start.</>}>
-              <KeyValueRows value={draft.env || {}} onChange={v => set('env', v)} resetKey={profile.id} keyPlaceholder="PUMP_PORT" valuePlaceholder="COM3" keyPattern={/^[A-Za-z_][A-Za-z0-9_]*$/} addLabel="Add variable" />
-            </Field>
-            <Field label="Arguments" hint="Passed after the script name. Quote a value that contains spaces.">
-              <input value={argsText} onChange={e => setArgsText(e.target.value)} placeholder="--simulate" className={`${inputClass} font-mono`} />
-            </Field>
+            {/* No heading: one quiet line until a variable exists, and then the rows say what they are. */}
+            <KeyValueRows value={draft.env || {}} onChange={v => set('env', v)} resetKey={profile.id} keyPlaceholder="PUMP_PORT" valuePlaceholder="COM3" keyPattern={/^[A-Za-z_][A-Za-z0-9_]*$/} addLabel="Add environment variable" />
             </div>
           </details>
           <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-200">
@@ -136,10 +129,9 @@ export default function ProfileSettings({ api, profile, link, sharedWith, onRemo
           <input type="checkbox" checked={draft.listenOnNetwork} onChange={e => set('listenOnNetwork', e.target.checked)} className="mt-1 accent-accent" />
           <span>
             Reachable from other computers on the network
-            <span className="block text-xs text-gray-500 dark:text-gray-400">Anyone who can reach this port can drive the instruments. Off, only this computer can.</span>
+            <span className="block text-xs text-gray-500 dark:text-gray-400">Anyone on your network can open this deck and drive its instruments. Off: this computer only.</span>
           </span>
         </label>
-        {!script && <PythonEnvironment api={api} python={null} />}
         {!script && (
           <div className="flex gap-2 flex-wrap">
             <Button small onClick={() => api.reveal(profile.id, 'deck').catch(e => notify(e.message))}><FolderOpen className="w-3.5 h-3.5" /> Show deck file</Button>

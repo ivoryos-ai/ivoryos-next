@@ -42,7 +42,11 @@ test('script profiles keep the script’s own data by default and pass port and 
     assert.equal(cmd.cwd, home);
     assert.equal(cmd.env.PUMP_PORT, 'COM3');
     assert.equal(cmd.env.IVORYOS_PORT, '8081');
-    assert.equal(cmd.env.IVORYOS_HOST, '127.0.0.1');
+    // Other computers can reach a profile unless the person turned that off.
+    assert.equal(p.listenOnNetwork, true);
+    assert.equal(cmd.env.IVORYOS_HOST, '0.0.0.0');
+    assert.equal(commandFor({ ...p, listenOnNetwork: false }, { python: 'py' }).env.IVORYOS_HOST, '127.0.0.1');
+    assert.equal(withDefaults(home, { kind: 'script', script, listenOnNetwork: false }).listenOnNetwork, false);
     assert.equal(cmd.env.IVORYOS_DATA_DIR, undefined);
     assert.equal(commandFor({ ...p, python: '/my/venv/python' }, { python: '/venv/bin/python' }).command, '/my/venv/python');
     // The edge keeps its own Cloud default unless the launcher was given one; a profile's env wins.
@@ -75,7 +79,7 @@ test('the app’s UI goes to edges in its venv; a script’s own interpreter ser
 
 test('deck profiles run the deck through the CLI with their own data folder', () => {
     const home = tmp();
-    const p = withDefaults(home, { kind: 'deck', name: 'Bench 3', listenOnNetwork: true });
+    const p = withDefaults(home, { kind: 'deck', name: 'Bench 3' });
     const cmd = commandFor(p, { python: 'py' });
     assert.deepEqual(cmd.args.slice(0, 5), ['-m', 'ivoryos_edge', '--deck', p.deck, '--data-dir']);
     assert.ok(cmd.args.includes('0.0.0.0'));

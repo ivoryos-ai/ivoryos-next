@@ -10,8 +10,14 @@
   --sl-color-gray-4: #9ca3af;
   --sl-color-gray-5: #d1d5db;
   --sl-color-gray-6: #eef0f3;
-  --sl-color-gray-7: #f8f9fa;
   --sl-color-black: #ffffff;
+}
+/* The lightest grey exists in the light theme only. Starlight's dark theme has none, and what uses
+   it says what to use instead (a link card's hover: gray-7, else gray-6). Set above, with the rest
+   of the light colours, it stayed in force in the dark theme too, where a hovered card on the
+   front page turned near-white under its white title. */
+:root[data-theme='light'] {
+  --sl-color-gray-7: #f8f9fa;
 }
 :root[data-theme='dark'] {
   --sl-color-accent-low: #27303b;

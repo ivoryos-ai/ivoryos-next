@@ -14,7 +14,7 @@ export function addDeck(lab: Lab, fields: { id?: string; name: string; deck?: De
   const id = fields.id || Math.random().toString(36).slice(2, 8);
   const port = id === EXAMPLE_ID ? 8000 : nextPort++;
   const profile: Omit<Profile, 'status'> & { status: Profile['status'] } = {
-    id, name: fields.name, kind: 'deck', port, listenOnNetwork: false, autoStart: true, env: {},
+    id, name: fields.name, kind: 'deck', port, listenOnNetwork: true, autoStart: true, env: {},
     deck: 'deck.json', problems: [], windowOpen: false,
     status: fields.running
       ? { state: 'running', port, url: `${location.origin}${TOUR_BASE}/deck-${id}` }
