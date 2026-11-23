@@ -185,6 +185,17 @@ def named_outputs_of(steps: List[Any]) -> List[str]:
     return names
 
 
+def template_output_names(seq_template: List[Any]) -> List[str]:
+    """The names a run's `sequence_template` saves, step by step: one per field binding, else the
+    comma-separated `returnVar` list. Not deduplicated (a spreadsheet's columns never were)."""
+    names: List[str] = []
+    for t in seq_template:
+        bindings = (t or {}).get("returnBindings") or []
+        names += ([b.get("var") for b in bindings if isinstance(b, dict) and b.get("var")]
+                  if bindings else _split_names((t or {}).get("returnVar")))
+    return names
+
+
 def user_input_vars_of(steps: List[Any]) -> List[str]:
     names: List[str] = []
     for s in steps:
@@ -283,7 +294,14 @@ def format_run(record: Dict[str, Any]) -> Dict[str, Any]:
         objective_names = [o.get("name") for o in params.get("objective_config") or []]
         seq_template = params.get("sequence_template") or []
         seq_length = len(seq_template)
-        variables = param_names + [f"{n} (objective)" for n in objective_names]
+        # What a trial's steps also save without the optimizer aiming for it (an output set to
+        # "Don't optimize", or one that is not a number): a column like any other, after the
+        # objectives. A name the search space already has keeps its one column.
+        other_outputs: List[str] = []
+        for n in template_output_names(seq_template):
+            if n not in other_outputs and n not in objective_names and n not in param_names:
+                other_outputs.append(n)
+        variables = param_names + [f"{n} (objective)" for n in objective_names] + other_outputs
         count = -(-len(main_steps) // seq_length) if seq_length > 0 else 0
         for i in range(count):
             steps = main_steps[i * seq_length:(i + 1) * seq_length]
@@ -293,18 +311,15 @@ def format_run(record: Dict[str, Any]) -> Dict[str, Any]:
             rows.append({
                 "row": i + 1,
                 "status": _iteration_status(steps),
-                "values": param_values + [read_named_output(n, seq_template, steps) for n in objective_names],
+                "values": param_values + [read_named_output(n, seq_template, steps)
+                                          for n in objective_names + other_outputs],
             })
     else:
         input_vars = variables
         table = params.get("rows") or []
         row_count = len(table)
         seq_template = params.get("sequence_template") or []
-        return_vars: List[str] = []
-        for t in seq_template:
-            bindings = (t or {}).get("returnBindings") or []
-            return_vars += ([b.get("var") for b in bindings if isinstance(b, dict) and b.get("var")]
-                            if bindings else _split_names((t or {}).get("returnVar")))
+        return_vars = template_output_names(seq_template)
         seq_length = len(seq_template) or (len(main_steps) // row_count if row_count > 0 and main_steps else 0)
         prompt_vars = [n for n in user_input_vars_of(main_steps) if n not in input_vars and n not in return_vars]
         variables = input_vars + prompt_vars + return_vars

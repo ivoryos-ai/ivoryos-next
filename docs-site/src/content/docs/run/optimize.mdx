@@ -31,8 +31,11 @@ missing from the list it failed to load, and the deck's log says why at startup.
    that variable out of the search). **Per-iteration** instead gives it a table of values, one per
    trial, for something that must differ by trial but is not searched: a vial position.
 
-3. **Objectives.** Every numeric output the workflow saves is listed; set each to **Maximize** or
-   **Minimize**. Optionally stop early when an objective reaches a value, when no objective has
+3. **Objectives.** Every numeric output the workflow saves is listed; set each to **Maximize**,
+   **Minimize**, or **Don't optimize** for a value that is saved for another reason (a later step
+   reads it, or it is worth having in the record). Such a value is still measured and kept with
+   every trial, in its own column of the run's data; the optimizer is not told about it. At least
+   one output must be optimized. Optionally stop early when an objective reaches a value, when no objective has
    improved for *N* trials in a row, and tick **Pause and ask me when a trial gives no result** to
    be asked rather than have such a trial left out.
 
