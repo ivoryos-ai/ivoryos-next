@@ -13,6 +13,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronRight, Layers, Link2, RefreshCw, Repeat, X } from 'lucide-react';
 import { valueText } from './paramTypes';
+import { besideDock } from './dockSpace';
 
 export type ExpandedStep = {
   instrument: string;
@@ -418,7 +419,7 @@ export function WorkflowMap({ isOpen, onClose, fetchExpansion, spreadsheet, conf
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" style={besideDock} onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-3xl max-h-[85vh] flex flex-col bg-white dark:bg-[#111] rounded-2xl shadow-2xl border border-gray-200 dark:border-white/10"

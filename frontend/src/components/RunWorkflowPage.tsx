@@ -948,11 +948,15 @@ export default function RunWorkflowPage({ mode, stage }: {
 
           {once ? (
             variables.length === 0 ? (
-              <div className="rounded-xl border-2 border-dashed border-gray-300 dark:border-white/10 px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
-                {sequence.length || prepSequence.length || cleanupSequence.length
-                  ? (globalVariables.length ? 'Fill in the fixed values above, then run.' : 'Nothing to fill in: this workflow runs as it is.')
-                  : <>Nothing to run yet. Build a workflow in the <Link href="/designer" className="underline underline-offset-2">Designer</Link>.</>}
-              </div>
+              // The same card as the form below, so a workflow with nothing to fill in looks like one with values.
+              <section className="max-w-xl rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 p-4 space-y-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Values for this run</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {sequence.length || prepSequence.length || cleanupSequence.length
+                    ? (globalVariables.length ? 'Fill in the fixed values above, then run.' : 'Nothing to fill in: this workflow runs as it is.')
+                    : <>Nothing to run yet. Build a workflow in the <Link href="/designer" className="underline underline-offset-2">Designer</Link>.</>}
+                </p>
+              </section>
             ) : (
               <section className="max-w-xl rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 p-4 space-y-3">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Values for this run</h3>
