@@ -258,7 +258,7 @@
   "first-variable": [
     {
       "title": "Leave a value open",
-      "text": "Type #temperature_c instead of a number. You give the number when you run."
+      "text": "Type #temperature_c. You give the number when you run."
     }
   ],
   "instruments": [
@@ -316,29 +316,24 @@
   "library-versions": [
     {
       "title": "Current",
-      "text": "The version Load to Designer opens and a new link is pinned to."
+      "text": "What Load to Designer opens."
     },
     {
-      "title": "Open an older one",
-      "text": "It loads into the Designer. Save there to make it the newest."
+      "title": "An older version",
+      "text": "Open it, then save to make it the newest."
     }
   ],
   "live-run": [
     {
-      "title": "What it is doing",
-      "text": "The run’s name, the step it is on, and how far along."
+      "title": "The run bar",
+      "text": "Name, current step and progress."
     },
     {
-      "title": "Pause",
-      "text": "After the current step. The same button resumes."
+      "title": "Pause or stop",
+      "text": "Pause, stop after this sample, or stop now."
     },
     {
-      "title": "Stop",
-      "text": "The flag finishes this sample first. The square stops now, without cleanup."
-    },
-    {
-      "title": "Queue and steps",
-      "text": "What waits behind this run, and every step with its result."
+      "title": "Queue and steps"
     }
   ],
   "live-run-iterate": [
@@ -364,15 +359,11 @@
   "live-run-steps": [
     {
       "title": "Running now",
-      "text": "Finished steps are ticked. The list follows the step in progress."
+      "text": "Finished steps are ticked."
     },
     {
       "title": "Change a step",
-      "text": "Edit the values of a step that has not run yet."
-    },
-    {
-      "title": "Resize",
-      "text": "Drag to make the list taller. Double-click to reset."
+      "text": "Before it runs."
     }
   ],
   "queue-drawer": [

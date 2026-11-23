@@ -264,18 +264,19 @@ const scenes = {
     await page.getByRole('button', { name: /^Run$/ }).click();
     await page.getByText(/reactor\.hold/).first().waitFor({ timeout: 30000 });
     const bar = { x: 0, y: 380, width: VIEW.width, height: VIEW.height - 380 };
+    // The whole bar: its progress strip, the run's name and the step it is on.
+    const runBar = page.locator('div[title*=" Run #"]').last().locator('xpath=../../..');
     await shot('live-run', [
-      { at: [page.locator('div[title*=" Run #"]').last(), page.locator('span[title$="steps"]').first()], title: 'What it is doing', text: 'The run’s name, the step it is on, and how far along.', side: 'above', align: 'start' },
-      { at: runBarButton('Pause after'), title: 'Pause', text: 'After the current step. The same button resumes.', side: 'above', align: 'end', dx: -210 },
-      { at: [runBarButton('Stop after this iteration'), runBarButton('Stop now')], title: 'Stop', text: 'The flag finishes this sample first. The square stops now, without cleanup.', side: 'above', align: 'end', dy: -110 },
-      { at: [runBarButton('Queue'), runBarButton('Show the steps')], title: 'Queue and steps', text: 'What waits behind this run, and every step with its result.', side: 'above', align: 'end' },
+      { at: runBar, title: 'The run bar', text: 'Name, current step and progress.', side: 'above', align: 'start', pad: 4 },
+      { at: [runBarButton('Pause after'), runBarButton('Stop now')], title: 'Pause or stop', text: 'Pause, stop after this sample, or stop now.', side: 'above', align: 'end', dx: -300, pad: 3 },
+      { at: [runBarButton('Queue'), runBarButton('Show the steps')], title: 'Queue and steps', side: 'above', align: 'end', pad: 3 },
     ], { clip: bar, wait: 100 });
     await runBarButton('Show the steps').click();
     await settle(700);
+    // Each note in empty space beside what it names, so no arrow crosses a step's words or a ring.
     await shot('live-run-steps', [
-      { at: page.locator('[data-run-active]').first(), title: 'Running now', text: 'Finished steps are ticked. The list follows the step in progress.', side: 'above', align: 'start', dx: 40 },
-      { at: page.locator('button[title="Change this step before it runs"]').first(), title: 'Change a step', text: 'Edit the values of a step that has not run yet.', side: 'above', align: 'end', dy: -40 },
-      { at: page.locator('[title^="Drag to resize the steps"]'), title: 'Resize', text: 'Drag to make the list taller. Double-click to reset.', side: 'above', align: 'center', pad: 4 },
+      { at: page.locator('[data-run-active]').first(), title: 'Running now', text: 'Finished steps are ticked.', xy: [700, 270], width: 210 },
+      { at: page.locator('button[title="Change this step before it runs"]').first(), title: 'Change a step', text: 'Before it runs.', side: 'left', align: 'start', dy: 4, width: 190, pad: 4 },
     ], { wait: 100 });
     await waitIdle();
   },
@@ -603,9 +604,11 @@ const scenes = {
     await libraryCard(SUZUKI).locator('[title="Version history"]').click();
     await settle(900);
     const versions = page.getByRole('button', { name: 'Open' });
+    // Each version is one row of the dialog: the Open button's parent.
+    const row = (open) => open.locator('xpath=..');
     await shot('library-versions', [
-      { at: [page.getByText('v2', { exact: true }), versions.first()], title: 'Current', text: 'The version **Load to Designer** opens and a new link is pinned to.', side: 'right', align: 'end', dy: -60 },
-      { at: versions.last(), title: 'Open an older one', text: 'It loads into the Designer. Save there to make it the newest.', side: 'right', align: 'start', dy: 20 },
+      { at: row(versions.first()), title: 'Current', text: 'What **Load to Designer** opens.', side: 'right', align: 'end', dy: -14, pad: 4 },
+      { at: row(versions.last()), title: 'An older version', text: '**Open** it, then save to make it the newest.', side: 'right', align: 'start', dy: 14, pad: 4 },
     ], { keep: versions.first().locator('xpath=ancestor::div[contains(@class,"rounded")][last()]') });
     // Put the first version back as the newest, so later scenes meet the workflow as it was.
     await versions.last().click();
@@ -714,7 +717,7 @@ const scenes = {
     await setpoint.fill('#temperature_c');
     await settle(300);
     await shot('first-variable', [
-      { at: setpoint, title: 'Leave a value open', text: 'Type **#temperature_c** instead of a number. You give the number when you run.', side: 'below', align: 'start' },
+      { at: setpoint, title: 'Leave a value open', text: 'Type **#temperature_c**. You give the number when you run.', side: 'right', align: 'center', dx: 40, width: 300 },
     ], { clip: TOP });
     await page.keyboard.press('Escape');
 

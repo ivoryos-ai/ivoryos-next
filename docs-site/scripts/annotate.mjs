@@ -110,16 +110,41 @@ function draw({ notes, keep, dim, bounds, numbered }) {
   root.appendChild(style);
   document.body.appendChild(root);
 
+  const hits = (a, b, grow = 0) => a.x - grow < b.x + b.w && a.x + a.w + grow > b.x && a.y - grow < b.y + b.h && a.y + a.h + grow > b.y;
   // Rings, a little larger than the elements they go round.
   const rings = notes.map((n) => {
     if (!n.box || n.ring === false) return null;
     const pad = n.pad ?? 6;
     return { x: n.box.x - pad, y: n.box.y - pad, w: n.box.width + 2 * pad, h: n.box.height + 2 * pad };
   });
+  // Rings round neighbouring elements (two buttons side by side) would cross where their padding
+  // meets: each gives up half the space between the two, so they sit apart.
+  const contains = (a, b) => a.x <= b.x && a.y <= b.y && a.x + a.w >= b.x + b.w && a.y + a.h >= b.y + b.h;
+  for (let i = 0; i < rings.length; i++) {
+    for (let j = 0; j < rings.length; j++) {
+      const a = rings[i];
+      const b = rings[j];
+      if (i === j || !a || !b || !hits(a, b, 2) || contains(a, b) || contains(b, a)) continue;
+      const ba = notes[i].box;
+      const bb = notes[j].box;
+      if (ba.x + ba.width <= bb.x) {
+        const mid = (ba.x + ba.width + bb.x) / 2;
+        a.w = Math.max(ba.x + ba.width + 1, mid - 2) - a.x;
+        const right = b.x + b.w;
+        b.x = Math.min(bb.x - 1, mid + 2);
+        b.w = right - b.x;
+      } else if (ba.y + ba.height <= bb.y) {
+        const mid = (ba.y + ba.height + bb.y) / 2;
+        a.h = Math.max(ba.y + ba.height + 1, mid - 2) - a.y;
+        const bottom = b.y + b.h;
+        b.y = Math.min(bb.y - 1, mid + 2);
+        b.h = bottom - b.y;
+      }
+    }
+  }
   // Where the arrow lands: the ring, or the bare element when there is no ring.
   const targets = notes.map((n, i) => rings[i] || (n.box ? { x: n.box.x, y: n.box.y, w: n.box.width, h: n.box.height } : null));
 
-  const hits = (a, b, grow = 0) => a.x - grow < b.x + b.w && a.x + a.w + grow > b.x && a.y - grow < b.y + b.h && a.y + a.h + grow > b.y;
   const inside = (r) => r.x >= area.x + EDGE && r.y >= area.y + EDGE && r.x + r.w <= area.r - EDGE && r.y + r.h <= area.b - EDGE;
   const clamp = (r) => ({
     ...r,
