@@ -331,11 +331,13 @@ export default function LauncherPage() {
   const openAuth = (mode: AuthMode) => { setAuthMode(mode); setView('account'); api.showTab(null); };
   // Cloud is a Pro feature in the preview plans; without it the button offers the upgrade.
   // The sidebar is the tab list: a running deck opens its own page, a stopped one its launcher page
-  // (to start it). The gear on each row is always the launcher page: instruments, log, settings.
+  // (to start it). Clicking the row of the deck whose page is showing goes to its launcher page, and
+  // clicking it there goes back, so one row moves between the two. The gear on each row is always
+  // the launcher page: instruments, log, settings.
   const showProfilePage = (id: string) => { setSelected(id); setView('profile'); api.showTab(null); };
   const openProfile = (p: Profile) => {
     setSelected(p.id);
-    if (p.status.state === 'running') run(() => api.open(p.id));
+    if (p.status.state === 'running' && tabs.active !== p.id) run(() => api.open(p.id));
     else showProfilePage(p.id);
   };
   // Cloud likewise: straight to Cloud when it answers, its launcher page (status, address) when not.
@@ -482,28 +484,22 @@ export default function LauncherPage() {
                   onDragEnd={() => { setDragId(null); setDropOn(null); }}
                   className={`group flex items-stretch rounded-lg border transition-colors ${active ? 'bg-accent-soft text-accent-fg border-accent-tint/50' : 'border-transparent hover:bg-gray-100 dark:hover:bg-white/5'} ${dropOn === p.id ? '!border-gray-400 dark:border-white/30 border-dashed' : ''} ${dragId === p.id ? 'opacity-40' : ''}`}
                 >
+                  {/* One line (issue 84): the kind's icon wearing the status dot, then the name.
+                      The file, port and state are in the tooltip; the deck's own page says them. */}
                   <button
                     type="button"
                     onClick={() => openProfile(p)}
-                    title={p.status.state === 'running' ? `Open ${p.name}` : `${p.name}: ${STATE_LABEL[p.status.state].toLowerCase()}`}
-                    className="flex-1 min-w-0 text-left pl-3 py-2.5"
+                    title={profileRowTitle(p, tabs.active === p.id)}
+                    className="flex-1 min-w-0 text-left pl-3 py-2 flex items-center gap-2.5"
                   >
-                    <div className="flex items-center gap-2">
-                      <StatusDot status={p.status} />
-                      <span className={`text-sm truncate flex-1 ${active ? 'font-semibold' : 'font-medium'}`}>{p.name}</span>
-                      <span
-                        title={p.status.portNote ? `Started on ${p.status.portNote.actual}, not the profile's ${p.status.portNote.requested}` : undefined}
-                        className={`text-[11px] font-mono ${p.status.portNote ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400'}`}
-                      >
-                        {p.status.portNote && <AlertTriangle className="inline w-3 h-3 mr-0.5 -mt-0.5" />}:{p.status.port}
-                      </span>
-                    </div>
-                    <div className="mt-0.5 pl-4 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-                      {p.kind === 'deck' ? <Layers className="w-3 h-3" /> : <FileCode2 className="w-3 h-3" />}
-                      <span className="truncate">{p.kind === 'deck' ? 'Deck' : (p.script || '').split(/[\\/]/).pop()}</span>
-                      <span className="text-gray-300 dark:text-gray-600">·</span>
-                      <span className="truncate">{STATE_LABEL[p.status.state]}</span>
-                    </div>
+                    <span className="relative shrink-0">
+                      {p.kind === 'deck'
+                        ? <Layers className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                        : <FileCode2 className="w-4 h-4 text-gray-500 dark:text-gray-400" />}
+                      <StatusDot status={p.status} className="absolute -right-0.5 -bottom-0.5 ring-2 ring-white dark:ring-[#141414]" />
+                    </span>
+                    <span className={`text-sm truncate flex-1 ${active ? 'font-semibold' : 'font-medium'}`}>{p.name}</span>
+                    {p.status.portNote && <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />}
                   </button>
                   <button
                     type="button"
@@ -922,6 +918,18 @@ function ScriptOverview({ api, profile, openSettings, openCode }: { api: Desktop
 /** A sidebar row that does something (add, browse), drawn like the profile rows above it. */
 // One line each: the second line of explanation under every entry made the sidebar read as a
 // wall of small text. What the entry does is in its tooltip.
+/** A sidebar row's tooltip: what its one line leaves out, and what a click does. */
+function profileRowTitle(p: Profile, pageShowing: boolean) {
+  const kind = p.kind === 'deck' ? 'Deck' : `Script ${(p.script || '').split(/[\\/]/).pop()}`;
+  const port = p.status.portNote
+    ? `port ${p.status.portNote.actual} (not the profile's ${p.status.portNote.requested})`
+    : `port ${p.status.port}`;
+  const click = p.status.state !== 'running' ? 'Click for its settings and to start it'
+    : pageShowing ? 'Click for its settings, log and instruments'
+    : 'Click to open it';
+  return `${p.name}\n${kind} · ${STATE_LABEL[p.status.state]} · ${port}\n${click}`;
+}
+
 function SideAction({ icon, label, hint, title, onClick }: { icon: React.ReactNode; label: string; hint: string; title?: string; onClick: () => void }) {
   return (
     <button type="button" onClick={onClick} title={title || `${label}: ${hint}`}
