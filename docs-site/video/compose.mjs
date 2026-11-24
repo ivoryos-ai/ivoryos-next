@@ -32,7 +32,7 @@ const FPS = 30;
 const W = 1920;
 const H = 1080;
 const INTRO = 3.2; // seconds of title card
-const OUTRO = 5.0;
+const OUTRO = 5.0; // at least; longer when a line is said over the closing card
 const TITLE = 'Getting started with IvoryOS';
 const SUBTITLE = 'From the Automation Hub to your first results';
 const CLOSING = ['Documentation', 'docs.ivoryos.ai'];
@@ -225,14 +225,19 @@ async function liveFrame(filmMs) {
 
 // --- the film's plan: cards, live picture, and where each line is spoken ----------------------------
 
+// A line marked `closing` (rec.closing) is said over the closing card, a moment after it appears.
+const CLOSING_LEAD = 0.7;
 const lines = take.beats.map((b) => ({
   id: b.id,
   text: script.lines[b.id].say,
   screen: script.lines[b.id].screen || '',
-  start: INTRO + toFilm(b.t) / 1000,
+  start: b.closing ? INTRO + FILM_MS / 1000 + CLOSING_LEAD : INTRO + toFilm(b.t) / 1000,
   seconds: voice[b.id].seconds,
+  closing: !!b.closing,
 }));
-const TOTAL = INTRO + FILM_MS / 1000 + OUTRO;
+// The closing card stays for its line and a breath after it.
+const OUTRO_S = Math.max(OUTRO, ...lines.filter((l) => l.closing).map((l) => CLOSING_LEAD + l.seconds + 2));
+const TOTAL = INTRO + FILM_MS / 1000 + OUTRO_S;
 
 let introCard;
 let outroCard;

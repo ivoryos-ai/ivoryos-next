@@ -113,12 +113,8 @@
       "say": "The Data button downloads that table as a file.",
       "screen": "The pointer rests on Data, at the top right of the run."
     },
-    "28-optimize": {
-      "say": "The third way to run is Optimize. Give each open value a range, choose what to maximize, and an optimizer picks the values, learning from every result.",
-      "screen": "The Run page's Optimize tab; a range is typed for vial."
-    },
-    "29-docs": {
-      "say": "That, and everything else, is in the documentation.",
+    "28-docs": {
+      "say": "There is more: optimization, safety limits, and connecting your own instruments. It is all in the documentation.",
       "screen": "Closing card."
     }
   }

@@ -373,17 +373,6 @@ export async function tutorial(rec, a, { resume = false } = {}) {
     await rec.hover(T, T.locator('button[title^="Download the data table"]'));
   });
 
-  await rec.beat('28-optimize', async () => {
-    await rec.click(T, nav('Run'));
-    await runTab('Optimize').waitFor();
-    await rec.click(T, runTab('Optimize'));
-    await T.getByText('Search Space').first().waitFor();
-    await sleep(1800);
-    await rec.fill(T, T.getByPlaceholder('min').first(), '1', { delay: 120 });
-    await rec.fill(T, T.getByPlaceholder('max').first(), '12', { delay: 120 });
-    await sleep(700);
-    await rec.hover(T, T.getByText('Objectives').first(), { dx: 150, dy: 30, ms: 1100 });
-  });
-
-  await rec.beat('29-docs', async () => { await sleep(400); });
+  // Said over the closing card, not over the app.
+  rec.closing('28-docs');
 }

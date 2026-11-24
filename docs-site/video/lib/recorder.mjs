@@ -256,6 +256,13 @@ export class Recorder {
     beat.end = this.now();
   }
 
+  /** A line said over the closing card, after the recording ends: nothing is held for it. */
+  closing(id) {
+    if (!this.voice[id]) throw new Error(`no narration recorded for "${id}"; run voice.py`);
+    const t = this.now();
+    this.beats.push({ id, t, end: t, closing: true });
+  }
+
   /** Something long that the film skips (an install); `speed` plays it fast instead of cutting. */
   async skip(actions, { speed = 0 } = {}) {
     this.warp = { t0: this.now(), speed };
