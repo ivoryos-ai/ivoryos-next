@@ -12,14 +12,12 @@ made again the same way the screenshots are:
 uv run -q --python 3.12 --with kokoro-onnx --with soundfile python docs-site/video/voice.py   # 1. speak the lines
 node docs-site/video/record.mjs                                                              # 2. record the app (about 6 minutes)
 node docs-site/video/compose.mjs                                                             # 3. make the film (about 2 minutes)
-node docs-site/video/publish.mjs                                                             # 4. copy it to public/video/ for the tour page
 ```
 
 The result is `out/ivoryos-tutorial.mp4`, with `out/ivoryos-tutorial.srt` (subtitles) beside it and
-`script.md` (the narration with times) in this folder. `out/`, `.work/` and `public/video/` are not
-committed: the film and its audio stay on the computer that made them. The page that plays it
-(`src/content/docs/start/video-tour.mdx`) is a draft, shown by `npm run dev` and left out of the
-published site until the film has somewhere to be served from.
+`script.md` (the narration with times) in this folder. `out/` and `.work/` are not committed: the
+film and its audio stay on the computer that made them, and no page of the documentation shows the
+film yet.
 
 ## The pieces
 

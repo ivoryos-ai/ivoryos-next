@@ -92,13 +92,9 @@ narration is data (`voiceover.json`), a synthetic voice speaks it, the real desk
 through the tour while its pages are recorded, and the film is put together with its subtitles.
 `video/README.md` has the commands, and how to change a line, the voice, or what is shown.
 
-The film and its narration are not in the repository (`video/out/` and `public/video/` are
-ignored): they are made on your computer. `video/publish.mjs` copies the result to
-`public/video/`, where the **Watch the tour** page (`start/video-tour.mdx`) plays it. That page is
-a draft, so it shows in `npm run dev` and is left out of the published site; publishing it means
-giving the film somewhere to be served from, taking `draft: true` off the page, and linking to it.
-The chapter times on the page are written by hand: check them against `video/script.md` after a
-new take.
+The film and its narration are not in the repository (`video/out/` is ignored): they are made on
+your computer, and no page of the documentation shows them yet. A page for the film needs somewhere
+to serve it from first.
 
 ## House style
 
