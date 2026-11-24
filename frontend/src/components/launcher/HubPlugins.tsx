@@ -65,7 +65,7 @@ export function PluginDetail({ api, access, deck, plugin, onDone }: {
       [
         `Install ${entry.packages.join(', ') || 'nothing new'} and add the plugin ${entry.plugins.join(', ')} to ${deckLabel(access.target)}.`,
         ...(madeForOthers ? ['It was made for other instruments than this deck has, so parts of it may not find what they look for.'] : []),
-        'Plugins run on this computer with access to your instruments. The deck restarts to load it.',
+        'Plugins run on this computer with access to your instruments. A deck that is running is not restarted: it loads this when you restart it.',
       ].join('\n\n'),
       { title: 'Install and add plugin?', confirmLabel: 'Install and add' },
     );

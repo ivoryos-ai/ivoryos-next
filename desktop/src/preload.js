@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('ivoryosDesktop', {
 
     deck: (id) => call('launcher:deck', id),
     saveInstrument: (id, originalName, entry) => call('launcher:instrument:save', id, originalName, entry),
+    activeRun: (id) => call('launcher:active-run', id),
     removeInstrument: (id, name) => call('launcher:instrument:remove', id, name),
     setInstrumentEnabled: (id, name, enabled) => call('launcher:instrument:enable', id, name, enabled),
     removePlugin: (id, ref) => call('launcher:plugin:remove', id, ref),

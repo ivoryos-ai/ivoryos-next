@@ -186,7 +186,9 @@ class PythonRuntime {
     }
 
     /**
-     * Install pip requirements into the venv. Call with the edge stopped (see supervisor).
+     * Install pip requirements into the venv. Into a deck that is running only when nothing
+     * installed is replaced (`installPlan`, manager.js `_installFor`): a running interpreter holds
+     * its packages' compiled files open, and on Windows those cannot be replaced until it exits.
      * PyTorch comes as its CPU-only build (`--torch-backend cpu`), for every install into this
      * environment, so one install never swaps it for another build: on Linux the default from
      * PyPI carries the CUDA libraries, a few GB nobody asked for. Ax and BayBE pull it in.
@@ -308,6 +310,18 @@ class PythonRuntime {
             const error = lines.slice(-3).join(' ').replace(/[╰─▶│×]/g, ' ').replace(/\s+/g, ' ').trim();
             return { latest: null, changes: [], error };
         }
+    }
+
+    /**
+     * What installing `requirements` would change in the environment, without changing anything
+     * (`uv pip install --dry-run`, the resolution an install does): [{change, name, version}]. A
+     * '-' is a package already installed that would be replaced or removed, which is what a
+     * running deck cannot take (manager.js `_installFor`). Throws as the install would.
+     */
+    async installPlan(requirements) {
+        if (!requirements.length) return [];
+        const { parseDryRun } = require('./deckPackages');
+        return parseDryRun(await run(this.uv, ['pip', 'install', '--dry-run', '--python', this.python, '--torch-backend', 'cpu', ...requirements]));
     }
 
     /** `uv pip check`: installed packages whose requirements are not met. Never throws. */

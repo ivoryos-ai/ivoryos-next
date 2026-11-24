@@ -71,18 +71,27 @@ export default function DeckPanel({ api, profile, hubUrl, pro, onUpgrade, onOpen
     return () => { cancelled = true; };
   }, [running, profile.status.url, deck]);
 
-  // What the Hub added is on disk, not in the edge: a running deck was restarted to load it
-  // (manager.js), a stopped one loads it when started. Say which, so nobody wonders why the
-  // Designer does not list the new instrument yet.
+  // What the Hub added is on disk, not in the edge: a running deck is never restarted for it
+  // (manager.js _installFor), a stopped one loads it when started. Say which, so nobody wonders
+  // why the Designer does not list the new instrument yet.
   const added = () => {
     refresh();
     notify(running
-      ? `${profile.name} is restarting to load it. Its page reloads once it is back.`
+      ? `It is on the deck, and ${profile.name} is still running without it. Restart ${profile.name} to load it: nothing restarts it for you.`
       : `It is on the deck now and loads when ${profile.name} starts.`,
-      { title: 'Added to the deck' });
+      { title: running ? 'Added, not applied yet' : 'Added to the deck' });
   };
   const act = async (fn: () => Promise<unknown>) => {
     try { await fn(); refresh(); } catch (e: any) { await notify(e.message, { title: 'Could not change the deck', tone: 'error' }); }
+  };
+
+  // The file has edits the running deck has not loaded. Each row then says where it differs from
+  // what is loaded: still running though switched off, or switched on and not running yet.
+  const pending = running && !!profile.status.pending?.includes('deck');
+  const notYet = (off: boolean, loaded: boolean | undefined, error: string | undefined) => {
+    if (!pending || loaded === undefined) return null;
+    const text = off && loaded ? 'still loaded until restart' : !off && !loaded && !error ? 'loads at restart' : null;
+    return text && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">{text}</span>;
   };
 
   const instruments = deck?.instruments || [];
@@ -98,7 +107,9 @@ export default function DeckPanel({ api, profile, hubUrl, pro, onUpgrade, onOpen
           onClick={() => { setSeed(null); setEditing('new'); }}
           title="For a driver already installed in IvoryOS's Python: name its module and class. Nothing is installed."
         ><Plus className="w-4 h-4" /> Add installed driver</Button>
-        {running && <span className="ml-auto text-xs text-gray-500 dark:text-gray-400">Changes restart this deck.</span>}
+        {/* An edit never restarts a running deck (it may be mid-run, or on Cloud): it is saved, and
+            the profile's header says "Not applied yet" beside Restart until the person presses it. */}
+        {running && <span className="ml-auto text-xs text-gray-500 dark:text-gray-400" title="Nothing here restarts a running deck. Changes are saved, and apply when you restart it.">Changes apply when you restart.</span>}
       </div>
 
       {instruments.length === 0 ? (
@@ -123,6 +134,7 @@ export default function DeckPanel({ api, profile, hubUrl, pro, onUpgrade, onOpen
                     <span className="font-mono text-sm font-semibold text-gray-900 dark:text-gray-100">{inst.name}</span>
                     <span className="text-xs text-gray-500 dark:text-gray-400 truncate">{inst.hub?.name || `${inst.import}.${inst.class}`}</span>
                     {off && <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">off</span>}
+                    {notYet(off, loaded, error)}
                   </div>
                   {args.length > 0 && (
                     <div className="mt-0.5 text-xs font-mono text-gray-500 dark:text-gray-400 truncate">
@@ -166,6 +178,7 @@ export default function DeckPanel({ api, profile, hubUrl, pro, onUpgrade, onOpen
                     <div className="flex items-baseline gap-2 flex-wrap">
                       <span className="font-mono text-sm text-gray-900 dark:text-gray-100 break-all">{ref}</span>
                       {off && <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">off</span>}
+                      {notYet(off, loaded, error)}
                     </div>
                     {!off && error && <div className="mt-1 text-xs text-red-600 dark:text-red-400 break-words">{error}</div>}
                   </div>
@@ -188,7 +201,7 @@ export default function DeckPanel({ api, profile, hubUrl, pro, onUpgrade, onOpen
       <DeckPackages api={api} profileId={profile.id} deck={deck} running={running} onChanged={refresh} />
 
       {editing && (
-        <InstrumentEditor api={api} profileId={profile.id} entry={editing === 'new' ? null : editing} seed={editing === 'new' ? seed : null} running={running} onClose={() => { setEditing(null); setSeed(null); }} onSaved={refresh} />
+        <InstrumentEditor api={api} profileId={profile.id} entry={editing === 'new' ? null : editing} seed={editing === 'new' ? seed : null} onClose={() => { setEditing(null); setSeed(null); }} onSaved={refresh} />
       )}
       {browsing && (
         <HubBrowser

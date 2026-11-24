@@ -44,11 +44,17 @@ export default function DeckPackages({ api, profileId, deck, running, onChanged 
   };
 
   const update = async (p: DeckPackage, u: PackageUpdate) => {
+    // An update replaces a package the running deck has open, and a deck is never stopped for
+    // the person (manager.js _installFor refuses it too).
+    if (running) {
+      await notify(`Stop this deck, then update ${p.name}. An update replaces files a running deck has open, and the app never stops a deck for you.`, { title: 'Stop the deck first' });
+      return;
+    }
     const others = u.changes.map(c => `${c.change === '+' ? '' : 'removes '}${c.name} ${c.version}`);
     const ok = await confirmDialog([
       `Update ${p.name} from ${p.version || p.spec || 'its current version'} to ${u.latest}? The deck will ask for ${p.name}==${u.latest} from now on.`,
       ...(others.length ? [`This also installs or changes: ${others.join(', ')}.`] : []),
-      running ? 'The deck stops while it installs, and starts again.' : 'It installs now; the deck loads it when it starts.',
+      'It installs now; the deck loads it when it starts.',
     ].join('\n\n'), { title: 'Update package?', confirmLabel: 'Update' });
     if (!ok) return;
     setBusy(p.key);

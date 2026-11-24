@@ -8,6 +8,7 @@
 // isolation between decks that, on one bench, are usually the same instruments anyway.
 
 const { EventEmitter } = require('node:events');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const net = require('node:net');
 const path = require('node:path');
@@ -21,7 +22,9 @@ const { validateManifest, mergeIntoDeck, packageKey } = require('./manifest');
 const {
     parseRequirement, withVersion, probeInput, describePackages, packagesAfterRemoving, withPackages, optimizerOf,
 } = require('./deckPackages');
-const { updateInstrument, removeInstrument, setInstrumentEnabled, removePlugin, setPluginEnabled } = require('./deckEdit');
+const {
+    updateInstrument, removeInstrument, setInstrumentEnabled, removePlugin, setPluginEnabled, loadSignature, stable,
+} = require('./deckEdit');
 const { addWorkflows } = require('./library');
 const { selectionOf, withSelection } = require('./optimizers');
 
@@ -45,14 +48,20 @@ class ProfileManager extends EventEmitter {
      * @param {boolean} [opts.cloudComingSoon]  a release build where Cloud is not offered yet: its
      *   decks hide their Cloud pages (IVORYOS_CLOUD_COMING_SOON) and Cloud-only mode is off.
      */
-    constructor({ home, getRuntime, frontendDir = null, cloudComingSoon = false }) {
+    /**
+     * @param {(id: string) => ({id: string, name: string|null}|null|Promise<{id: string, name: string|null}|null>)} [opts.activeRun]
+     *   the run a profile's deck is on now, or null (main.js: attention.lastRun). An install into a
+     *   running deck is refused while there is one.
+     */
+    constructor({ home, getRuntime, frontendDir = null, cloudComingSoon = false, activeRun = null }) {
         super();
+        this.activeRun = activeRun || (() => null);
         this.cloudComingSoon = !!cloudComingSoon;
         this.home = home;
         this.getRuntime = getRuntime;
         this.frontendDir = frontendDir;
         this.store = loadProfiles(home);
-        this.running = new Map(); // id -> { supervisor }
+        this.running = new Map(); // id -> { supervisor, startedWith, packagesChanged }
         this.status = new Map(); // id -> { state, message, port, error }
         this.locks = new Map(); // id -> the tail of that profile's operation queue
     }
@@ -92,7 +101,58 @@ class ProfileManager extends EventEmitter {
     statusOf(id) {
         const s = this.status.get(id) || { state: 'stopped' };
         const port = s.port || this.get(id).port;
-        return { ...s, port, url: s.state === 'running' ? `http://127.0.0.1:${port}` : null };
+        const pending = s.state === 'running' ? this._pending(id) : [];
+        return { ...s, port, url: s.state === 'running' ? `http://127.0.0.1:${port}` : null, needsRestart: pending.length > 0, pending };
+    }
+
+    // --- what a running profile has not applied yet -------------------------------------------
+    //
+    // Nothing the launcher does restarts a running profile by itself: not an edit to its deck, not
+    // an install, not a saved setting. A restart ends whatever run the bench is on and drops the
+    // deck off Cloud, so it is only ever the person's click. What the launcher owes them instead
+    // is to say, always, when what is saved differs from what the process started with: the
+    // status carries `needsRestart` and `pending` (which kinds), and the page says "not applied
+    // yet" until a restart. It is compared, not flagged, so a change that is undone is no change,
+    // and a file edited outside the app counts too.
+
+    /**
+     * Everything a profile's process reads when it starts, as comparable text per kind. The deck
+     * or script is read each time, not remembered by its modification time: two saves within one
+     * tick of the clock (an edit and its undo) can leave the same time and size on Windows, and
+     * these are small files read only for profiles that are running.
+     */
+    _startedWith(profile) {
+        const { port, listenOnNetwork, env, script, cwd, args, python, deck, dataDir } = profile;
+        const parts = {
+            settings: stable({ port, listenOnNetwork, env, script, cwd, args, python, deck, dataDir }),
+            cloud: this.store.cloudUrl || null,
+        };
+        if (profile.kind === 'deck') {
+            parts.deck = loadSignature(readDeckFile(profile.deck));
+        } else {
+            try { parts.script = crypto.createHash('sha1').update(fs.readFileSync(profile.script)).digest('hex'); } catch { parts.script = null; }
+        }
+        return parts;
+    }
+
+    /**
+     * Which kinds of change a running profile has not applied: 'deck' (its instruments or
+     * plugins), 'script', 'packages' (installed while it ran), 'settings', 'cloud' (the launcher's
+     * Cloud address). Empty when it runs what is saved.
+     */
+    _pending(id) {
+        const run = this.running.get(id);
+        if (!run || !run.startedWith) return [];
+        let now;
+        try { now = this._startedWith(this.get(id)); } catch { return []; }
+        const was = run.startedWith;
+        return [
+            now.deck !== was.deck && 'deck',
+            now.script !== was.script && 'script',
+            run.packagesChanged && 'packages',
+            now.settings !== was.settings && 'settings',
+            now.cloud !== was.cloud && 'cloud',
+        ].filter(Boolean);
     }
 
     list() {
@@ -318,7 +378,9 @@ class ProfileManager extends EventEmitter {
             this._setStatus(id, { state: 'error', message: problems.join(' ') });
             throw new Error(problems.join(' '));
         }
-        this._setStatus(id, { state: 'starting', message: 'Preparing Python…', error: null, port: profile.port, portNote: null });
+        this._setStatus(id, { state: 'starting', message: 'Preparing Python…', error: null, port: profile.port, portNote: null, installing: null });
+        // Taken before the process exists, so a change made while it starts counts as not applied.
+        const startedWith = this._startedWith(profile);
         try {
             const runtime = await this.getRuntime();
             if (profile.kind === 'deck') {
@@ -346,12 +408,25 @@ class ProfileManager extends EventEmitter {
             }
             const cmd = commandFor(profile, ctx);
             const supervisor = new EdgeSupervisor({ ...cmd, logFile: this.logFile(id) });
-            this.running.set(id, { supervisor });
+            this.running.set(id, { supervisor, startedWith, packagesChanged: false });
             supervisor.on('log', (line) => this.emit('log', id, line));
             // The edge chose another port than the profile's: follow it, and keep why for the
             // launcher to show (the script sets its own port, or its IvoryOS ignores IVORYOS_PORT).
             supervisor.on('port', (port, requested) => this._setStatus(id, { port, portNote: { requested, actual: port } }));
-            supervisor.on('restart-requested', () => this._setStatus(id, { state: 'starting', message: 'Restarting…' }));
+            supervisor.on('restart-requested', () => {
+                // The edge's own Restart (a person's click on its page): the new process reads its
+                // deck or script again and imports what is installed now, but is started with the
+                // same command, so changed settings and a changed Cloud address still wait.
+                const run = this.running.get(id);
+                if (run) {
+                    try {
+                        const now = this._startedWith(this.get(id));
+                        run.startedWith = { ...run.startedWith, deck: now.deck, script: now.script };
+                        run.packagesChanged = false;
+                    } catch { /* the profile is gone */ }
+                }
+                this._setStatus(id, { state: 'starting', message: 'Restarting…' });
+            });
             supervisor.on('ready', () => this._setStatus(id, { state: 'running', message: 'Running', error: null }));
             supervisor.on('crashed', (info) => {
                 // Running until now, or a start that never got there (the Start that asked says so).
@@ -400,17 +475,19 @@ class ProfileManager extends EventEmitter {
         return readDeckFile(this._deckProfile(id).deck);
     }
 
-    /** Apply a deck edit (sync or async) and, if the profile is running, restart it so the edge loads it. */
+    /**
+     * Apply a deck edit (sync or async) to the deck file, and nothing else. A running deck is
+     * never restarted for it: ticking an instrument off must not end the run the bench is on, or
+     * drop it off Cloud. The edge reads its deck only when it starts, so its status says
+     * `needsRestart` while the file differs from what it loaded (`_pending`), and the restart is
+     * the person's own click, when nothing is running.
+     */
     _editDeck(id, edit) {
         return this._exclusive(id, async () => {
             const profile = this._deckProfile(id);
             const next = await edit(readDeckFile(profile.deck));
             writeDeckFile(profile.deck, next);
             this.emit('changed');
-            if (this.running.has(id)) {
-                await this._stop(id);
-                await this._start(id);
-            }
             return next;
         });
     }
@@ -494,8 +571,9 @@ class ProfileManager extends EventEmitter {
 
     /**
      * Pin one of the deck's packages to `version` and install it with the rest of the deck's list,
-     * the way an install from the Hub does: a conflict is refused before anything changes, the
-     * deck is written only once it installed, and a running deck is restarted.
+     * the way an install from the Hub does (`_installFor`): a conflict is refused before anything
+     * changes and the deck is written only once it installed. An update replaces an installed
+     * package, so a running deck has to be stopped first, by the person.
      */
     updatePackage(id, key, version) {
         return this._exclusive(id, async () => {
@@ -505,20 +583,8 @@ class ProfileManager extends EventEmitter {
             if (at === -1) throw new Error(`This deck does not list ${key}.`);
             const packages = deck.packages.slice();
             packages[at] = withVersion(packages[at], version);
-            const wasRunning = this.running.has(id);
-            await this._stop(id);
-            try {
-                this._setStatus(id, { state: 'installing', message: `Updating ${key}…` });
-                const runtime = await this.getRuntime();
-                await runtime.ensurePackages(packages, { key: id, onProgress: (message) => this._setStatus(id, { message }) });
-                writeDeckFile(profile.deck, { ...deck, packages });
-                this._setStatus(id, { state: 'stopped', message: 'Updated' });
-            } catch (e) {
-                this._setStatus(id, { state: 'error', message: `Update failed: ${e.message}`, error: e.message, logTail: e.output || '' });
-                if (wasRunning) await this._start(id).catch(() => {});
-                throw e;
-            }
-            if (wasRunning) await this._start(id);
+            await this._installFor(id, packages, { doing: `Updating ${key}…`, done: 'Updated', failed: 'Update failed' },
+                () => writeDeckFile(profile.deck, { ...deck, packages }));
             return readDeckFile(profile.deck);
         });
     }
@@ -544,9 +610,69 @@ class ProfileManager extends EventEmitter {
     }
 
     /**
-     * Install a manifest's packages and merge it into this profile's deck. The edge is stopped
-     * while packages install (a running interpreter holds their files open), and the deck is only
-     * written once every package installed, so a failed install leaves the deck as it was.
+     * Install `packages` (a deck's whole list, in one resolution) and then `commit()` the deck
+     * file, which is therefore written only once everything installed.
+     *
+     * A running deck is neither stopped nor restarted for it. It used to be stopped, installed
+     * into and started again, whatever it was doing. Now, for a deck that is running:
+     *   - on a run, the install is refused (code 'run-under-way'): nothing changes under a run;
+     *   - if it would replace or remove a package already installed, it is refused (code
+     *     'stop-first') and the person stops the deck themselves. A running interpreter holds its
+     *     packages' compiled files open, on Windows they cannot be replaced until it exits, and
+     *     an install that fails halfway leaves that package broken for the deck using it;
+     *   - if it only adds packages, it goes in while the deck runs, the deck is committed, and
+     *     the status says it is not applied yet (`_pending`: 'packages', and 'deck' for what the
+     *     commit added) until the person restarts it.
+     * A stopped deck installs as before: 'installing', then 'stopped' or 'error' with pip's output.
+     */
+    async _installFor(id, packages, words, commit) {
+        const run = this.running.get(id);
+        const name = this.get(id).name;
+        if (run) {
+            let active = null;
+            try { active = await this.activeRun(id); } catch { /* cannot tell: the dry run below still protects it */ }
+            if (active) {
+                throw Object.assign(new Error(
+                    `${active.name ? `"${active.name}"` : 'A run'} is under way on ${name}. Installing changes the Python it is running on, `
+                    + 'so nothing is installed during a run: try again when it has ended.',
+                ), { code: 'run-under-way' });
+            }
+        }
+        const runtime = await this.getRuntime();
+        let plan = [];
+        if (run && runtime.installPlan) {
+            plan = await runtime.installPlan(packages);
+            const replaced = [...new Set(plan.filter((c) => c.change === '-').map((c) => `${c.name} ${c.version}`))];
+            if (replaced.length) {
+                throw Object.assign(new Error(
+                    `This would replace ${replaced.length === 1 ? 'a package' : 'packages'} already installed (${replaced.slice(0, 4).join(', ')}${replaced.length > 4 ? ', …' : ''}), `
+                    + `and ${name} is running on ${replaced.length === 1 ? 'it' : 'them'}. Stop ${name}, then try again. It is never stopped for you.`,
+                ), { code: 'stop-first' });
+            }
+        }
+        const progress = (message) => this._setStatus(id, run ? { installing: message } : { message });
+        if (run) progress(words.doing); else this._setStatus(id, { state: 'installing', message: words.doing });
+        try {
+            await runtime.ensurePackages(packages, { key: id, onProgress: progress });
+            commit();
+        } catch (e) {
+            // A running deck is still running what it had; only a stopped one shows the failure as its state.
+            if (run) this._setStatus(id, { installing: null });
+            else this._setStatus(id, { state: 'error', message: `${words.failed}: ${e.message}`, error: e.message, logTail: e.output || '' });
+            throw e;
+        }
+        if (run) {
+            if (plan.length) run.packagesChanged = true;
+            this._setStatus(id, { installing: null });
+        } else {
+            this._setStatus(id, { state: 'stopped', message: words.done });
+        }
+    }
+
+    /**
+     * Install a manifest's packages and merge it into this profile's deck (`_installFor`: never
+     * restarting a running deck, and the deck only written once every package installed, so a
+     * failed install leaves the deck as it was).
      * @returns {{added: string[], replaced: string[]}}
      */
     install(id, manifestInput, options) {
@@ -557,52 +683,26 @@ class ProfileManager extends EventEmitter {
         const profile = this._deckProfile(id);
         const { manifest } = validateManifest(manifestInput, { allowPaths });
         const merged = mergeIntoDeck(readDeckFile(profile.deck), manifest);
-        const wasRunning = this.running.has(id);
-        await this._stop(id);
-        try {
-            this._setStatus(id, { state: 'installing', message: 'Installing drivers…' });
-            const runtime = await this.getRuntime();
-            await runtime.ensurePackages(merged.deck.packages || [], {
-                key: id,
-                onProgress: (message) => this._setStatus(id, { message }),
-            });
-            writeDeckFile(profile.deck, merged.deck);
-            this._setStatus(id, { state: 'stopped', message: 'Installed' });
-        } catch (e) {
-            this._setStatus(id, { state: 'error', message: `Install failed: ${e.message}`, error: e.message, logTail: e.output || '' });
-            if (wasRunning) await this._start(id).catch(() => {});
-            throw e;
-        }
-        if (wasRunning) await this._start(id);
+        await this._installFor(id, merged.deck.packages || [], { doing: 'Installing drivers…', done: 'Installed', failed: 'Install failed' },
+            () => writeDeckFile(profile.deck, merged.deck));
         return { added: merged.added, replaced: merged.replaced, pluginsAdded: merged.pluginsAdded };
     }
 
     /**
      * Choose a deck's optimizer backends (optimizers.js): `selection` is {id: version | null}.
      * Installed the way the Hub's drivers are: the deck's whole package list in one resolution
-     * (a conflict is refused before anything changes), the deck written only once it installed,
-     * and a running deck restarted to load it. Taking one out of the deck leaves it installed,
-     * since the decks share one environment.
+     * (a conflict is refused before anything changes) and the deck written only once it installed.
+     * A running deck is not restarted: it has the optimizer on its Optimize page after the person
+     * restarts it (`_installFor`). Taking one out of the deck leaves it installed, since the decks
+     * share one environment.
      */
     setOptimizers(id, selection) {
         return this._exclusive(id, async () => {
             const profile = this._deckProfile(id);
             const deck = readDeckFile(profile.deck);
             const packages = withSelection(deck.packages || [], selection);
-            const wasRunning = this.running.has(id);
-            await this._stop(id);
-            try {
-                this._setStatus(id, { state: 'installing', message: 'Installing optimizers…' });
-                const runtime = await this.getRuntime();
-                await runtime.ensurePackages(packages, { key: id, onProgress: (message) => this._setStatus(id, { message }) });
-                writeDeckFile(profile.deck, { ...deck, packages });
-                this._setStatus(id, { state: 'stopped', message: 'Installed' });
-            } catch (e) {
-                this._setStatus(id, { state: 'error', message: `Install failed: ${e.message}`, error: e.message, logTail: e.output || '' });
-                if (wasRunning) await this._start(id).catch(() => {});
-                throw e;
-            }
-            if (wasRunning) await this._start(id);
+            await this._installFor(id, packages, { doing: 'Installing optimizers…', done: 'Installed', failed: 'Install failed' },
+                () => writeDeckFile(profile.deck, { ...deck, packages }));
             return selectionOf(packages);
         });
     }

@@ -1,7 +1,9 @@
 'use strict';
 // Edits the launcher makes to a deck file: change an instrument (its COM port, say), rename it,
 // switch it off, remove it; and the same for a plugin (the packages they leave behind are
-// deckPackages.js's, applied by manager.js). Adding goes through manifest.js's mergeIntoDeck, the same path an
+// deckPackages.js's, applied by manager.js). None of them touches a running deck: the file
+// changes, and `loadSignature` is how the manager tells that the deck has yet to load it
+// (manager.js `_pending`). Adding goes through manifest.js's mergeIntoDeck, the same path an
 // install from the Hub takes. Pure functions over the parsed deck; the caller writes the file.
 
 const NAME_RE = /^[A-Za-z][A-Za-z0-9_]*$/;
@@ -86,6 +88,33 @@ function setPluginEnabled(deck, ref, enabled) {
     return withPlugins(deck, list.map((p) => (pluginRef(p) !== ref ? p : enabled ? ref : { ref, enabled: false })));
 }
 
+/** JSON with every object's keys in order, so two decks that say the same thing read the same. */
+function stable(value) {
+    if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
+    if (value && typeof value === 'object') {
+        return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${stable(value[k])}`).join(',')}}`;
+    }
+    return JSON.stringify(value === undefined ? null : value);
+}
+
+/**
+ * What an edge builds from this deck when it starts, as text: its `paths`, the instruments that
+ * are switched on (the keys deck_config.py reads: name, import, class, args, calls) and the
+ * plugins that are switched on. A running deck whose file no longer matches the signature it
+ * started with has edits it has not loaded (manager.js `_pending`); an edit that is undone
+ * (off, then on again) matches again. `packages` are left out: they are installed, not loaded,
+ * and the manager notes an install into a running deck itself.
+ */
+function loadSignature(deck) {
+    return stable({
+        paths: Array.isArray(deck && deck.paths) ? deck.paths : [],
+        instruments: instrumentsOf(deck).filter((i) => i && i.enabled !== false).map((i) => ({
+            name: i.name, import: i.import, class: i.class, args: i.args || {}, calls: i.calls || [],
+        })),
+        plugins: pluginsOf(deck).filter(pluginEnabled).map(pluginRef).filter(Boolean),
+    });
+}
+
 /** A name not yet used on the deck, from a suggestion: `pump` -> `pump`, `pump_2`, ... */
 function freeName(deck, suggestion) {
     let base = String(suggestion || 'device').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
@@ -100,5 +129,5 @@ function freeName(deck, suggestion) {
 
 module.exports = {
     DeckEditError, updateInstrument, removeInstrument, setInstrumentEnabled, freeName,
-    pluginRef, pluginEnabled, removePlugin, setPluginEnabled,
+    pluginRef, pluginEnabled, removePlugin, setPluginEnabled, loadSignature, stable,
 };

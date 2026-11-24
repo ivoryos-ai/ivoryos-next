@@ -92,7 +92,7 @@ export function makeDesktopApi(lab: Lab, realFetch: typeof fetch): DesktopApi {
   // A start or restart in the tour: a moment in 'starting', as an edge loading its drivers would be.
   const start = async (id: string) => {
     const d = lab.get(id);
-    d.profile.status = { ...d.profile.status, state: 'starting', message: 'Loading instruments…' };
+    d.profile.status = { ...d.profile.status, state: 'starting', message: 'Loading instruments…', needsRestart: false, pending: [] };
     changed();
     lab.log(id, `Starting ${d.profile.name} (simulated)…`);
     await new Promise(r => setTimeout(r, 700));
@@ -106,8 +106,18 @@ export function makeDesktopApi(lab: Lab, realFetch: typeof fetch): DesktopApi {
     return d.profile.status;
   };
 
+  // An edit to a deck that is running: as in the app, it is not restarted, only marked as having
+  // changes it loads at the next restart (the simulated deck page shows them a little early).
+  const edited = (id: string) => {
+    const d = lab.get(id);
+    if (d.profile.status.state === 'running') d.profile.status = { ...d.profile.status, needsRestart: true, pending: ['deck'] };
+    changed();
+    return d.deck;
+  };
+
   const api: Partial<DesktopApi> = {
     isDesktop: true,
+    activeRun: async () => null,
     snapshot: async () => snapshot(),
     onChanged: cb => lab.on('changed', () => cb()),
     onLog: cb => lab.on('log', (id, line) => cb(id as string, line as string)),
@@ -122,7 +132,7 @@ export function makeDesktopApi(lab: Lab, realFetch: typeof fetch): DesktopApi {
     stop: async id => {
       const d = lab.get(id);
       tabs.close(id);
-      d.profile.status = { ...d.profile.status, state: 'stopped', url: null };
+      d.profile.status = { ...d.profile.status, state: 'stopped', url: null, needsRestart: false, pending: [] };
       lab.log(id, 'Stopped.');
       changed();
     },
@@ -161,7 +171,8 @@ export function makeDesktopApi(lab: Lab, realFetch: typeof fetch): DesktopApi {
       changed();
     },
     // Installing in the tour: nothing is downloaded. Each Hub driver joins the deck as a simulated
-    // stand-in with the methods the Hub introspected for it, and the deck restarts as it would.
+    // stand-in with the methods the Hub introspected for it. As in the app, a running deck is not
+    // restarted for it.
     install: async (id, manifest) => {
       const d = lab.get(id);
       const before = new Set((d.deck.instruments || []).map(i => i.name));
@@ -181,8 +192,7 @@ export function makeDesktopApi(lab: Lab, realFetch: typeof fetch): DesktopApi {
       d.deck = { ...d.deck, name: manifest.name || d.deck.name, packages: [...new Set([...(d.deck.packages || []), ...(manifest.packages || [])])], instruments, ...(plugins.length ? { plugins } : {}) };
       for (const pkg of manifest.packages || []) lab.log(id, `Would install ${pkg} (the tour downloads nothing)`);
       if ((manifest.plugins || []).length) lab.log(id, 'Plugins run in the desktop app; the tour lists them but does not load them.');
-      changed();
-      await start(id);
+      edited(id);
       const names = (manifest.instruments || []).map(i => i.name);
       return { added: names.filter(n => !before.has(n)), replaced: names.filter(n => before.has(n)), pluginsAdded };
     },
@@ -206,32 +216,27 @@ export function makeDesktopApi(lab: Lab, realFetch: typeof fetch): DesktopApi {
       await simulate(id, entry, at === -1 ? undefined : list[at]);
       if (at === -1) list.push(entry); else list[at] = entry;
       lab.setInstruments(id, list);
-      await start(id);
-      return lab.get(id).deck;
+      return edited(id);
     },
     removeInstrument: async (id, name) => {
       delete lab.get(id).schemas[name];
       lab.setInstruments(id, (lab.get(id).deck.instruments || []).filter(i => i.name !== name));
-      await start(id);
-      return lab.get(id).deck;
+      return edited(id);
     },
     setInstrumentEnabled: async (id, name, enabled) => {
       lab.setInstruments(id, (lab.get(id).deck.instruments || []).map(i => (i.name === name ? { ...i, enabled } : i)));
-      await start(id);
-      return lab.get(id).deck;
+      return edited(id);
     },
     // The tour never loads plugins, so these only change what the deck lists.
     removePlugin: async (id, ref) => {
       const d = lab.get(id);
       d.deck = { ...d.deck, plugins: (d.deck.plugins || []).filter(p => pluginRef(p) !== ref) };
-      changed();
-      return d.deck;
+      return edited(id);
     },
     setPluginEnabled: async (id, ref, enabled) => {
       const d = lab.get(id);
       d.deck = { ...d.deck, plugins: (d.deck.plugins || []).map(p => (pluginRef(p) !== ref ? p : enabled ? ref : { ref, enabled: false })) };
-      changed();
-      return d.deck;
+      return edited(id);
     },
     // No Python in the tour: a package counts as installed at the version it is pinned to, and as
     // needed by an entry whose module has its name (the app asks the environment instead).

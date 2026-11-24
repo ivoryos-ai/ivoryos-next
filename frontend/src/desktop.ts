@@ -15,6 +15,16 @@ export type ProfileStatus = {
   url: string | null;
   /** The edge started on another port than the profile's (desktop/src/supervisor.js). */
   portNote?: { requested: number; actual: number } | null;
+  /**
+   * A running profile that differs from what is saved: it goes on with what it started with until
+   * the person restarts it, which the app never does for them (desktop/src/manager.js `_pending`).
+   * `pending` says which kinds: its instruments or plugins, its script, packages installed while
+   * it ran, its settings, the launcher's Cloud address.
+   */
+  needsRestart?: boolean;
+  pending?: ('deck' | 'script' | 'packages' | 'settings' | 'cloud')[];
+  /** What is being installed into a deck that is running (it is not stopped for an install). */
+  installing?: string | null;
 };
 
 export type Profile = {
@@ -346,7 +356,11 @@ export interface DesktopApi {
   /** "Cloud early access" while Cloud is not offered; fails with `output` = the Hub's contact page. */
   joinEarlyAccess(details: { email: string; name?: string }): Promise<boolean>;
   optimizers(id: string | null): Promise<{ catalog: OptimizerChoice[]; selected: Record<string, string | null>; installed: Record<string, string | null>; error: string | null }>;
-  /** Set them ({id: version | null}); installs with the deck's other packages and restarts a running deck. */
+  /**
+   * Set them ({id: version | null}); installs with the deck's other packages. A running deck is not
+   * restarted: refused on a run or when installed packages would be replaced (error codes
+   * 'run-under-way', 'stop-first'), otherwise installed and not applied until it is restarted.
+   */
   setOptimizers(id: string, selection: Record<string, string | null>): Promise<Record<string, string | null>>;
   prepareReport(id: string | null, failure?: ReportFailure): Promise<{ details: string; kind: string; email: string | null }>;
   /**
@@ -355,6 +369,10 @@ export interface DesktopApi {
    */
   sendReport(report: { description: string; details: string; kind: string; contactEmail: string | null }): Promise<{ id: string }>;
   deck(id: string): Promise<Deck>;
+  /** The run a deck is on now, or null: what restarting it would end. */
+  activeRun(id: string): Promise<{ id: string; name: string | null } | null>;
+  // Deck edits change the file only, and an install never stops a running deck. It keeps what it
+  // loaded until it is restarted (status.needsRestart), which the app never does for the person.
   saveInstrument(id: string, originalName: string | null, entry: DeckInstrument): Promise<Deck>;
   removeInstrument(id: string, name: string): Promise<Deck>;
   setInstrumentEnabled(id: string, name: string, enabled: boolean): Promise<Deck>;
@@ -366,7 +384,7 @@ export interface DesktopApi {
   deckPackages(id: string): Promise<{ rows: DeckPackage[]; error: string | null }>;
   /** Per package key, the newest version that installs with the rest of the deck; latest null = up to date. */
   checkPackageUpdates(id: string): Promise<Record<string, PackageUpdate>>;
-  /** Pin one package to `version` and install it with the deck's list; a running deck restarts. */
+  /** Pin one package to `version` and install it with the deck's list. Refused while the deck runs ('stop-first'). */
   updatePackage(id: string, key: string, version: string): Promise<Deck>;
   /** Take packages off the deck's list. Nothing is uninstalled. */
   removePackages(id: string, keys: string[]): Promise<Deck>;

@@ -7,6 +7,7 @@ const path = require('node:path');
 const { loadProfiles, saveProfiles, withDefaults, validateProfile, commandFor } = require('../src/profiles');
 const {
     updateInstrument, removeInstrument, setInstrumentEnabled, freeName, DeckEditError, removePlugin, setPluginEnabled,
+    loadSignature,
 } = require('../src/deckEdit');
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'ivoryos-prof-'));
@@ -141,6 +142,26 @@ test('plugins can be switched off, back on, and removed', () => {
     assert.equal('plugins' in removePlugin(removePlugin(off, 'view_kit.plugin:plugin'), 'other.plugin:plugin'), false);
     assert.throws(() => removePlugin(withPlugins, 'ghost:plugin'), /no plugin/);
     assert.throws(() => setPluginEnabled(withPlugins, 'ghost:plugin', false), DeckEditError);
+});
+
+test('loadSignature changes only with what a deck loads at startup', () => {
+    const base = { ...deck, plugins: ['view_kit.plugin:plugin'], packages: ['vendor-pumps==1.0'] };
+    const sig = loadSignature(base);
+    // Switched off, an instrument or a plugin is no longer loaded; back on, it is the deck it was.
+    const off = setInstrumentEnabled(base, 'balance', false);
+    assert.notEqual(loadSignature(off), sig);
+    assert.equal(loadSignature(setInstrumentEnabled(off, 'balance', true)), sig);
+    const pluginOff = setPluginEnabled(base, 'view_kit.plugin:plugin', false);
+    assert.notEqual(loadSignature(pluginOff), sig);
+    assert.equal(loadSignature(setPluginEnabled(pluginOff, 'view_kit.plugin:plugin', true)), sig);
+    assert.notEqual(loadSignature(updateInstrument(base, 'pump', { ...base.instruments[0], args: { port: 'COM4' } })), sig);
+    assert.notEqual(loadSignature(removePlugin(base, 'view_kit.plugin:plugin')), sig);
+    // Not loaded: the package list, the form the launcher keeps for an entry, the order of keys,
+    // and anything about an instrument that is switched off.
+    assert.equal(loadSignature({ ...base, packages: [] }), sig);
+    const reordered = { ...base, instruments: [{ args: { port: 'COM3' }, class: 'Pump', import: 'p', name: 'pump', signature: { init_args: [], kwargs: false } }, base.instruments[1]] };
+    assert.equal(loadSignature(reordered), sig);
+    assert.equal(loadSignature(updateInstrument(off, 'balance', { ...off.instruments[1], args: { port: 'COM9' } })), loadSignature(off));
 });
 
 test('freeName makes a usable, unused instrument name', () => {
