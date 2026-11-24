@@ -126,9 +126,74 @@ export function repointInstruments(body: Record<string, unknown>, mapping: Recor
   return out;
 }
 
-/** Every requirement once, in first-seen order. */
+const CLAUSE = /^(~=|===|==|!=|<=|>=|<|>)\s*([A-Za-z0-9.*+!_-]+)$/;
+const RELEASE = /^\d+(\.\d+)*$/;
+
+/** A plain named requirement (`pkg[extra]>=1,<2`) as its parts, or null for anything else (a URL, a path, markers). */
+function parseRequirement(req: string): { name: string; key: string; extras: string[]; clauses: string[] } | null {
+  const m = /^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[([^\]]*)\])?\s*(.*)$/.exec(req.trim());
+  if (!m) return null;
+  const spec = m[3].trim();
+  const clauses = spec ? spec.split(',').map(c => c.trim()) : [];
+  const parsed = clauses.map(c => CLAUSE.exec(c));
+  if (parsed.some(c => !c)) return null;
+  return {
+    name: m[1],
+    key: m[1].toLowerCase().replace(/[-_.]+/g, '-'),
+    extras: (m[2] || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean),
+    clauses: parsed.map(c => `${c![1]}${c![2]}`),
+  };
+}
+
+function compareRelease(a: string, b: string): number {
+  const x = a.split('.').map(Number);
+  const y = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] || 0) - (y[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
+/**
+ * Version clauses for one package, each once. Of several lower bounds of one kind (`>=0.1.7`,
+ * `>=0.1.9`) only the highest is kept, and of upper bounds the lowest, since the others say
+ * nothing more; anything else (`==1.0` beside `>=2`) is kept as written for the resolver to judge.
+ */
+function combineClauses(clauses: string[]): string[] {
+  const out: string[] = [];
+  for (const c of clauses) {
+    if (out.includes(c)) continue;
+    const [, op, version] = CLAUSE.exec(c)!;
+    const bound = op === '>=' || op === '>' ? 1 : op === '<=' || op === '<' ? -1 : 0;
+    if (!bound || !RELEASE.test(version)) { out.push(c); continue; }
+    const at = out.findIndex(o => { const p = CLAUSE.exec(o)!; return p[1] === op && RELEASE.test(p[2]); });
+    if (at === -1) out.push(c);
+    else if (Math.sign(compareRelease(version, CLAUSE.exec(out[at])![2])) === bound) out[at] = c;
+  }
+  return out;
+}
+
+/**
+ * Every package once, in first-seen order. Requirements naming one package (`pkg`, `pkg>=0.1.7`,
+ * `pkg[full]>=0.1.9` from a driver and its plugin) become one requirement holding all their
+ * extras and version clauses, which is what is shown before an install and written to the deck.
+ * Anything that is not a plain named requirement (a URL, a path) is kept once by its exact text.
+ */
 export function unionPackages(...lists: string[][]): string[] {
   const out: string[] = [];
-  for (const list of lists) for (const p of list) if (p && !out.includes(p)) out.push(p);
+  const named = new Map<string, { at: number; name: string; extras: string[]; clauses: string[] }>();
+  for (const list of lists) for (const p of list) {
+    if (!p || !p.trim()) continue;
+    const req = parseRequirement(p);
+    if (!req) { if (!out.includes(p)) out.push(p); continue; }
+    const seen = named.get(req.key);
+    if (!seen) { named.set(req.key, { at: out.length, name: req.name, extras: req.extras, clauses: req.clauses }); out.push(''); continue; }
+    seen.extras = [...new Set([...seen.extras, ...req.extras])];
+    seen.clauses = [...seen.clauses, ...req.clauses];
+  }
+  for (const { at, name, extras, clauses } of named.values()) {
+    out[at] = `${name}${extras.length ? `[${[...extras].sort().join(',')}]` : ''}${combineClauses(clauses).join(',')}`;
+  }
   return out;
 }
