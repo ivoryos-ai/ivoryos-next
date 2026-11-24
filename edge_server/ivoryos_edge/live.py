@@ -11,6 +11,10 @@ asking for anything. Topics:
              changes whenever any proposal is filed, accepted or rejected. A hint, not the data: a
              page that shows the list fetches it from /api/agent/proposals when the version is new,
              so that endpoint stays the one place the list is read from.
+  workflows  `{version}`: a token that changes whenever a saved workflow is added, changed,
+             re-tagged or deleted (told by the store itself, workflows.on_change). Also a hint: the
+             Designer's toolbox (frontend/src/workflowCatalog.ts) then reads /api/workflows and
+             fetches only the bodies whose hash changed.
 
 Before this, three parts of every page asked /api/agent/proposals every five seconds, which filled
 the deck's log, and each of a page's ten-odd queue listeners held a socket of its own that never
@@ -69,13 +73,39 @@ class LiveHub:
 hub = LiveHub()
 
 
-# --- proposals -------------------------------------------------------------------------------
-# A new token each start, so a page that was open across a restart fetches the list again.
+# --- hints ---------------------------------------------------------------------------------
+# A new token each start, so a page that was open across a restart fetches what it shows again.
 _BOOT = uuid.uuid4().hex[:8]
 _changes = itertools.count(1)
-_proposals_version = f"{_BOOT}.0"
 # Publishing runs as a task; a task nothing refers to may be collected before it finishes.
 _pending_sends: Set[asyncio.Task] = set()
+
+
+def _next_version() -> str:
+    return f"{_BOOT}.{next(_changes)}"
+
+
+def _announce(name: str, state: Callable[[], Awaitable[Any]]) -> None:
+    """Send every open page `name`'s state as it is now, from any thread."""
+    if not hub.connections:
+        return
+
+    async def send() -> None:
+        await hub.publish(name, await state())
+
+    try:
+        task = asyncio.get_running_loop().create_task(send())
+    except RuntimeError:
+        # Changed outside the server's loop (a worker thread: a sync route, a sync session).
+        if hub.loop is not None and hub.loop.is_running():
+            asyncio.run_coroutine_threadsafe(send(), hub.loop)
+        return
+    _pending_sends.add(task)
+    task.add_done_callback(_pending_sends.discard)
+
+
+# --- proposals -------------------------------------------------------------------------------
+_proposals_version = f"{_BOOT}.0"
 
 
 async def proposals_state() -> Dict[str, Any]:
@@ -89,22 +119,23 @@ async def proposals_state() -> Dict[str, Any]:
 def proposals_changed() -> None:
     """Note that a proposal changed, and tell every open page."""
     global _proposals_version
-    _proposals_version = f"{_BOOT}.{next(_changes)}"
-    if not hub.connections:
-        return
+    _proposals_version = _next_version()
+    _announce("proposals", proposals_state)
 
-    async def send() -> None:
-        await hub.publish("proposals", await proposals_state())
 
-    try:
-        task = asyncio.get_running_loop().create_task(send())
-    except RuntimeError:
-        # Committed outside the server's loop (a worker thread's sync session).
-        if hub.loop is not None and hub.loop.is_running():
-            asyncio.run_coroutine_threadsafe(send(), hub.loop)
-        return
-    _pending_sends.add(task)
-    task.add_done_callback(_pending_sends.discard)
+# --- workflows -------------------------------------------------------------------------------
+_workflows_version = f"{_BOOT}.0"
+
+
+async def workflows_state() -> Dict[str, Any]:
+    return {"version": _workflows_version}
+
+
+def workflows_changed() -> None:
+    """Note that a saved workflow changed, and tell every open page (workflows.on_change)."""
+    global _workflows_version
+    _workflows_version = _next_version()
+    _announce("workflows", workflows_state)
 
 
 # Proposals are written in a dozen places (filed by the agent routes, accepted or rejected there,

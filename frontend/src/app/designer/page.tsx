@@ -2,11 +2,12 @@
 import { API_BASE, withBase } from '@/config';
 import { unmodifiedSavedWorkflowName } from '@/savedWorkflow';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Play, Trash2, Settings2, Save, X, Zap, AlertTriangle, Menu, FilePlus2 } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import { useAssistantPage, type SavedBody } from '@/assistant';
 import { useQueueBusy } from '@/queueBusy';
+import { useWorkflowCatalog, putSavedWorkflow, libraryToolbox, catalogVersions } from '@/workflowCatalog';
 import {
   WorkflowEditor,
   SequenceBlock,
@@ -17,19 +18,37 @@ import {
   workflowSignature,
   WorkflowMap,
   buildSavedBody,
-  scanDynamicParams,
   scanLiveInputVars,
   toSequenceBlocks,
   toSavedBlocks,
   chooseDialog,
   confirmDialog,
   notify,
-  promptDialog, useDocumentTheme, FLOW_CONTROL_PALETTE, workflowOutputs, getReturnLeaves, runtimeVarNames, mainOnlyLink,
+  promptDialog, useDocumentTheme, FLOW_CONTROL_PALETTE, runtimeVarNames, mainOnlyLink,
   blankChoiceOf, isTextType } from '@ivoryos/shared-ui';
 import { isNumericType, containerProblem } from '@ivoryos/shared-ui';
 
 export default function DesignerPage() {
-  const [statusData, setStatusData] = useState<any>(null);
+  // The deck as /api/status describes it (or the copy cached for when the edge is offline).
+  const [deckStatus, setDeckStatus] = useState<any>(null);
+  // The saved workflows, kept for the page session and current while this page is open
+  // (workflowCatalog.ts). It used to be read once, one body after another, as the page opened.
+  const { catalog, ready: catalogReady } = useWorkflowCatalog();
+  // What the editor's toolbox offers: the deck's instruments, the built-in steps (shared-ui
+  // flowControl.ts, offered whether or not the deck has saved workflows yet) and the saved
+  // workflows. Drawn once both have arrived, so the toolbox never says there are no saved
+  // workflows while they are still on their way.
+  const statusData = useMemo(() => {
+    if (!deckStatus || !catalogReady) return null;
+    const instruments: Record<string, any> = { ...(deckStatus.instruments || {}), 'Flow Control': { ...FLOW_CONTROL_PALETTE } };
+    // Present even when empty, so the toolbox can say there are no saved workflows yet. Absent
+    // when the list could not be read at all (offline, nothing in memory).
+    if (catalog) instruments['Library Workflows'] = libraryToolbox(catalog, instruments);
+    return { ...deckStatus, instruments };
+  }, [deckStatus, catalog, catalogReady]);
+  // Latest saved version per workflow name — drives the "vN available" badge on copies and links.
+  // Tracked for every workflow, including the one being edited, which the toolbox hides.
+  const workflowVersions = useMemo(() => catalogVersions(catalog), [catalog]);
   const [prepSequence, setPrepSequence] = useState<SequenceBlock[]>([]);
   const [sequence, setSequence] = useState<SequenceBlock[]>([]);
   const [cleanupSequence, setCleanupSequence] = useState<SequenceBlock[]>([]);
@@ -70,8 +89,6 @@ export default function DesignerPage() {
     instruments: statusData?.instruments,
   });
   const [isOffline, setIsOffline] = useState(false);
-  // Latest saved version per workflow name — drives the "vN available" badge on copies and links.
-  const [workflowVersions, setWorkflowVersions] = useState<Record<string, number>>({});
   const [isMapOpen, setIsMapOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -178,84 +195,28 @@ export default function DesignerPage() {
     // true in a render where the sequences are already populated.
     setHasLoaded(true);
 
-    const processStatusData = async (data: any) => {
-      // The built-in steps (shared-ui flowControl.ts), offered whether or not the deck has saved
-      // workflows yet: injecting them only alongside the workflows left a fresh deck with no
-      // If, While, Wait or User input at all.
-      if (!data.instruments) data.instruments = {};
-      data.instruments["Flow Control"] = { ...FLOW_CONTROL_PALETTE };
-
-      // Fetch workflows
-      try {
-        const wfRes = await fetch(`${API_BASE}/api/workflows`);
-        const wfData = await wfRes.json();
-        // Present even when empty, so the toolbox can say there are no saved workflows yet.
-        data.instruments["Library Workflows"] = {};
-        if (wfData.workflows && wfData.workflows.length > 0) {
-          const versions: Record<string, number> = {};
-
-          for (const wfObj of wfData.workflows) {
-            const wfName = wfObj.name;
-            const wfJsonRes = await fetch(`${API_BASE}/api/workflows/${wfName}`);
-            const wfJson = await wfJsonRes.json();
-
-            // Tracked for every workflow, including the one being edited — the "vN available"
-            // badge on an already-placed copy or link has to work regardless of what the toolbox
-            // is currently offering.
-            if (wfJson.version) versions[wfName] = wfJson.version;
-
-            // Self-reference is filtered reactively by WorkflowEditor
-            // (currentWorkflowName), because this page can switch which workflow
-            // it is editing without rebuilding the toolbox.
-
-            data.instruments["Library Workflows"][wfName] = {
-              description: wfJson.description || "Saved Workflow from Library",
-              parameters: scanDynamicParams(wfJson),
-              return_type: "None",
-              // The full saved body, so a Copy-mode drag can inline the real steps without a
-              // second round trip — and so Detach can turn a link back into an editable copy.
-              body: wfJson,
-              // The deck's verdict on it (compatibility.py): one that will not run is folded away
-              // in the toolbox, as Cloud does with the same verdict.
-              compatibility: wfObj.compatibility,
-              // What it saves, as the outputs of a step that links it (shared-ui workflowOutputs):
-              // the same names, renamable on the step, and numeric ones offered to Optimize.
-              return_paths: workflowOutputs(wfJson, (inst, method) => getReturnLeaves(data.instruments?.[inst]?.[method])),
-            };
-          }
-          setWorkflowVersions(versions);
-        }
-      } catch (e) {
-        console.error("Failed to load workflows for toolbox (might be offline)", e);
-      }
-
-      setStatusData(data);
-      if (data.instrument_meta) setInstrumentMeta(data.instrument_meta);
-
-    };
-
+    // The workflows come from the catalogue (above); this is the deck alone.
     fetch(`${API_BASE}/api/status`)
       .then(res => res.json())
-      .then(async data => {
+      .then(data => {
         localStorage.setItem('ivoryos_cached_schema', JSON.stringify(data));
-        await processStatusData(data);
+        setDeckStatus(data);
+        if (data.instrument_meta) setInstrumentMeta(data.instrument_meta);
       })
       .catch(err => {
         console.error("Backend offline, loading cached schema...", err);
         setIsOffline(true);
         const cached = localStorage.getItem('ivoryos_cached_schema');
+        let data: any = { instruments: {} };
         if (cached) {
           try {
-            const data = JSON.parse(cached);
-            processStatusData(data);
+            data = JSON.parse(cached);
           } catch (e) {
             console.error("Failed to parse cached schema", e);
-            setStatusData({ instruments: {} });
           }
-        } else {
-          // No cached schema available
-          setStatusData({ instruments: {} });
         }
+        setDeckStatus(data);
+        if (data.instrument_meta) setInstrumentMeta(data.instrument_meta);
       });
   }, []);
 
@@ -471,7 +432,9 @@ export default function DesignerPage() {
         localStorage.setItem('ivoryos_saved_signature', signature);
         localStorage.setItem('ivoryos_is_unsaved', 'false');
         setIsUnsaved(false);
-        setWorkflowVersions(prev => ({ ...prev, [name]: data.version }));
+        // Into the toolbox at once, as stored: missing from it until a reload before, and a workflow
+        // saved again kept offering its old steps (and a Link pinned the old version).
+        putSavedWorkflow(name, data.body ?? { ...legacyFormat, version: data.version, body_hash: data.body_hash });
         await notify(
           data.created_version
             ? `Saved as v${data.version}.`
@@ -747,10 +710,17 @@ export default function DesignerPage() {
     }
   };
 
-  if (!statusData) return <div className="p-8 text-gray-900 dark:text-white bg-gray-50 dark:bg-[#0a0a0a] min-h-screen">Loading designer...</div>;
-
-  const instruments = statusData.instruments || {};
-
+  // While the deck and the workflows load, the page keeps its frame: the navigation stays where it
+  // is and the content area is empty. A bare "Loading designer..." took the navigation away and
+  // drew it again. Same elements as below, so the Sidebar is not mounted twice.
+  if (!statusData) return (
+    <div className={`h-screen w-full overflow-hidden bg-gray-50 dark:bg-[#0a0a0a] text-gray-900 dark:text-white font-sans ${theme}`}>
+      <div className="flex h-full">
+        <Sidebar />
+        <div className="flex flex-1 min-h-0 min-w-0" aria-busy="true" />
+      </div>
+    </div>
+  );
 
   return (
     <div className={`h-screen w-full overflow-hidden bg-gray-50 dark:bg-[#0a0a0a] text-gray-900 dark:text-white font-sans ${theme}`}>
@@ -910,7 +880,7 @@ export default function DesignerPage() {
             onEditWorkflow={openWorkflowInDesigner}
             currentWorkflowName={currentWorkflowName}
             fetchWorkflowVersion={async (name, version) => {
-              const res = await fetch(`${API_BASE}/api/workflows/${name}?version=${version}`);
+              const res = await fetch(`${API_BASE}/api/workflows/${encodeURIComponent(name)}?version=${version}`);
               const data = await res.json();
               if (!res.ok) throw new Error(data.error || `v${version} not found`);
               return data;
