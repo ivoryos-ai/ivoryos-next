@@ -8,6 +8,11 @@ html[data-ivoryos-nav="top"] :has(> [data-ivoryos-nav-bar]) { flex-direction: co
 /* A column's children keep `min-height: auto`, so a page taller than the window grew the frame
    past the screen and its own scroll area never activated: nothing could scroll at all. */
 html[data-ivoryos-nav="top"] :has(> [data-ivoryos-nav-bar]) > * { min-height: 0; }
+/* Pages are made ahead of time with the left sidebar. Inside the desktop app the attribute says
+   'top' from the first paint (desktop/src/preload.js), so that sidebar is kept out of sight in the
+   top bar's place (TopNav.tsx, h-12) until the page's script puts the bar there. It used to show,
+   logo and all, every time a deck's page loaded. */
+html[data-ivoryos-nav="top"] [data-ivoryos-nav-side] { visibility: hidden; height: 3rem; padding: 0; border: 0; overflow: hidden; }
 /* With the bar on top the current page is already named there, so a header that only carries
    the page title is dropped, and one that also holds controls keeps the controls and loses the
    title (and some height). Pages mark theirs with data-ivoryos-page-header / -page-title. */

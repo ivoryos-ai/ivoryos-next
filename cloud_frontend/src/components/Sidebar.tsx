@@ -98,6 +98,7 @@ export default function Sidebar() {
   return (
     <aside
       data-ivoryos-nav-bar
+      data-ivoryos-nav-side
       suppressHydrationWarning
       className="shrink-0 flex flex-col py-6 space-y-6 z-10 overflow-hidden glass-sidebar"
       style={{ width: isExpanded ? '16rem' : '4.5rem', borderRight: '1px solid var(--panel-border)' }}
