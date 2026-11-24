@@ -33,6 +33,9 @@ Each open variable in the search space is one of:
 
 <Shot name="run-optimize-objectives" alt="Objectives, stopping rules, constraints and existing data" />
 
+- **Don't optimize** keeps an output out of the search: it is still measured and kept in its own
+  column of every trial, for a later step to read or for the record. At least one output must be
+  optimized.
 - **Stop when no objective has improved for N iterations** never counts the random start.
 - **Pause and ask me when a trial gives no result** asks instead of leaving such a trial out.
 - **Constraints** are relations the suggestions must satisfy (`catalyst_ml + ligand_ml <= 0.6`),

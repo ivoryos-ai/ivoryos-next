@@ -5,7 +5,7 @@ import { canvasHasUnsavedWork, canvasWorkflowName, handOffToDesigner } from '@/d
 import { useState, useEffect } from 'react';
 import { Book, Download, Search, Calendar, Clock, Filter, ArrowUpDown, AlertTriangle, Trash2, Link2, History, X, Tag, Plus } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
-import { workflowSignature, toSequenceBlocks, confirmDialog, notify, runtimeSummary, formatDuration, type WorkflowRuntime, useDocumentTheme } from '@ivoryos/shared-ui';
+import { workflowSignature, toSequenceBlocks, confirmDialog, notify, besideDock, runtimeSummary, formatDuration, type WorkflowRuntime, useDocumentTheme } from '@ivoryos/shared-ui';
 
 type WorkflowItem = {
   name: string;
@@ -756,7 +756,7 @@ export default function LibraryPage() {
       })()}
 
       {historyFor && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" onClick={() => setHistoryFor(null)}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" style={besideDock} onClick={() => setHistoryFor(null)}>
           <div onClick={(e) => e.stopPropagation()} className="w-full max-w-lg max-h-[80vh] flex flex-col bg-white dark:bg-[#111] rounded-2xl shadow-2xl border border-gray-200 dark:border-white/10">
             <header className="shrink-0 px-5 py-4 border-b border-gray-200 dark:border-white/10 flex items-start justify-between">
               <div className="min-w-0">

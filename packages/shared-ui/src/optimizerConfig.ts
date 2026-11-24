@@ -43,7 +43,11 @@ export interface VarBound {
 }
 
 export interface ObjectiveConfig {
-  goal?: 'maximize' | 'minimize';
+  /**
+   * `none`: the value is still saved and recorded with every trial, but the optimizer is not
+   * told about it (a step saves a value for many reasons; a later step reading it is one).
+   */
+  goal?: 'maximize' | 'minimize' | 'none';
   earlyStop?: boolean;
   threshold?: string;
 }
@@ -94,6 +98,19 @@ export function getVarModeType(config: OptimizeConfig, v: string): 'range' | 'ch
 }
 
 export const isPerIteration = (config: OptimizeConfig, v: string) => !!config.bounds?.[v]?.perIteration;
+
+/** Whether the optimizer aims for a saved output, or the output is only recorded (goal `none`). */
+export const isObjective = (config: Pick<OptimizeConfig, 'objectives'>, name: string) =>
+  config.objectives?.[name]?.goal !== 'none';
+
+/**
+ * The saved outputs the optimizer is given, out of every numeric one the workflow saves. The
+ * one rule for the run's `objective_config`, its early-stop targets, and the columns existing
+ * data must have: an output left out here must be left out of all three, or a run would be
+ * seeded with a column its optimizer was never told about.
+ */
+export const objectiveNames = (config: Pick<OptimizeConfig, 'objectives'>, returns: string[]) =>
+  returns.filter((name) => isObjective(config, name));
 
 export const getIterationValue = (config: OptimizeConfig, v: string, i: number): string =>
   (config.bounds?.[v]?.iterationValues || [])[i] ?? '';
@@ -166,7 +183,10 @@ export interface BuildOptimizationOptions {
   config: OptimizeConfig;
   /** Every `#name` the Main sequence references. */
   variables: string[];
-  /** Objective names — the return variables the sequence produces. */
+  /**
+   * The numeric return variables the sequence produces. Each is an objective unless its goal is
+   * `none` (`objectiveNames`); those stay saved by their steps and are not sent to the optimizer.
+   */
   returns: string[];
   /** The authored Main sequence, which becomes `sequence_template`. */
   sequence: any[];
@@ -183,7 +203,15 @@ export interface BuildOptimizationOptions {
  * partial payload. Callers surface the message verbatim.
  */
 export function buildOptimizationParameters(opts: BuildOptimizationOptions): Record<string, any> {
-  const { config, variables, returns, sequence, existingData = [] } = opts;
+  const { config, variables, sequence, existingData = [] } = opts;
+  // From here on `returns` is what the optimizer aims for; an output set to "don't optimize" is
+  // not an objective, has no early-stop target, and is still saved by its step.
+  const returns = objectiveNames(config, opts.returns);
+  if (opts.returns.length > 0 && returns.length === 0) {
+    throw new RunConfigError(
+      `Nothing is set to be optimized. Choose Maximize or Minimize for at least one of: ${opts.returns.join(', ')}`,
+    );
+  }
   const takesConstraints = opts.supportsConstraints ?? ['ax', 'baybe'].includes(config.optimizer);
   const { perIteration: perIterationVars, optimized: optimizedVars, fixed: fixedVars } =
     partitionVariables(config, variables);

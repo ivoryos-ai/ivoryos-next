@@ -820,7 +820,8 @@ export default function RunWorkflowPage({ mode, stage }: {
   // step 1, then every row's step 2), so it also decides whether rows interleave. Blank is 1 —
   // each row start to finish — and the field shows whenever there are rows to group.
   const hasBatchSize = parseInt(batchSize) > 1;
-  // The samples the preview counts: judged by this workflow's columns, as the walk judges them.
+  // The samples the run will have, judged by this workflow's columns as the walk judges them: the
+  // header's count and the preview both read this, never `rows.length`, which counts blank rows.
   const activeRowCount = rows.filter(r => isRowActive(r, variables)).length;
 
   // Embedded in the Stages page, only the configuration itself is drawn: that page has the
@@ -836,7 +837,7 @@ export default function RunWorkflowPage({ mode, stage }: {
           <RunTabs active={once ? 'once' : 'configure'} />
           {!once && variables.length > 0 && (
             <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-white/5 px-2 py-0.5 rounded-full">
-              {rows.length} {rows.length === 1 ? 'entry' : 'entries'}
+              {activeRowCount} {activeRowCount === 1 ? 'entry' : 'entries'}
             </span>
           )}
         </header>}
@@ -948,11 +949,15 @@ export default function RunWorkflowPage({ mode, stage }: {
 
           {once ? (
             variables.length === 0 ? (
-              <div className="rounded-xl border-2 border-dashed border-gray-300 dark:border-white/10 px-6 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
-                {sequence.length || prepSequence.length || cleanupSequence.length
-                  ? (globalVariables.length ? 'Fill in the fixed values above, then run.' : 'Nothing to fill in: this workflow runs as it is.')
-                  : <>Nothing to run yet. Build a workflow in the <Link href="/designer" className="underline underline-offset-2">Designer</Link>.</>}
-              </div>
+              // The same card as the form below, so a workflow with nothing to fill in looks like one with values.
+              <section className="max-w-xl rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 p-4 space-y-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Values for this run</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {sequence.length || prepSequence.length || cleanupSequence.length
+                    ? (globalVariables.length ? 'Fill in the fixed values above, then run.' : 'Nothing to fill in: this workflow runs as it is.')
+                    : <>Nothing to run yet. Build a workflow in the <Link href="/designer" className="underline underline-offset-2">Designer</Link>.</>}
+                </p>
+              </section>
             ) : (
               <section className="max-w-xl rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 p-4 space-y-3">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Values for this run</h3>

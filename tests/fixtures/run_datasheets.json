@@ -1008,6 +1008,189 @@
     "prep": [],
     "cleanup": []
    }
+  },
+  {
+   "name": "optimization with outputs that are saved but not optimized: columns after the objectives",
+   "record": {
+    "id": 9,
+    "name": "Yield only",
+    "status": "completed",
+    "start_time": "2026-11-23T09:00:00",
+    "parameters": {
+     "type": "Optimization",
+     "optimizer": "ax",
+     "budget": 2,
+     "parameter_space": [
+      {
+       "name": "temperature",
+       "type": "range",
+       "bounds": [
+        40,
+        90
+       ]
+      }
+     ],
+     "objective_config": [
+      {
+       "name": "yield",
+       "minimize": false
+      }
+     ],
+     "sequence_template": [
+      {
+       "instrument": "reactor",
+       "method": "heat",
+       "returnVar": null
+      },
+      {
+       "instrument": "hplc",
+       "method": "analyze",
+       "returnVar": "yield, purity, sample_id",
+       "returnBindings": [
+        {
+         "path": "yield_percent",
+         "var": "yield"
+        },
+        {
+         "path": "purity",
+         "var": "purity"
+        },
+        {
+         "path": "sample",
+         "var": "sample_id"
+        }
+       ]
+      },
+      {
+       "instrument": "balance",
+       "method": "weigh",
+       "returnVar": "mass_g"
+      }
+     ]
+    },
+    "steps": [
+     {
+      "instrument": "reactor",
+      "method": "heat",
+      "parameters": {
+       "celsius": 65,
+       "_vars": {
+        "celsius": "temperature"
+       },
+       "_phase": "main"
+      },
+      "outputs": {
+       "result": null
+      },
+      "status": "completed"
+     },
+     {
+      "instrument": "hplc",
+      "method": "analyze",
+      "parameters": {
+       "_phase": "main"
+      },
+      "outputs": {
+       "result": {
+        "yield_percent": 71.2,
+        "purity": 0.98,
+        "sample": "S-1"
+       }
+      },
+      "status": "completed"
+     },
+     {
+      "instrument": "balance",
+      "method": "weigh",
+      "parameters": {
+       "_phase": "main"
+      },
+      "outputs": {
+       "result": 1.25
+      },
+      "status": "completed"
+     },
+     {
+      "instrument": "reactor",
+      "method": "heat",
+      "parameters": {
+       "celsius": 80,
+       "_vars": {
+        "celsius": "temperature"
+       },
+       "_phase": "main"
+      },
+      "outputs": {
+       "result": null
+      },
+      "status": "completed"
+     },
+     {
+      "instrument": "hplc",
+      "method": "analyze",
+      "parameters": {
+       "_phase": "main"
+      },
+      "outputs": {
+       "result": {
+        "yield_percent": 64,
+        "purity": 0.91,
+        "sample": "S-2"
+       }
+      },
+      "status": "completed"
+     },
+     {
+      "instrument": "balance",
+      "method": "weigh",
+      "parameters": {
+       "_phase": "main"
+      },
+      "outputs": {
+       "result": 1.1
+      },
+      "status": "completed"
+     }
+    ]
+   },
+   "expected": {
+    "type": "Optimization",
+    "variables": [
+     "temperature",
+     "yield (objective)",
+     "purity",
+     "sample_id",
+     "mass_g"
+    ],
+    "rows": [
+     {
+      "row": 1,
+      "status": "completed",
+      "values": [
+       65,
+       71.2,
+       0.98,
+       "S-1",
+       1.25
+      ]
+     },
+     {
+      "row": 2,
+      "status": "completed",
+      "values": [
+       80,
+       64,
+       0.91,
+       "S-2",
+       1.1
+      ]
+     }
+    ],
+    "deck_version": null,
+    "batch_size": null,
+    "prep": [],
+    "cleanup": []
+   }
   }
  ]
 }

@@ -21,6 +21,7 @@ import {
   getVarMode as sharedGetVarMode,
   getVarModeType as sharedGetVarModeType,
   isPerIteration as sharedIsPerIteration,
+  objectiveNames,
   getIterationValue as sharedGetIterationValue, useDocumentTheme, LIBRARY_INSTRUMENT, linkOutputBindings, runtimeVarNames, splitRepeatedLinks, mainOnlyLinks , confirmDialog , notify,
   guardHint, guardProblem, guardsFor, unitOf, declaredChild, type FieldGuard, type FieldRef } from '@ivoryos/shared-ui';
 
@@ -614,11 +615,14 @@ export default function OptimizeRunPage({ stage }: { stage?: EmbeddedStage } = {
   };
 
   const requiredParamNames = variables.filter(v => !isPerIteration(v) && getVarMode(v) === 'optimize');
+  // `returns` is every number the workflow saves; the optimizer aims only for these. One set to
+  // "Don't optimize" is still saved by its step and recorded with each trial.
+  const objectives = objectiveNames(optConfig, returns);
 
-  const compatibleHistoryRuns = requiredParamNames.length === 0 || returns.length === 0 ? [] : historyRuns.filter((run: any) => {
+  const compatibleHistoryRuns = requiredParamNames.length === 0 || objectives.length === 0 ? [] : historyRuns.filter((run: any) => {
     const paramNames = (run.parameters?.parameter_space || []).map((p: any) => p.name);
     const objNames = (run.parameters?.objective_config || []).map((o: any) => o.name);
-    return sameNameSet(paramNames, requiredParamNames) && sameNameSet(objNames, returns);
+    return sameNameSet(paramNames, requiredParamNames) && sameNameSet(objNames, objectives);
   });
 
   // Mirrors data/page.tsx's Optimization row-extraction, but returns structured {param: value}
@@ -671,7 +675,7 @@ export default function OptimizeRunPage({ stage }: { stage?: EmbeddedStage } = {
         const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
         if (lines.length < 2) throw new Error('CSV needs a header row and at least one data row.');
         const headers = lines[0].split(',').map(h => h.trim());
-        const missing = [...requiredParamNames, ...returns].filter(n => !headers.includes(n));
+        const missing = [...requiredParamNames, ...objectives].filter(n => !headers.includes(n));
         if (missing.length > 0) throw new Error(`CSV is missing column(s): ${missing.join(', ')}`);
         const rows = lines.slice(1).map(line => {
           const cells = line.split(',').map(c => c.trim());
@@ -694,13 +698,16 @@ export default function OptimizeRunPage({ stage }: { stage?: EmbeddedStage } = {
     reader.readAsText(file);
   };
 
+  // Only the columns the optimizer is given. A CSV may hold more (an output that is recorded but
+  // not optimized, a note), and the rows go to the optimizer as they are.
+  const seedColumns = [...requiredParamNames, ...objectives];
   const existingData: Record<string, any>[] = [
     ...selectedHistoryIds.flatMap(id => {
       const run = historyRuns.find((r: any) => r.id === id);
       return run ? extractOptimizationRows(run) : [];
     }),
     ...uploadedExistingRows
-  ];
+  ].map(row => Object.fromEntries(seedColumns.filter(n => n in row).map(n => [n, row[n]])));
 
   // A stage keeps its optimization as it is set: no Save. A moment after the last change, the
   // settings and the run they make (or what is still missing) go to the Stages page's draft.
@@ -930,7 +937,6 @@ export default function OptimizeRunPage({ stage }: { stage?: EmbeddedStage } = {
                     return (
                     <div key={v} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5 min-w-0">
                       <span className="w-40 shrink-0 font-mono text-[13px] font-semibold text-gray-800 dark:text-gray-100 truncate" title={v}>{v}</span>
-                      {varUnits[v] && <span className="shrink-0 text-xs text-gray-400 dark:text-gray-500" title={`Values are in ${varUnits[v]}`}>{varUnits[v]}</span>}
                       {perIter ? (
                         <span className="text-xs text-teal-600 dark:text-teal-400 italic">set per iteration, in the table below</span>
                       ) : (
@@ -955,9 +961,11 @@ export default function OptimizeRunPage({ stage }: { stage?: EmbeddedStage } = {
                               <input type="text" placeholder="min" value={bound.min || ''} onChange={e => setBound({ min: e.target.value })} className={`${compactInput} w-20`} />
                               <span className="text-xs text-gray-400">to</span>
                               <input type="text" placeholder="max" value={bound.max || ''} onChange={e => setBound({ max: e.target.value })} className={`${compactInput} w-20`} />
-                              {/* Optional: a grid of values (2 to 10 by 2) instead of anything in between. */}
-                              <span className="text-xs text-gray-400">by</span>
-                              <input type="text" placeholder="any" title="Step: only min, min+step, ... max are tried. Leave blank for any value in between." value={bound.step || ''} onChange={e => setBound({ step: e.target.value })} className={`${compactInput} w-14`} />
+                              {/* Optional: a grid of values (2 to 10, step 2) instead of anything in
+                                  between. The field says so itself: "by [any]" beside min and max
+                                  read as a third thing to fill in. */}
+                              <span className="text-xs text-gray-400">step</span>
+                              <input type="text" placeholder="optional" aria-label={`Step for ${v} (optional)`} title="Optional. With a step, only min, min+step, ... max are tried. Left blank, any value in between." value={bound.step || ''} onChange={e => setBound({ step: e.target.value })} className={`${compactInput} w-20 placeholder:italic`} />
                             </span>
                           )}
                           {mode === 'optimize' && bound.type === 'choice' && (
@@ -1006,6 +1014,13 @@ export default function OptimizeRunPage({ stage }: { stage?: EmbeddedStage } = {
                             <Plus className="w-3.5 h-3.5" /> Add substance
                           </button>
                         </div>
+                      )}
+                      {/* The unit, once, after the entries: the limit beside it usually says it
+                          ("0 to 10 mL"), so it is written out only when nothing there does (a unit
+                          with no bounds, or one the driver declared). In front of the entries it
+                          said the unit twice and pushed that row's fields out of line. */}
+                      {varUnits[v] && !(refused || guardText).includes(varUnits[v]) && (
+                        <span className="shrink-0 text-xs text-gray-400 dark:text-gray-500" title={`Values are in ${varUnits[v]}`}>{varUnits[v]}</span>
                       )}
                       {guardText && (
                         <span title={refused ? `Safety guard: ${refused}` : 'What the safety guard allows for this value'}
@@ -1071,7 +1086,7 @@ export default function OptimizeRunPage({ stage }: { stage?: EmbeddedStage } = {
               <div className="bg-white dark:bg-[#111111] border border-gray-200 dark:border-white/10 rounded-xl shadow-sm p-4">
                 <div className="flex items-center justify-between gap-2 mb-1">
                   <h3 className="text-sm font-bold text-gray-800 dark:text-white shrink-0">Objectives</h3>
-                  {returns.length > 1 && (
+                  {objectives.length > 1 && (
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">Stop early when</span>
                       <select
@@ -1094,24 +1109,34 @@ export default function OptimizeRunPage({ stage }: { stage?: EmbeddedStage } = {
                 {returns.length === 0 ? (
                     <div className="text-sm text-gray-500">No return variables assigned in sequence.</div>
                 ) : (
-                    // One objective per line: name, direction, and an optional early-stop target.
+                    // One saved output per line: name, direction, and an optional early-stop target.
+                    // "Don't optimize" keeps the value out of the optimizer: a step saves a value
+                    // for many reasons (a later step reads it, it is worth having in the record),
+                    // and only some of them are what the search is for.
                     <div className="divide-y divide-gray-100 dark:divide-white/5 mt-1">
                       {returns.map((v: string) => {
                         const objective = optConfig.objectives[v] || {};
+                        const optimized = objective.goal !== 'none';
                         const earlyStopOn = !!objective.earlyStop;
                         const setObjective = (patch: Record<string, any>) => setOptConfig({...optConfig, objectives: {...optConfig.objectives, [v]: {...optConfig.objectives[v], ...patch}}});
                         return (
                         <div key={v} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5 min-w-0">
-                          <span className="w-40 shrink-0 font-mono text-[13px] font-semibold text-gray-800 dark:text-gray-100 truncate" title={v}>{v}</span>
+                          <span className={`w-40 shrink-0 font-mono text-[13px] font-semibold truncate ${optimized ? 'text-gray-800 dark:text-gray-100' : 'text-gray-400 dark:text-gray-500'}`} title={v}>{v}</span>
                           {returnUnits[v] && <span className="shrink-0 text-xs text-gray-400 dark:text-gray-500" title={`Measured in ${returnUnits[v]}`}>{returnUnits[v]}</span>}
                           <select
+                             aria-label={`What the optimizer does with ${v}`}
                              value={objective.goal || 'maximize'}
                              onChange={e => setObjective({ goal: e.target.value })}
-                             className="h-7 w-[100px] shrink-0 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/15 rounded-md px-1.5 text-xs font-semibold text-gray-800 dark:text-gray-100 outline-none focus:border-accent"
+                             className={`h-7 w-[124px] shrink-0 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/15 rounded-md px-1.5 text-xs font-semibold outline-none focus:border-accent ${optimized ? 'text-gray-800 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}`}
                           >
                              <option value="maximize">Maximize</option>
                              <option value="minimize">Minimize</option>
+                             <option value="none">Don't optimize</option>
                           </select>
+                          {!optimized ? (
+                            <span className="text-xs text-gray-400 dark:text-gray-500" title="Saved by its step and kept in the run's data with every trial. The optimizer is not told about it.">recorded only</span>
+                          ) : (
+                          <>
                           <label className="flex items-center gap-1.5 cursor-pointer select-none shrink-0">
                             <input type="checkbox" checked={earlyStopOn} onChange={e => setObjective({ earlyStop: e.target.checked })} className="w-3.5 h-3.5 accent-gray-900 dark:accent-white" />
                             <span className="text-xs text-gray-500 dark:text-gray-400">Stop early {objective.goal === 'minimize' ? 'at ≤' : 'at ≥'}</span>
@@ -1125,12 +1150,19 @@ export default function OptimizeRunPage({ stage }: { stage?: EmbeddedStage } = {
                                className={`${compactInput} w-24`}
                             />
                           )}
+                          </>
+                          )}
                         </div>
                         );
                       })}
                     </div>
                 )}
-                {returns.length > 0 && (
+                {returns.length > 0 && objectives.length === 0 && (
+                  <div className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                    Nothing is set to be optimized. Choose Maximize or Minimize for at least one.
+                  </div>
+                )}
+                {objectives.length > 0 && (
                   // Stop once the search has gone flat. Counted after the random start, where
                   // points are not expected to improve on each other (queue.py NoImprovement).
                   <label
@@ -1154,7 +1186,7 @@ export default function OptimizeRunPage({ stage }: { stage?: EmbeddedStage } = {
                     <span>iterations in a row</span>
                   </label>
                 )}
-                {returns.length > 0 && (
+                {objectives.length > 0 && (
                   // A trial with an objective missing (nothing measured, or NaN): by default each
                   // optimizer leaves it out and the run goes on (queue.py on_missing_result).
                   <label
@@ -1233,11 +1265,11 @@ export default function OptimizeRunPage({ stage }: { stage?: EmbeddedStage } = {
                 <h3 className="text-sm font-bold text-gray-800 dark:text-white mb-1">Existing Data <span className="text-xs font-normal text-gray-400">(optional)</span></h3>
                 <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">Warm-start the optimizer with prior results instead of starting from scratch.</p>
 
-                {requiredParamNames.length === 0 || returns.length === 0 ? (
+                {requiredParamNames.length === 0 || objectives.length === 0 ? (
                   <div className="text-sm text-gray-500">Configure at least one optimized parameter and one objective above to attach existing data.</div>
                 ) : (
                   <div className="space-y-4">
-                    <RequiredColumns params={requiredParamNames} objectives={returns} />
+                    <RequiredColumns params={requiredParamNames} objectives={objectives} />
                     <div>
                       <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2 block">From Data History</label>
                       {(() => {

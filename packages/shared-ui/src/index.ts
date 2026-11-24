@@ -4,6 +4,7 @@ export { getReturnLeaves, getBoundVar } from './WorkflowEditor';
 export { PythonCodeView, downloadPython } from './PythonCodeView';
 export { WorkflowFileMenu } from './WorkflowFileMenu';
 export { PythonDrawer } from './PythonDrawer';
+export { DOCK_RIGHT, besideDock, drawerBesideDock } from './dockSpace';
 export { generatePythonCode } from './generatePythonCode';
 export { ExtraArguments, coerceArgumentLiteral } from './ExtraArguments';
 export { buildRunName } from './runNaming';
@@ -80,6 +81,8 @@ export {
   getVarMode,
   getVarModeType,
   isPerIteration,
+  isObjective,
+  objectiveNames,
   getIterationValue,
   partitionVariables,
   buildOptimizationParameters,

@@ -165,6 +165,45 @@ class PythonRuntime {
             state.installedAt = new Date().toISOString();
             this._writeState(state);
         }
+        this._clearStaleEdgeFolder();
+    }
+
+    /** The venv's site-packages folders (one on Windows; lib/pythonX.Y/site-packages elsewhere). */
+    _sitePackages() {
+        if (process.platform === 'win32') return [path.join(this.venv, 'Lib', 'site-packages')];
+        const lib = path.join(this.venv, 'lib');
+        try {
+            return fs.readdirSync(lib).filter(n => n.startsWith('python')).map(n => path.join(lib, n, 'site-packages'));
+        } catch { return []; }
+    }
+
+    /**
+     * Clear a leftover `ivoryos_edge` folder (no `__init__.py`) from site-packages (issue 80).
+     * An uninstalled wheel leaves behind folders the edge made at run time; Python then treats the
+     * folder as a namespace package that hides an editable install ("cannot import name
+     * 'WorkflowError' ... (unknown location)"). Runs on every launch: an empty folder is deleted,
+     * one holding files is renamed to `ivoryos_edge.leftover-<time>` so nothing is lost.
+     */
+    _clearStaleEdgeFolder() {
+        for (const site of this._sitePackages()) {
+            const dir = path.join(site, 'ivoryos_edge');
+            try {
+                if (!fs.statSync(dir).isDirectory() || fs.existsSync(path.join(dir, '__init__.py'))) continue;
+            } catch { continue; }
+            try {
+                const hasFiles = fs.readdirSync(dir, { recursive: true, withFileTypes: true }).some(e => !e.isDirectory());
+                if (hasFiles) {
+                    const aside = `${dir}.leftover-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+                    fs.renameSync(dir, aside);
+                    this.onLine(`Moved a leftover ivoryos_edge folder, which hid the installed edge, to ${aside}`);
+                } else {
+                    fs.rmSync(dir, { recursive: true, force: true });
+                    this.onLine(`Removed an empty leftover ivoryos_edge folder, which hid the installed edge: ${dir}`);
+                }
+            } catch (e) {
+                this.onLine(`Could not clear the leftover ivoryos_edge folder ${dir}: ${e.message}`);
+            }
+        }
     }
 
     /**

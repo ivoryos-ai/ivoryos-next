@@ -18,6 +18,7 @@ import React, { useEffect, useState } from 'react';
 import { ArrowRight, Layers, X } from 'lucide-react';
 
 import { summariseDiff, type DiffRow, type DiffStep, type StepChange } from './workflowBody';
+import { besideDock } from './dockSpace';
 
 type Props = {
   isOpen: boolean;
@@ -186,7 +187,7 @@ export function WorkflowDiff({
   const visible = onlyChanges ? numbered.filter(n => n.row.kind !== 'same') : numbered;
 
   return (
-    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-4" style={besideDock} onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-4xl max-h-[88vh] flex flex-col bg-white dark:bg-[#111] rounded-2xl shadow-2xl border border-gray-200 dark:border-white/10"

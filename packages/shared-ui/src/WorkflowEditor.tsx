@@ -7,7 +7,6 @@ import {
   LIBRARY_INSTRUMENT,
   collectReturnVars,
   detachLink,
-  groupAt,
   groupBounds,
   newGroupId,
   diffSteps,
@@ -478,7 +477,7 @@ const HOLD_TO_SWITCH_MS = 500;
     let { destination } = result;
     // Released over a tab of a phase other than the one it came from: to the end of that phase,
     // whatever the library made of the drop, and the canvas goes there. The index counts rendered
-    // rows (a collapsed group is one row), which is what realIndexFor maps back onto the list.
+    // rows (a collapsed group is one row), which is what dropTarget maps back onto the list.
     if (tab && tab !== source.droppableId) {
       destination = { droppableId: tab, index: buildDragRows(getSequenceList(tab), tab).rows.length };
       if (tab !== activePhaseRef.current) switchPhase(tab);
@@ -516,7 +515,16 @@ const HOLD_TO_SWITCH_MS = 500;
       // change when the source workflow is edited.
       // Drop positions come back as indices over the *rendered* rows, which is not the same as
       // the underlying array once a collapsed group is standing in for several steps.
-      const dropAt = realIndexFor(destList, destId, destination.index);
+      const target = dropTarget(destList, destId, destination.index);
+      const dropAt = target.at;
+      // Membership follows position, as for a step moved in the list: steps landing inside an open
+      // group join it. Steps bringing a group of their own (a copied workflow) go after that group
+      // instead, since groups do not nest and one split in two would leave two runs sharing an id.
+      const place = (blocks: SequenceBlock[]) => {
+        if (!target.inside) return { at: dropAt, blocks };
+        if (blocks.some(b => b.group)) return { at: target.inside.startIndex + target.inside.size, blocks };
+        return { at: dropAt, blocks: blocks.map(b => ({ ...b, group: target.group })) };
+      };
 
       if (instrument === LIBRARY_INSTRUMENT) {
         const entry = statusData.instruments[instrument]?.[method] || {};
@@ -533,32 +541,36 @@ const HOLD_TO_SWITCH_MS = 500;
         // A copied protocol brings its output variables with it; rename any that this workflow is
         // already using, so the two can't silently overwrite each other in the run context.
         void (async () => {
-          const adopted = await adoptReturnVars(blocks);
+          const placed = place(await adoptReturnVars(blocks));
           const list = Array.from(getSequenceList(destId));
-          list.splice(Math.min(dropAt, list.length), 0, ...adopted);
+          list.splice(Math.min(placed.at, list.length), 0, ...placed.blocks);
           setSequenceList(destId, list);
         })();
         return;
       }
 
       if (instrument === "Flow Control" && method === "If_Else_Block") {
-          destList.splice(dropAt, 0,
+          const placed = place([
               createBlock("Flow_Control", "If", { condition: "True" }),
               createBlock("Flow_Control", "Else", {}),
               createBlock("Flow_Control", "End_If", {})
-          );
+          ]);
+          destList.splice(placed.at, 0, ...placed.blocks);
       } else if (instrument === "Flow Control" && method === "While_Loop") {
-          destList.splice(dropAt, 0,
+          const placed = place([
               createBlock("Flow_Control", "While", { condition: "False" }),
               createBlock("Flow_Control", "End_While", {})
-          );
+          ]);
+          destList.splice(placed.at, 0, ...placed.blocks);
       } else {
           // Normal block
-          const newBlock = createBlock(instrument, method, defaultParams);
+          const created = createBlock(instrument, method, defaultParams);
           if (instrument === "Flow Control" && method === "Sleep") {
-              newBlock.instrument = "Flow_Control"; // standardise the instrument name for backend
+              created.instrument = "Flow_Control"; // standardise the instrument name for backend
           }
-          destList.splice(dropAt, 0, newBlock);
+          const placed = place([created]);
+          const newBlock = placed.blocks[0];
+          destList.splice(placed.at, 0, newBlock);
           // Dropped to be filled in: it opens, and whatever was open closes.
           if (!isFlowControlBlock || method === 'User_Input') setOpenStep({ listId: destId, id: newBlock.id });
       }
@@ -573,26 +585,26 @@ const HOLD_TO_SWITCH_MS = 500;
 
       // A collapsed group is one draggable covering several real steps, so a move lifts a *range*,
       // not a single block — this is what makes "drag the whole group" work.
-      const { slices } = buildDragRows(getSequenceList(sourceId), sourceId);
-      const moved = slices[source.index];
+      const movedRow = buildDragRows(sourceList, sourceId).rows[source.index];
+      const moved = rowSlice(movedRow);
       if (!moved) return;
+      // Read against the list as drawn, before anything is taken out of it.
+      const target = dropTarget(destList, destId, destination.index, sourceId === destId ? source.index : undefined);
       const items = sourceList.splice(moved.start, moved.size);
-
-      // Recomputed after the removal for a same-list move, because the rows shifted underneath.
-      const insertAt = realIndexFor(destList, destId, destination.index);
-      destList.splice(insertAt, 0, ...items);
 
       // Membership follows position. A single step dropped *inside* a group joins it; dropped
       // anywhere else it leaves whatever group it was in — which is what makes dragging a step out
-      // produce a plain step rather than a one-step group of its own. A whole collapsed group
-      // moving (size > 1, or a block that is itself a group) keeps its own identity.
-      if (moved.size === 1 && items.length === 1) {
-        const landedIn = groupAt(destList, insertAt);
-        const current = items[0].group;
-        if (landedIn?.id !== current?.id) {
-          destList[insertAt] = { ...items[0], group: landedIn };
-        }
+      // produce a plain step rather than a one-step group of its own. A whole collapsed group keeps
+      // its own identity, and dropped inside an open group goes after it rather than splitting it.
+      let at = target.at;
+      if (movedRow?.kind === 'block') {
+        if (items[0].group?.id !== target.group?.id) items[0] = { ...items[0], group: target.group };
+      } else if (target.inside) {
+        at = target.inside.startIndex + target.inside.size;
       }
+      // Positions after the lifted steps moved up by their number.
+      if (sourceId === destId && at > moved.start) at -= moved.size;
+      destList.splice(at, 0, ...items);
 
       setSequenceList(sourceId, sourceList);
       if (sourceId !== destId) {
@@ -835,7 +847,9 @@ const HOLD_TO_SWITCH_MS = 500;
     return adopted;
   };
 
-  const groupKey = (listId: string, blockId: string) => `${listId}::${blockId}`;
+  // Open or closed is kept per group id, not per first step: keyed by the first step, a step
+  // dragged into a group's top place or its first step dragged out closed the group (issue 75).
+  const groupKey = (listId: string, groupId: string) => `${listId}::${groupId}`;
 
   type GroupInfo = {
     startIndex: number; size: number; key: string; firstId: string;
@@ -843,16 +857,21 @@ const HOLD_TO_SWITCH_MS = 500;
   };
   type DragRow =
     | { kind: 'collapsed'; group: GroupInfo; dndIndex: number }
-    | { kind: 'header'; group: GroupInfo }
+    | { kind: 'header'; group: GroupInfo; dndIndex: number }
     | { kind: 'block'; index: number; dndIndex: number; group?: GroupInfo }
-    | { kind: 'cap'; group: GroupInfo };
+    | { kind: 'cap'; group: GroupInfo; dndIndex: number };
 
   /**
    * What the list actually renders, and how those rows map back onto the underlying flat array.
    *
-   * Drag-and-drop indices must be contiguous over the *rendered* draggables, so a collapsed group
-   * contributes exactly one draggable standing for all of its steps. `slices` translates a drag
-   * index back to the real range it covers, which is what lets a collapsed group move as a unit.
+   * Every rendered row is a Draggable, and its drag index is its position. A collapsed group is one
+   * row standing for all of its steps (`rowSlice`), which is what lets it move as a unit. An open
+   * group's header and its "end of" line are Draggables too, with dragging disabled (issue 75): as
+   * plain elements between Draggables the library neither moved them aside while a step was dragged
+   * past (cards slid over them) nor counted them as positions, so "just above the end line" and
+   * "just below it" were one drop index, and a step dropped at a group's first or last place, even
+   * picked up and put back where it was, landed outside the group. As rows of their own, each gap
+   * the eye sees is a drop index of its own, and `dropTarget` reads the group from its neighbours.
    *
    * An earlier version kept collapsed members mounted and hid them with `display:none`. That left
    * zero-sized draggables in the index space, so a collapsed group could not be grabbed at all and
@@ -861,32 +880,58 @@ const HOLD_TO_SWITCH_MS = 500;
   const buildDragRows = (list: SequenceBlock[], listId: string) => {
     const bounds = groupBounds(list);
     const rows: DragRow[] = [];
-    const slices: { start: number; size: number }[] = [];
 
     let i = 0;
     while (i < list.length) {
       const info = bounds.get(i);
       if (info) {
-        const group: GroupInfo = { ...info, startIndex: i, key: groupKey(listId, list[i].id), firstId: list[i].id };
+        const group: GroupInfo = { ...info, startIndex: i, key: groupKey(listId, info.id), firstId: list[i].id };
         if (expandedGroups[group.key]) {
-          rows.push({ kind: 'header', group });
+          rows.push({ kind: 'header', group, dndIndex: rows.length });
           for (let j = i; j < i + info.size; j++) {
-            rows.push({ kind: 'block', index: j, dndIndex: slices.length, group });
-            slices.push({ start: j, size: 1 });
+            rows.push({ kind: 'block', index: j, dndIndex: rows.length, group });
           }
-          rows.push({ kind: 'cap', group });
+          rows.push({ kind: 'cap', group, dndIndex: rows.length });
         } else {
-          rows.push({ kind: 'collapsed', group, dndIndex: slices.length });
-          slices.push({ start: i, size: info.size });
+          rows.push({ kind: 'collapsed', group, dndIndex: rows.length });
         }
         i += info.size;
       } else {
-        rows.push({ kind: 'block', index: i, dndIndex: slices.length });
-        slices.push({ start: i, size: 1 });
+        rows.push({ kind: 'block', index: i, dndIndex: rows.length });
         i += 1;
       }
     }
-    return { rows, slices };
+    return { rows };
+  };
+
+  /** The real steps a row picks up: one step, a collapsed group's whole range, or none (header, end line). */
+  const rowSlice = (row: DragRow | undefined): { start: number; size: number } | null => {
+    if (!row) return null;
+    if (row.kind === 'block') return { start: row.index, size: 1 };
+    if (row.kind === 'collapsed') return { start: row.group.startIndex, size: row.group.size };
+    return null;
+  };
+
+  /**
+   * Where a drop lands, from the drag library's index: the place in the real list (before any
+   * removal of the dragged steps) and the open group it falls inside, if any.
+   *
+   * `skip` is the dragged row's own index for a move within one list: the library counts positions
+   * with that row taken out. A gap is inside a group when the row above it is that group's header or
+   * one of its steps and the row below is one of its steps or its end line.
+   */
+  const dropTarget = (list: SequenceBlock[], listId: string, dndIndex: number, skip?: number) => {
+    const rows = buildDragRows(list, listId).rows.filter(r => r.dndIndex !== skip);
+    const above = rows[dndIndex - 1];
+    const below = rows[dndIndex];
+    const at = !below ? list.length
+      : below.kind === 'block' ? below.index
+      : below.kind === 'cap' ? below.group.startIndex + below.group.size
+      : below.group.startIndex;
+    const opening = above && (above.kind === 'header' || (above.kind === 'block' && above.group)) ? above.group : undefined;
+    const closing = below && (below.kind === 'cap' || (below.kind === 'block' && below.group)) ? below.group : undefined;
+    const inside = opening && closing && opening.key === closing.key ? opening : undefined;
+    return { at, inside, group: inside ? list[inside.startIndex]?.group : undefined };
   };
 
   /**
@@ -903,7 +948,7 @@ const HOLD_TO_SWITCH_MS = 500;
       }`}>
         <button
           type="button"
-          onClick={() => toggleGroup(listId, group.firstId)}
+          onClick={() => toggleGroup(listId, group.id)}
           title={open
             ? 'Collapse these steps — collapsed, the whole group can be dragged as one'
             : 'Show the steps in this group. Drag this bar to move the whole group.'}
@@ -963,14 +1008,8 @@ const HOLD_TO_SWITCH_MS = 500;
     );
   };
 
-  /** Drag index -> where that row starts in the real array (end of list when past the last row). */
-  const realIndexFor = (list: SequenceBlock[], listId: string, dndIndex: number) => {
-    const { slices } = buildDragRows(list, listId);
-    return dndIndex < slices.length ? slices[dndIndex].start : list.length;
-  };
-
-  const toggleGroup = (listId: string, blockId: string) =>
-    setExpandedGroups(prev => ({ ...prev, [groupKey(listId, blockId)]: !prev[groupKey(listId, blockId)] }));
+  const toggleGroup = (listId: string, groupId: string) =>
+    setExpandedGroups(prev => ({ ...prev, [groupKey(listId, groupId)]: !prev[groupKey(listId, groupId)] }));
 
   /** Drop a whole group at once, rather than making the user delete N cards one by one. */
   const removeGroup = async (listId: string, startIndex: number, size: number) => {
@@ -1007,7 +1046,7 @@ const HOLD_TO_SWITCH_MS = 500;
     if (!copies.length) return;
     list.splice(startIndex + size, 0, ...copies);
     setSequenceList(listId, list);
-    setExpandedGroups(prev => ({ ...prev, [groupKey(listId, copies[0].id)]: !!prev[groupKey(listId, list[startIndex].id)] }));
+    setExpandedGroups(prev => ({ ...prev, [groupKey(listId, group.id)]: !!prev[groupKey(listId, original.id)] }));
   };
 
   /** Dissolve the grouping. The steps are untouched — they just stop being drawn as a unit. */
@@ -1117,7 +1156,7 @@ const HOLD_TO_SWITCH_MS = 500;
     list.splice(first, 0, ...picked.map(block => ({ ...block, group })));
 
     setSequenceList(listId, list);
-    setExpandedGroups(prev => ({ ...prev, [groupKey(listId, picked[0].id)]: true }));
+    setExpandedGroups(prev => ({ ...prev, [groupKey(listId, group.id)]: true }));
     clearSelection();
   };
 
@@ -1515,17 +1554,36 @@ const HOLD_TO_SWITCH_MS = 500;
                       </Draggable>
                     );
                   }
+                  // An open group's header and end line are fixed Draggables (dragging disabled):
+                  // the library moves them aside like any card while a step passes, and each gap
+                  // around them is a drop position of its own (issue 75; see buildDragRows).
                   if (row.kind === 'header') {
-                    return <React.Fragment key={`header-${row.group.firstId}`}>{renderGroupHeader(listId, row.group, true)}</React.Fragment>;
+                    return (
+                      <Draggable key={`header-${row.group.firstId}`} draggableId={`header-${row.group.firstId}`} index={row.dndIndex} isDragDisabled>
+                        {(provided) => (
+                          <div ref={provided.innerRef} {...provided.draggableProps}>
+                            {renderGroupHeader(listId, row.group, true)}
+                          </div>
+                        )}
+                      </Draggable>
+                    );
                   }
                   if (row.kind === 'cap') {
                     return (
-                      // Closes the group so the eye knows where the copy stops and this workflow's
-                      // own steps resume. Carries the same rail and indent as the members above it.
-                      <div key={`cap-${row.group.firstId}`} className="ml-2.5 pl-3 border-l-2 border-gray-300 dark:border-white/20 text-[10px] text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
-                        <span className="h-px w-3 bg-gray-300 dark:bg-white/20" />
-                        end of {row.group.name}
-                      </div>
+                      <Draggable key={`cap-${row.group.firstId}`} draggableId={`cap-${row.group.firstId}`} index={row.dndIndex} isDragDisabled>
+                        {(provided) => (
+                          // Closes the group so the eye knows where the copy stops and this workflow's
+                          // own steps resume. Carries the same rail and indent as the members above it.
+                          <div
+                            ref={provided.innerRef}
+                            {...provided.draggableProps}
+                            className="ml-2.5 pl-3 border-l-2 border-gray-300 dark:border-white/20 text-[10px] text-gray-400 dark:text-gray-500 flex items-center gap-1.5"
+                          >
+                            <span className="h-px w-3 bg-gray-300 dark:bg-white/20" />
+                            end of {row.group.name}
+                          </div>
+                        )}
+                      </Draggable>
                     );
                   }
 
@@ -1815,12 +1873,16 @@ const HOLD_TO_SWITCH_MS = 500;
                                   // Dragged, the card keeps its box (the drag library measured it)
                                   // but paints nothing; the chip below is what moves with the cursor.
                                   ...(snapshot.isDragging ? { visibility: 'hidden' as const } : {}),
+                                  // The card's CSS transition leaves out transform (issue 75): the drag
+                                  // library moves cards with transforms, and a transition on them
+                                  // slid every card back from its old offset after the drop, so the
+                                  // list overlapped for a moment before showing where the step went.
                                 }}
                                 data-step-key={`${listId}:${block.id}`}
                                 onPointerDownCapture={(e) => { grabX.current = e.clientX - e.currentTarget.getBoundingClientRect().left; }}
                                 className={`
                                   relative ${bgClass} rounded-lg shadow-sm border
-                                  transition-all duration-200 group
+                                  transition-[color,background-color,border-color,box-shadow] duration-200 group
                                   ${snapshot.isDragging ? 'z-50' :
                                     // A disabled step is dimmed by a translucent veil drawn over its
                                     // content (::after, under the ⋯ menu's z-30), not by opacity on
