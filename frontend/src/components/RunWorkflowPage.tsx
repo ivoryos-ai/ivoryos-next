@@ -820,7 +820,8 @@ export default function RunWorkflowPage({ mode, stage }: {
   // step 1, then every row's step 2), so it also decides whether rows interleave. Blank is 1 —
   // each row start to finish — and the field shows whenever there are rows to group.
   const hasBatchSize = parseInt(batchSize) > 1;
-  // The samples the preview counts: judged by this workflow's columns, as the walk judges them.
+  // The samples the run will have, judged by this workflow's columns as the walk judges them: the
+  // header's count and the preview both read this, never `rows.length`, which counts blank rows.
   const activeRowCount = rows.filter(r => isRowActive(r, variables)).length;
 
   // Embedded in the Stages page, only the configuration itself is drawn: that page has the
@@ -836,7 +837,7 @@ export default function RunWorkflowPage({ mode, stage }: {
           <RunTabs active={once ? 'once' : 'configure'} />
           {!once && variables.length > 0 && (
             <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-white/5 px-2 py-0.5 rounded-full">
-              {rows.length} {rows.length === 1 ? 'entry' : 'entries'}
+              {activeRowCount} {activeRowCount === 1 ? 'entry' : 'entries'}
             </span>
           )}
         </header>}
