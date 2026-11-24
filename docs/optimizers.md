@@ -16,7 +16,7 @@ from either is the same run). AGENTS.md section 6 has the queue-side details.
 
 ## Search space
 
-Each `#variable` in the workflow is a row: **Range** (min to max, optionally **by** a step),
+Each `#variable` in the workflow is a row: **Range** (min to max, with an optional **step**),
 **Choice** (a list), **Substance** (BayBE with chemistry), or **Fixed** (one value), and
 independently **Per-iteration** (a value per iteration from a table). A step turns a range into a
 grid, `min, min+step, ... max`; when min, max and step are all whole numbers the grid is whole

@@ -81,6 +81,8 @@ export {
   getVarMode,
   getVarModeType,
   isPerIteration,
+  isObjective,
+  objectiveNames,
   getIterationValue,
   partitionVariables,
   buildOptimizationParameters,

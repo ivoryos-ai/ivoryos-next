@@ -72,6 +72,15 @@ export const namedOutputsOf = (steps: any[]): string[] => {
   return names;
 };
 
+/**
+ * The names a run's `sequence_template` saves, step by step: one per field binding, else the
+ * comma-separated `returnVar` list. Not deduplicated (a spreadsheet's columns never were).
+ */
+const templateOutputNames = (seqTemplate: any[]): string[] => seqTemplate.flatMap((t: any) =>
+  t?.returnBindings?.length
+    ? t.returnBindings.map((b: any) => b.var).filter(Boolean)
+    : String(t?.returnVar || '').split(',').map((v: string) => v.trim()).filter(Boolean));
+
 export const isUserInputStep = (s: any) => isFlowStep(s) && s.method === 'User_Input';
 
 /** Names a person typed in during the run (User Input steps) -- recorded as data columns too. */
@@ -171,7 +180,13 @@ export function formatRun(r: any): FormattedRun {
     const seqLength = seqTemplate.length;
     const paramNames = paramSpace.map((p: any) => p.name);
     const objectiveNames = objectiveConfig.map((o: any) => o.name);
-    vars = [...paramNames, ...objectiveNames.map((n: string) => `${n} (objective)`)];
+    // What a trial's steps also save without the optimizer aiming for it (an output set to
+    // "Don't optimize", or one that is not a number): a column like any other, after the
+    // objectives. Listing objectives only, such a value was in no table and no CSV. A name the
+    // search space already has keeps its one column, the suggested value.
+    const otherOutputs = [...new Set<string>(templateOutputNames(seqTemplate))]
+      .filter((n) => !objectiveNames.includes(n) && !paramNames.includes(n));
+    vars = [...paramNames, ...objectiveNames.map((n: string) => `${n} (objective)`), ...otherOutputs];
 
     const iterationCount = seqLength > 0 ? Math.ceil(mainSteps.length / seqLength) : 0;
     for (let i = 0; i < iterationCount; i++) {
@@ -198,7 +213,7 @@ export function formatRun(r: any): FormattedRun {
       });
       // The objective's value is whatever step in the template was configured with that
       // returnVar — match by template position since steps themselves don't store returnVar.
-      const objectiveValues = objectiveNames.map((name: string) =>
+      const objectiveValues = [...objectiveNames, ...otherOutputs].map((name: string) =>
         readNamedOutput(name, seqTemplate, iterSteps));
 
       rows.push({
@@ -217,10 +232,7 @@ export function formatRun(r: any): FormattedRun {
     const seqTemplate = r.parameters?.sequence_template || [];
     // One step can save several named outputs (one per field of a structured return), so
     // each becomes its own column rather than the whole "a, b" list becoming one.
-    const returnVars = seqTemplate.flatMap((t: any) =>
-      t.returnBindings?.length
-        ? t.returnBindings.map((b: any) => b.var).filter(Boolean)
-        : String(t.returnVar || '').split(',').map((v: string) => v.trim()).filter(Boolean));
+    const returnVars = templateOutputNames(seqTemplate);
     const seqLength = seqTemplate.length || (rowCount > 0 && mainSteps.length ? Math.floor(mainSteps.length / rowCount) : 0);
     // Answers typed at a User Input prompt are per-row data like any column.
     const promptVars = userInputVarsOf(mainSteps).filter((n) => !inputVars.includes(n) && !returnVars.includes(n));
