@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { inDesktopApp } from './theme';
 
 /**
@@ -15,6 +15,11 @@ import { inDesktopApp } from './theme';
  * The chosen placement is also written to `<html data-ivoryos-nav>`, which is what lets each
  * page's frame -- a flex row of sidebar and page in every page file -- turn into a column with
  * one stylesheet rule instead of an edit to every page.
+ *
+ * Pages are made ahead of time with the left sidebar (marked `data-ivoryos-nav-side`), which is
+ * what a page shows until its script runs. Inside the desktop app the preload sets the attribute
+ * to 'top' before the first paint (desktop/src/preload.js), and a rule in each app's globals.css
+ * keeps that sidebar out of sight, in the top bar's place, until the bar replaces it.
  */
 export type NavPlacement = 'side' | 'top';
 
@@ -47,18 +52,22 @@ export function setNavPlacement(p: NavPlacement) {
   window.dispatchEvent(new Event(CHANGED));
 }
 
+function subscribe(onChange: () => void) {
+  window.addEventListener(CHANGED, onChange);
+  return () => window.removeEventListener(CHANGED, onChange);
+}
+
 /**
- * The placement and a setter. Starts at 'side' on every render the server could have made and
- * corrects after mount (AGENTS.md section 11), applying the attribute the frame rule reads.
+ * The placement and a setter, applying the attribute the frame rule reads.
+ *
+ * 'side' only while hydrating a page the server made (AGENTS.md section 11); a navigation that
+ * mounts after that reads the real placement in its first render. Every page draws its own
+ * navigation, and it used to start at 'side' on every mount and correct itself in an effect, so
+ * each page switch put the left sidebar, logo and all, in front of the top bar for a moment.
  */
 export function useNavPlacement(): [NavPlacement, (p: NavPlacement) => void] {
-  const [placement, setPlacement] = useState<NavPlacement>('side');
-  useEffect(() => {
-    const read = () => { const p = readNavPlacement(); setPlacement(p); applyNavPlacement(p); };
-    read();
-    window.addEventListener(CHANGED, read);
-    return () => window.removeEventListener(CHANGED, read);
-  }, []);
+  const placement = useSyncExternalStore(subscribe, readNavPlacement, () => 'side' as NavPlacement);
+  useEffect(() => { applyNavPlacement(placement); }, [placement]);
   return [placement, setNavPlacement];
 }
 

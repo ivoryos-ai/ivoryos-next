@@ -330,7 +330,7 @@ export default function Sidebar() {
       </div>
     )}
     {placement === 'top' ? topBar : (
-    <aside data-ivoryos-nav-bar className={`shrink-0 bg-white dark:bg-white/5 backdrop-blur-md border-r border-gray-200 dark:border-white/10 flex flex-col py-6 space-y-6 z-10 overflow-hidden ${isExpanded ? 'w-64' : 'w-[72px]'}`}>
+    <aside data-ivoryos-nav-bar data-ivoryos-nav-side className={`shrink-0 bg-white dark:bg-white/5 backdrop-blur-md border-r border-gray-200 dark:border-white/10 flex flex-col py-6 space-y-6 z-10 overflow-hidden ${isExpanded ? 'w-64' : 'w-[72px]'}`}>
       <div className="flex items-center w-full px-3">
         <button onClick={toggleExpanded} className="w-[44px] h-[44px] text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 flex items-center justify-center rounded-lg transition-colors">
           <Menu className="w-5 h-5 shrink-0" />

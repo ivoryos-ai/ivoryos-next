@@ -4,6 +4,23 @@
 // edge's page gives that page nothing it can use.
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
+// Inside the app an edge's or Cloud's navigation is always the top bar (shared-ui navPlacement.tsx),
+// but their pages are made ahead of time with a browser's left sidebar, which showed, logo and all,
+// until the page's script ran. Saying 'top' on <html> before the first paint lets each app's
+// globals.css keep that sidebar out of sight. The launcher page (ivoryos-app://) has no such
+// navigation and is left alone.
+if (location.protocol === 'http:' || location.protocol === 'https:') {
+    const mark = () => {
+        const root = document.documentElement;
+        if (root) root.dataset.ivoryosNav = 'top';
+        return !!root;
+    };
+    if (!mark()) {
+        const watch = new MutationObserver(() => { if (mark()) watch.disconnect(); });
+        watch.observe(document, { childList: true });
+    }
+}
+
 const call = async (channel, ...args) => {
     const res = await ipcRenderer.invoke(channel, ...args);
     if (res && res.ok === false) throw Object.assign(new Error(res.error), { output: res.output, code: res.code });
