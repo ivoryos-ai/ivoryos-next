@@ -1,7 +1,7 @@
 // Run with: node --experimental-strip-types --test frontend/src/hubCatalog.test.ts
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { inScope, ownerLabel, preferV2, repointInstruments, templateFit, uniqueName, uniqueNames, unionPackages } from './hubCatalog.ts';
+import { inScope, ownerLabel, packageLabel, preferV2, repointInstruments, templateFit, uniqueName, uniqueNames, unionPackages } from './hubCatalog.ts';
 
 test('a plugin published as v1 and v2 shows once, as v2; a v1-only plugin stays', () => {
   const rows = [
@@ -14,6 +14,24 @@ test('a plugin published as v1 and v2 shows once, as v2; a v1-only plugin stays'
   assert.deepEqual(preferV2(rows).map(r => r.id), [5, 4, 7, 8]);
   // Private v2, public v1: filtered to the public hub first, the v1 row must still show there.
   assert.deepEqual(preferV2(rows.filter(r => r.id !== 5)).map(r => r.id), [2, 4, 7, 8]);
+});
+
+test('a card names the package it installs, short, with the exact pip requirement kept', () => {
+  // Shapes found on the live Hub (2026-11-25).
+  assert.deepEqual(packageLabel('ismatec'), { label: 'ismatec', requirement: 'ismatec', source: 'index' });
+  assert.deepEqual(packageLabel(' plr-ivoryos[serial]==1.0.0b3 '), { label: 'plr-ivoryos[serial]==1.0.0b3', requirement: 'plr-ivoryos[serial]==1.0.0b3', source: 'index' });
+  assert.deepEqual(packageLabel('https://github.com/numat/ismatec.git'), { label: 'github.com/numat/ismatec', requirement: 'git+https://github.com/numat/ismatec.git', source: 'repository' });
+  assert.deepEqual(packageLabel('https://gitlab.com/heingroup/mtbalance'), { label: 'gitlab.com/heingroup/mtbalance', requirement: 'git+https://gitlab.com/heingroup/mtbalance', source: 'repository' });
+  // A pinned ref stays; credentials, scheme and a fragment do not reach the label.
+  assert.equal(packageLabel('git+https://token@github.com/lab/driver.git@v1.2#egg=driver')?.label, 'github.com/lab/driver@v1.2');
+  assert.equal(packageLabel('git+https://token@github.com/lab/driver.git@v1.2#egg=driver')?.requirement, 'git+https://token@github.com/lab/driver.git@v1.2#egg=driver');
+  assert.equal(packageLabel('git@github.com:lab/driver.git')?.label, 'github.com/lab/driver');
+  assert.equal(packageLabel('git@github.com:lab/driver.git')?.requirement, 'git+git@github.com:lab/driver.git');
+  assert.deepEqual(packageLabel('https://example.org/dist/driver-0.3.tar.gz'), { label: 'driver-0.3.tar.gz', requirement: 'https://example.org/dist/driver-0.3.tar.gz', source: 'file' });
+  assert.deepEqual(packageLabel('driver[usb] @ git+https://github.com/lab/driver'), { label: 'driver[usb]', requirement: 'driver[usb] @ git+https://github.com/lab/driver', source: 'repository' });
+  assert.equal(packageLabel(''), null);
+  assert.equal(packageLabel('   '), null);
+  assert.equal(packageLabel(null), null);
 });
 
 test('public and private hub split rows by visibility; old Hubs send none and are public', () => {
