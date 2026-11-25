@@ -1,0 +1,65 @@
+---
+// An annotated picture of the app (scripts/screenshots.mjs, scripts/annotate.mjs). The notes drawn
+// on the picture are also written out as a list that only screen readers and the site's search
+// see, so what a picture says can be found and heard. Click the picture for its full size.
+//
+//   <Shot name="designer-overview" alt="The Designer with the example workflow" />
+import { Image } from 'astro:assets';
+
+interface Props {
+  /** File name under src/assets/annotated/, without .webp. */
+  name: string;
+  /** What the picture shows, in a few words. */
+  alt: string;
+  /** Narrower than the text column, for a picture of a small part of the window. */
+  width?: 'narrow' | 'full';
+}
+
+const pictures = import.meta.glob<{ default: ImageMetadata }>('../assets/annotated/*.webp', { eager: true });
+const noteFiles = import.meta.glob<{ default: Record<string, { title: string; text?: string }[]> }>('../assets/annotated/notes*.json', { eager: true });
+
+const { name, alt, width = 'full' } = Astro.props;
+const picture = pictures[`../assets/annotated/${name}.webp`]?.default;
+if (!picture) throw new Error(`<Shot name="${name}">: no such picture in src/assets/annotated/. Run "npm run screenshots".`);
+const notes = Object.values(noteFiles).flatMap((file) => file.default[name] ?? []);
+---
+
+<figure class:list={['shot', width === 'narrow' && 'shot-narrow']}>
+  <a href={picture.src} data-shot title="Click to enlarge">
+    <Image src={picture} alt={alt} widths={[800, 1200, 1600, picture.width]} sizes="(min-width: 60rem) 50rem, 100vw" quality={88} />
+  </a>
+  {notes.length > 0 && (
+    <ol class="sr-only">
+      {notes.map((note) => (
+        <li>
+          <strong>{note.title}</strong>
+          {note.text ? `: ${note.text}` : ''}
+        </li>
+      ))}
+    </ol>
+  )}
+</figure>
+
+<script>
+  // One viewer for every picture on the page: click to see it full size, click or Escape to close.
+  function open(link: HTMLAnchorElement) {
+    let dialog = document.querySelector<HTMLDialogElement>('dialog.shot-viewer');
+    if (!dialog) {
+      dialog = document.createElement('dialog');
+      dialog.className = 'shot-viewer';
+      dialog.addEventListener('click', () => dialog!.close());
+      document.body.appendChild(dialog);
+    }
+    const full = document.createElement('img');
+    full.src = link.href;
+    full.alt = link.querySelector('img')?.alt ?? '';
+    dialog.replaceChildren(full);
+    dialog.showModal();
+  }
+  document.addEventListener('click', (event) => {
+    const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[data-shot]');
+    if (!link || event.metaKey || event.ctrlKey || event.shiftKey) return;
+    event.preventDefault();
+    open(link);
+  });
+</script>

@@ -1,0 +1,298 @@
+{
+  "launcher-add-deck": [
+    {
+      "title": "Empty deck",
+      "text": "Starts with nothing. Add instruments from the Hub, or drivers already installed."
+    },
+    {
+      "title": "From a Python script",
+      "text": "A script that ends in ivoryos_edge.run(), run as it is. Dropping a .py file on the window does the same."
+    }
+  ],
+  "launcher-add-driver": [
+    {
+      "title": "Module and class",
+      "text": "As in the import you would write: from vendor_pumps.syringe import SyringePump."
+    },
+    {
+      "title": "Arguments",
+      "text": "What its constructor takes, such as a port."
+    },
+    {
+      "title": "Name",
+      "text": "What steps call this instrument."
+    }
+  ],
+  "launcher-deck": [
+    {
+      "title": "Start, then open",
+      "text": "Start runs the deck. Open shows its page in a tab; the arrow beside it, in your browser."
+    },
+    {
+      "title": "Three tabs",
+      "text": "What is on the deck, what it printed, and how it runs."
+    },
+    {
+      "title": "Add instruments",
+      "text": "From the Hub, or a class the app's Python can already import."
+    },
+    {
+      "title": "Each instrument",
+      "text": "Switch it off without removing it, edit its arguments, or delete it."
+    }
+  ],
+  "launcher-deck-settings": [
+    {
+      "title": "Start with the app",
+      "text": "Ticked, this deck starts whenever IvoryOS opens."
+    },
+    {
+      "title": "On the network",
+      "text": "On, lab mates open this deck from their own browsers. Off, this computer only."
+    },
+    {
+      "title": "On disk",
+      "text": "The deck file, which lists its instruments, and the folder with its runs and workflows."
+    },
+    {
+      "title": "Optimizers",
+      "text": "Pick a version to add Ax, BayBE or NIMO to this deck, then Apply."
+    }
+  ],
+  "launcher-failed": [
+    {
+      "title": "Red in the list",
+      "text": "A deck that could not start stays marked until it does."
+    },
+    {
+      "title": "What went wrong",
+      "text": "The reason in a line, with See log for the rest and Send to IvoryOS if you cannot fix it."
+    },
+    {
+      "title": "The log",
+      "text": "Its last lines usually name the cause: here, a driver package that is not installed."
+    }
+  ],
+  "launcher-hub": [
+    {
+      "title": "Public or private",
+      "text": "Private is what only your organization can see. It needs an account."
+    },
+    {
+      "title": "Four kinds",
+      "text": "A driver, a whole lab, a page added to a deck, or a ready-made workflow."
+    },
+    {
+      "title": "Search",
+      "text": "By instrument, vendor or package name."
+    },
+    {
+      "title": "Tested",
+      "text": "Its contributor has run it with IvoryOS."
+    }
+  ],
+  "launcher-hub-driver": [
+    {
+      "title": "What it installs",
+      "text": "The package, and the class the deck will build from it."
+    },
+    {
+      "title": "Instrument name",
+      "text": "What steps call it. Two of the same instrument get two names."
+    },
+    {
+      "title": "Settings",
+      "text": "What the driver needs to connect, such as a port, typed as its author declared."
+    },
+    {
+      "title": "Add to deck",
+      "text": "Installs the package and adds the instrument to the deck named in the title."
+    }
+  ],
+  "launcher-log": [
+    {
+      "title": "Follow",
+      "text": "Keeps the newest line in view."
+    },
+    {
+      "title": "Copy, or the file",
+      "text": "This session's lines, or the file that has every earlier session too."
+    },
+    {
+      "title": "Send to IvoryOS",
+      "text": "A report with this log. You read all of it before anything is sent."
+    }
+  ],
+  "launcher-platform": [
+    {
+      "title": "Where it goes",
+      "text": "A deck of its own. Opened from a deck's Add from Hub, it can join that deck instead."
+    },
+    {
+      "title": "Deck name",
+      "text": "Shown in the sidebar. Change it now or later."
+    },
+    {
+      "title": "Instruments",
+      "text": "Untick what you do not have. The name in the box is what steps call it."
+    }
+  ],
+  "launcher-platform-confirm": [
+    {
+      "title": "Read, then install",
+      "text": "The packages, instruments, plugins and workflows about to be added. Drivers run on this computer."
+    }
+  ],
+  "launcher-platform-options": [
+    {
+      "title": "Plugins",
+      "text": "Pages the platform adds to the deck, such as a live view of the lab."
+    },
+    {
+      "title": "Workflows",
+      "text": "Ready-made workflows, put in the new deck's Library."
+    },
+    {
+      "title": "Optimizers",
+      "text": "For the Optimize page. Tick one and keep the recommended version."
+    },
+    {
+      "title": "Install",
+      "text": "Everything ticked is installed together, after you confirm."
+    }
+  ],
+  "launcher-report": [
+    {
+      "title": "Say what happened",
+      "text": "Optional, and the most useful part."
+    },
+    {
+      "title": "Read it first",
+      "text": "The log, the deck's instrument names and the Python environment. Keys, emails and your home folder are masked. Edit anything."
+    },
+    {
+      "title": "Send",
+      "text": "Goes to the IvoryOS team, with an id you keep as a reference."
+    }
+  ],
+  "launcher-script": [
+    {
+      "title": "The same buttons",
+      "text": "A script profile starts, stops and opens like a deck."
+    },
+    {
+      "title": "Four tabs",
+      "text": "Code edits the script here. Its settings are under Configuration."
+    },
+    {
+      "title": "The script",
+      "text": "The file this profile runs. The buttons open it for editing, or show it in its folder."
+    }
+  ],
+  "launcher-script-code": [
+    {
+      "title": "Instruments",
+      "text": "Every instrument object in the script becomes a device, named after its variable."
+    },
+    {
+      "title": "Save and restart",
+      "text": "Changes apply when the script starts again."
+    }
+  ],
+  "launcher-script-settings": [
+    {
+      "title": "Python file",
+      "text": "The script this profile runs."
+    },
+    {
+      "title": "Advanced",
+      "text": "Another Python interpreter, a working folder, environment variables. All of it can stay empty."
+    },
+    {
+      "title": "Name and port",
+      "text": "The port its page is served on. Change it if another program has it."
+    },
+    {
+      "title": "On the network",
+      "text": "On, lab mates open this deck from their own browsers. Off, this computer only."
+    }
+  ],
+  "launcher-settings": [
+    {
+      "title": "One theme",
+      "text": "The launcher, every deck's page and Cloud follow it."
+    },
+    {
+      "title": "Help",
+      "text": "Send a report to the IvoryOS team, or ask on Discord."
+    },
+    {
+      "title": "Needs you",
+      "text": "Told at once, with a sound: a run waiting, a failed step, a deck that stopped."
+    },
+    {
+      "title": "Long runs only",
+      "text": "A finished run is announced when it took at least this long."
+    }
+  ],
+  "launcher-settings-python": [
+    {
+      "title": "Updates",
+      "text": "The version installed. An installed app offers new ones here."
+    },
+    {
+      "title": "The app's Python",
+      "text": "Deck profiles run in it. Copy path gives it to PyCharm or VS Code as an interpreter."
+    },
+    {
+      "title": "Rebuild",
+      "text": "Sets the environment up again from nothing, if it ever breaks."
+    },
+    {
+      "title": "Everything on disk",
+      "text": "Profiles, each deck's runs and workflows, and logs are in this one folder."
+    }
+  ],
+  "launcher-sidebar": [
+    {
+      "title": "A stopped deck",
+      "text": "Click it, then press Start."
+    },
+    {
+      "title": "A running deck",
+      "text": "Green means running. Click the row to show its page; the gear shows its instruments, log and settings."
+    },
+    {
+      "title": "More decks",
+      "text": "Any number can run at once, each on its own port."
+    }
+  ],
+  "launcher-tab": [
+    {
+      "title": "This page",
+      "text": "Hide the sidebar, reload the page, or close it. A closed deck keeps running."
+    },
+    {
+      "title": "The deck's own pages",
+      "text": "Everything in this bar belongs to the deck that is open."
+    }
+  ],
+  "launcher-welcome": [
+    {
+      "title": "Browse the Hub",
+      "text": "Drivers, whole labs and workflows that others have shared. The usual place to start."
+    },
+    {
+      "title": "Add a deck",
+      "text": "An empty deck, or a Python script you already run."
+    },
+    {
+      "title": "Try the example",
+      "text": "A simulated lab. Nothing to plug in."
+    },
+    {
+      "title": "Always here",
+      "text": "The same choices stay in the sidebar once you have decks."
+    }
+  ]
+}

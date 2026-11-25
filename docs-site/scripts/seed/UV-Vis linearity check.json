@@ -1,0 +1,213 @@
+{
+    "name": "UV-Vis linearity check",
+    "description": "Blank, equilibrate at 40 C, read absorbance and mass, flag a reading above the linear range.",
+    "prep": [
+        {
+            "id": 1,
+            "uuid": 706483676,
+            "instrument": "balance",
+            "action": "tare",
+            "args": {},
+            "arg_types": {},
+            "return": "",
+            "batch_action": false,
+            "consolidate_batch_args": false
+        },
+        {
+            "id": 2,
+            "uuid": 672738650,
+            "instrument": "uv_vis",
+            "action": "blank",
+            "args": {},
+            "arg_types": {},
+            "return": "",
+            "batch_action": false,
+            "consolidate_batch_args": false
+        }
+    ],
+    "script": [
+        {
+            "id": 1,
+            "uuid": 600568668,
+            "instrument": "reactor",
+            "action": "load_vial",
+            "args": {
+                "vial_id": "#sample_id"
+            },
+            "arg_types": {
+                "vial_id": "str"
+            },
+            "return": "",
+            "batch_action": false,
+            "consolidate_batch_args": false
+        },
+        {
+            "id": 2,
+            "uuid": 282786913,
+            "instrument": "reactor",
+            "action": "stir_rate_(setter)",
+            "args": {
+                "value": 400
+            },
+            "arg_types": {
+                "value": "int"
+            },
+            "return": "",
+            "batch_action": false,
+            "consolidate_batch_args": false
+        },
+        {
+            "id": 3,
+            "uuid": 858669381,
+            "instrument": "reactor",
+            "action": "set_temperature",
+            "args": {
+                "setpoint_c": 40
+            },
+            "arg_types": {
+                "setpoint_c": "float"
+            },
+            "return": "",
+            "batch_action": false,
+            "consolidate_batch_args": false
+        },
+        {
+            "id": 4,
+            "uuid": 14677287,
+            "instrument": "reactor",
+            "action": "hold",
+            "args": {
+                "minutes": 10
+            },
+            "arg_types": {
+                "minutes": "float"
+            },
+            "return": "",
+            "batch_action": false,
+            "consolidate_batch_args": false
+        },
+        {
+            "id": 5,
+            "uuid": 312908253,
+            "instrument": "reactor",
+            "action": "temperature",
+            "args": {},
+            "arg_types": {},
+            "return": "temp_c",
+            "return_bindings": [
+                {
+                    "path": "",
+                    "var": "temp_c"
+                }
+            ],
+            "batch_action": false,
+            "consolidate_batch_args": false
+        },
+        {
+            "id": 6,
+            "uuid": 285031363,
+            "instrument": "uv_vis",
+            "action": "measure_absorbance",
+            "args": {
+                "wavelength_nm": 312,
+                "dilution_factor": "#dilution"
+            },
+            "arg_types": {
+                "wavelength_nm": "float",
+                "dilution_factor": "float"
+            },
+            "return": "absorbance",
+            "return_bindings": [
+                {
+                    "path": "",
+                    "var": "absorbance"
+                }
+            ],
+            "batch_action": false,
+            "consolidate_batch_args": false
+        },
+        {
+            "id": 7,
+            "uuid": 152953682,
+            "instrument": "balance",
+            "action": "weigh",
+            "args": {
+                "settle_seconds": 3
+            },
+            "arg_types": {
+                "settle_seconds": "float"
+            },
+            "return": "mass_g",
+            "return_bindings": [
+                {
+                    "path": "",
+                    "var": "mass_g"
+                }
+            ],
+            "batch_action": false,
+            "consolidate_batch_args": false
+        },
+        {
+            "id": 8,
+            "uuid": 980643453,
+            "instrument": "Flow_Control",
+            "action": "If",
+            "args": {
+                "condition": "absorbance > 1.5"
+            },
+            "arg_types": {
+                "condition": "str"
+            },
+            "return": "",
+            "batch_action": false,
+            "consolidate_batch_args": false
+        },
+        {
+            "id": 9,
+            "uuid": 333208434,
+            "instrument": "Flow_Control",
+            "action": "Comment",
+            "args": {
+                "message": "Absorbance #absorbance is above the linear range \u2014 dilute further."
+            },
+            "arg_types": {
+                "message": "str"
+            },
+            "return": "",
+            "batch_action": false,
+            "consolidate_batch_args": false
+        },
+        {
+            "id": 10,
+            "uuid": 121666889,
+            "instrument": "Flow_Control",
+            "action": "End_If",
+            "args": {},
+            "arg_types": {},
+            "return": "",
+            "batch_action": false,
+            "consolidate_batch_args": false
+        }
+    ],
+    "cleanup": [
+        {
+            "id": 1,
+            "uuid": 841074762,
+            "instrument": "reactor",
+            "action": "cool_down",
+            "args": {
+                "target_c": 25
+            },
+            "arg_types": {
+                "target_c": "float"
+            },
+            "return": "",
+            "batch_action": false,
+            "consolidate_batch_args": false
+        }
+    ],
+    "version": 3,
+    "body_hash": "d13624fc85a7c03ed1cddbce66e7f20b37fb3074ec44032fcba2765c1b7de110",
+    "updated_at": 1790234195.3758335,
+    "deck_version": 1
+}

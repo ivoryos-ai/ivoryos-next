@@ -1,0 +1,32 @@
+---
+title: Concepts
+description: The words IvoryOS uses, each explained once.
+sidebar:
+  order: 5
+---
+
+import Shot from '../../../components/Shot.astro';
+
+Most of the words this guide uses are on one screen:
+
+<Shot name="designer-overview" alt="The Designer: toolbox, phases, a step, and the run buttons" />
+
+| Word | Meaning |
+|---|---|
+| **Deck** | One set of instruments, with its own workflows, run history and settings. In the desktop app it is a profile you start and stop; underneath, one Python process (the *edge server*) serving one web page. |
+| **Instrument** | One Python object on the deck, usually one device: `pump_1`, `reactor`, `hplc`. Its public methods are the steps you can use. See [What IvoryOS reads from a class](/dev/instruments/what-ivoryos-reads/). |
+| **Step** | One call of one method, with its arguments: *Pump 1 · Dispense · volume_ml=0.2*. Logic steps (Wait, User input, Set variable, If, While, Comment) are steps too. |
+| **Workflow** | An ordered list of steps in three phases. **Prep** runs once at the start, **Main** is the experiment, **Cleanup** runs once at the end. When a workflow is iterated or optimized, only Main repeats. |
+| **`#variable`** | A value left open in a step: `setpoint_c=#temperature_c`. It is what Once asks for, what a column on Iterate holds, and what the optimizer searches over. A step can also **save** what it returns under a name, and a later step reads it back as `#name`. |
+| **Run** | One execution of a workflow, with the values it was given. It has a name, a status, and one record per step. |
+| **Queue** | Runs go one at a time, in order. Starting one while another is going adds it to the queue. |
+| **Library** | The deck's saved workflows. Every save is a new version. A workflow can be reused inside another as a **copy** (its steps become yours) or a **link** (one step that follows the saved version). |
+| **Safety guard** | Limits, trays, states and rules set on the Safety page, checked before a run starts and again as each step is sent, outside the drivers. |
+| **Deck version** | The shape of the deck, recorded whenever its instruments or their methods change. Every run and saved workflow is stamped with it. |
+| **Cloud** | The web app that watches several decks and sends them work. A deck pairs with it by showing a code you approve, and keeps working on its own if the connection drops. |
+
+A run, from the values to the record:
+
+<Shot name="run-once" alt="The Once tab: one field per open value" />
+
+<Shot name="data-history-run" alt="A finished run in Data History" />

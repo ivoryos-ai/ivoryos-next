@@ -1,0 +1,32 @@
+---
+title: Optimizers
+description: Add Ax, BayBE or NIMO to a deck so its Optimize tab has an engine.
+sidebar:
+  order: 3
+---
+
+import Shot from '../../../components/Shot.astro';
+
+A deck's **Optimize** tab needs an optimizer installed in that deck's Python. The app offers three,
+each at a version it was tested with.
+
+<Shot name="launcher-deck-settings" alt="A deck's Settings, with the Optimizers card" />
+
+| Backend | Package | Notes |
+|---|---|---|
+| **Ax** | `ax-platform` | Meta's Bayesian optimization platform, on BoTorch |
+| **BayBE** | `baybe` | Merck's Bayesian back end; `[chem]` adds substance parameters (SMILES) |
+| **NIMO** | `nimo` | NIMS orchestration; takes lists of candidates |
+
+- The optimizer installs together with the deck's other packages. A version conflict is refused
+  before anything changes.
+- Taking one out leaves it installed, since decks share one Python environment.
+- Every install uses the CPU build of PyTorch, so adding an optimizer never swaps PyTorch.
+
+A platform from the Hub asks the same question on its way in:
+
+<Shot name="launcher-platform-options" alt="A platform's install page offering the optimizers" />
+
+An optimizer that is installed but missing from the Optimize tab failed to load. The deck's Log
+tab says why at startup (`[optimizer] baybe is installed but could not be loaded: …`). How the
+three behave differently is in [How the optimizers behave](/reference/optimizers/).

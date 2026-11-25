@@ -5,6 +5,9 @@ sidebar:
   order: 1
 ---
 
+import Shot from '../../../components/Shot.astro';
+import { Steps } from '@astrojs/starlight/components';
+
 IvoryOS turns the Python code that controls your instruments into an app. It reads each
 instrument's methods, their arguments and their types, and builds the interface from them. There is
 no interface code to write and no configuration file to fill in: a scientist designs and runs
@@ -29,20 +32,35 @@ mostly about them.
 
 ## How a run happens
 
-1. You bring instruments: a Python class per device, written by you, a vendor, or found on the
-   Hub. IvoryOS **introspects** each class at startup, so every public method becomes a step with a
-   form built from its type hints.
-2. In the **Designer** you drag those steps into a workflow, fill in values, or leave a value
-   open as a `#variable` to decide at run time.
-3. You run it **Once** with the values typed in, **Iterate** it over a spreadsheet of samples, or
-   **Optimize** it with Bayesian optimization over the open values.
-4. The deck runs the steps one at a time, pauses for you when a step fails or asks a question, and
-   records every step and value in **Data History**.
+<Steps>
+
+1. **You bring instruments**: a Python class per device, written by you, a vendor, or found on the
+   Hub. IvoryOS reads each class at startup, so every public method becomes a step with a form
+   built from its type hints.
+
+   <Shot name="instruments" alt="The Instruments page: a form for every method of an instrument" />
+
+2. **You design a workflow**: drag those steps into order, fill in values, or leave a value open
+   as a `#variable` to decide at run time.
+
+   <Shot name="designer-overview" alt="The Designer with a workflow on the canvas" />
+
+3. **You run it**: once with the values typed in, over a table of samples, or with an optimizer
+   choosing the open values.
+
+   <Shot name="run-iterate" alt="The Iterate tab: one row per sample" />
+
+4. **The deck records everything**: it runs the steps one at a time, waits for you when a step
+   fails or asks a question, and keeps every step and value.
+
+   <Shot name="data-history-run" alt="A finished run in Data History" />
+
+</Steps>
 
 ## Who this documentation is for
 
 - **The user guide** is for the people who run experiments. It walks through each page of the app
-  with screenshots and step-by-step instructions. Start with [Try the example](/start/try-the-example/).
+  with annotated pictures: the notes on each picture say what everything is. Start with [Try the example](/start/try-the-example/).
 - **The developer guide** is for the people who bring instruments or extend IvoryOS: what it reads
   from a Python class and what it hides, how to decide what to expose, how to add safeguards,
   plugins and agents, and how to work on IvoryOS itself. Start with

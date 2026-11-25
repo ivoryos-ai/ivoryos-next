@@ -6,16 +6,17 @@ sidebar:
 ---
 
 import { Steps } from '@astrojs/starlight/components';
+import Shot from '../../../components/Shot.astro';
 
 A deck pairs by showing a short code that a signed-in person approves on Cloud. The code is not a
 credential, only something to approve; the deck's own secret never leaves it, and nothing typed on
 Cloud is sent to a device.
 
-![The deck's Cloud Connect page](../../../assets/screenshots/cloud-connect.png)
+<Shot name="cloud-connect" alt="The deck's Cloud Connect page" />
 
 <Steps>
 
-1. On the deck, open **Cloud Connect** (the card at the bottom of the sidebar) and press
+1. On the deck, open **Cloud** in the navigation and press
    **Connect to Cloud**. Fill in a Cloud address only for a Cloud your lab runs itself. The page
    shows an 8-character code and a link, valid for ten minutes.
 

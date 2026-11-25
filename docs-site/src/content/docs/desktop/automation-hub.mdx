@@ -1,0 +1,50 @@
+---
+title: Automation Hub
+description: Install drivers, whole platforms, plugins and workflow templates from inside the app.
+sidebar:
+  order: 2
+---
+
+import Shot from '../../../components/Shot.astro';
+
+The [Automation Hub](https://ivoryos.ai) is the public catalog of instrument drivers, platforms,
+plugins and workflow templates. The app reads it directly and installs from it.
+
+<Shot name="launcher-hub" alt="The Automation Hub inside the app" />
+
+Open it from **Automation Hub** in the list on the left, or from a deck's **Add from Hub**. What
+you add goes onto the deck it was opened from. With no deck yet, the first thing you add makes one.
+
+| Kind | What adding it does |
+|---|---|
+| **Instrument** | installs the driver package and adds one instrument with the settings you fill in |
+| **Platform** | a whole deck's worth: its drivers, plugins and workflows, onto this deck or into a new one |
+| **Plugin** | installs the package and lists it in the deck's plugins. Only plugins written for this IvoryOS; one for the original IvoryOS says so. |
+| **Workflow** | saves it into the deck's Library, never replacing one. A template that calls instruments this deck lacks is allowed after a warning. |
+
+## Add an instrument
+
+<Shot name="launcher-hub-driver" alt="A driver's page: what it installs, the instrument's name, and its settings" />
+
+## Install a platform
+
+<Shot name="launcher-platform" alt="A platform's install page: where it goes, the deck's name, and its instruments" />
+
+<Shot name="launcher-platform-options" alt="The same page further down: plugins, workflows, optimizers, and the install button" />
+
+<Shot name="launcher-platform-confirm" alt="The confirmation before a platform is installed" />
+
+Nothing is installed without this confirmation. A deck file is only changed once every package
+installed, so a failed install leaves the deck as it was.
+
+## Good to know
+
+- **Private** lists what only you, or an organization you belong to, can see. Private GitHub or
+  GitLab repositories are connected there too, by signing in or with a token.
+- **Add installed driver**, on a deck's Instruments tab, is for a driver that is not on the Hub but
+  that the app's Python can already import.
+- If the Hub cannot be reached, the panel says why: no internet connection, something in the way
+  (a firewall or proxy), or the Hub down for the moment, with **Try again**.
+- Drivers are programs with access to your instruments. Install only from sources you trust.
+
+Listing your own driver is described in [Publish on the Hub](/dev/extend/publish-on-the-hub/).

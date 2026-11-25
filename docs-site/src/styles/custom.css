@@ -47,3 +47,43 @@
   border-radius: 0.3em;
   background: var(--sl-color-gray-6);
 }
+
+/* Annotated pictures (src/components/Shot.astro) carry the explanation, so they get the room:
+   a wider text column, and the picture itself opens full size on a click. */
+:root {
+  --sl-content-width: 54rem;
+}
+.sl-markdown-content .shot {
+  margin-block: 1.5rem;
+}
+.sl-markdown-content .shot a {
+  display: block;
+  cursor: zoom-in;
+}
+.sl-markdown-content .shot img {
+  width: 100%;
+  height: auto;
+  border-radius: 0.6rem;
+}
+.sl-markdown-content .shot-narrow {
+  max-width: 34rem;
+}
+dialog.shot-viewer {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  max-width: 96vw;
+  max-height: 94vh;
+  cursor: zoom-out;
+}
+dialog.shot-viewer::backdrop {
+  background: rgba(16, 22, 34, 0.82);
+}
+dialog.shot-viewer img {
+  display: block;
+  max-width: 96vw;
+  max-height: 94vh;
+  width: auto;
+  height: auto;
+  border-radius: 0.5rem;
+}
