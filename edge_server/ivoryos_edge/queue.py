@@ -936,8 +936,7 @@ class WorkflowQueueManager:
         # budget may not be changed to less (set_budget).
         self._trials_begun: Dict[int, int] = {}
 
-        # WebSocket tracking: run_id -> list of WebSockets
-        self.active_connections: Dict[int, List[Any]] = {}
+        # The sockets on /api/ws/queue (the desktop app's). Pages are on /api/ws (live.py).
         self.global_connections: List[Any] = []
 
         # Human-in-the-loop "User_Input" step support: run_id -> pending Event/value
@@ -1744,35 +1743,6 @@ class WorkflowQueueManager:
             return "not applicable"
         return "applied"
 
-    async def subscribe(self, run_id: int, websocket: Any):
-        if run_id not in self.active_connections:
-            self.active_connections[run_id] = []
-        self.active_connections[run_id].append(websocket)
-        # Send initial state immediately
-        await self.broadcast_run_status(run_id)
-        
-    async def unsubscribe(self, run_id: int, websocket: Any):
-        if run_id in self.active_connections:
-            if websocket in self.active_connections[run_id]:
-                self.active_connections[run_id].remove(websocket)
-            if not self.active_connections[run_id]:
-                del self.active_connections[run_id]
-
-    async def broadcast_run_status(self, run_id: int):
-        if run_id not in self.active_connections:
-            return
-            
-        status = await self.get_run_status(run_id)
-        if status:
-            dead_conns = []
-            for ws in self.active_connections[run_id]:
-                try:
-                    await ws.send_json(status)
-                except Exception:
-                    dead_conns.append(ws)
-            for ws in dead_conns:
-                await self.unsubscribe(run_id, ws)
-
     async def subscribe_global(self, websocket: Any):
         self.global_connections.append(websocket)
         # The newcomer needs the current state; everyone else already has it.
@@ -1837,9 +1807,10 @@ class WorkflowQueueManager:
         return payload
 
     async def broadcast_updates(self, run_id: Optional[int] = None):
-        """Helper to broadcast both run status and global queue"""
+        """After a change: the run's progress to Cloud, when Cloud sent it, and the queue status to
+        every socket. Pages follow a run through the queue status (it carries every unfinished
+        run's steps); there is no socket for one run."""
         if run_id is not None:
-            await self.broadcast_run_status(run_id)
             await self.report_cloud_progress(run_id)
         await self.broadcast_global_queue()
 

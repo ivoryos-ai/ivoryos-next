@@ -1976,15 +1976,6 @@ async def _until_client_leaves(websocket: WebSocket) -> None:
             return
 
 
-@app.websocket("/api/ws/runs/{run_id}")
-async def ws_run_status(websocket: WebSocket, run_id: int):
-    await websocket.accept()
-    try:
-        await queue_manager.subscribe(run_id, websocket)
-        await _until_client_leaves(websocket)
-    finally:
-        await queue_manager.unsubscribe(run_id, websocket)
-
 @app.websocket("/api/ws/queue")
 async def ws_global_queue(websocket: WebSocket):
     """The queue status alone, as the desktop app (desktop/src/attention.js) reads it. Pages use
