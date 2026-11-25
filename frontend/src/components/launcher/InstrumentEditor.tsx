@@ -15,13 +15,12 @@ const NAME_RE = /^[A-Za-z][A-Za-z0-9_]*$/;
  * constructor as the code declares it (kept on the entry as `signature`); anything else gets
  * name/value rows. Rows are also how a constructor's **kwargs are given.
  */
-export default function InstrumentEditor({ api, profileId, entry, seed, running, onClose, onSaved }: {
+export default function InstrumentEditor({ api, profileId, entry, seed, onClose, onSaved }: {
   api: DesktopApi;
   profileId: string;
   entry: DeckInstrument | null; // null = a new, hand-written entry
   /** For a new entry: values to start from, e.g. the class picked from an imported repository. */
   seed?: { name?: string; import?: string; class?: string; from?: string; init_args?: ArgDef[] | null; kwargs?: boolean } | null;
-  running: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -80,7 +79,8 @@ export default function InstrumentEditor({ api, profileId, entry, seed, running,
       footer={<>
         <Button onClick={onClose}>Cancel</Button>
         <Button tone="primary" disabled={saving || problems.length > 0} onClick={save}>
-          {saving ? 'Saving…' : running ? 'Save and restart' : 'Save'}
+          {/* Saved to the deck file only: a running deck loads it when the person restarts it. */}
+          {saving ? 'Saving…' : 'Save'}
         </Button>
       </>}
     >

@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { CheckCircle2, Copy, ExternalLink, Loader2, Send } from 'lucide-react';
-import { chooseDialog } from '@ivoryos/shared-ui';
+import { chooseDialog, notify } from '@ivoryos/shared-ui';
 import type { DesktopApi, ReportFailure } from '@/desktop';
 import { Button, Modal, inputClass, labelClass } from './ui';
 
@@ -142,6 +142,12 @@ export function openReport(api: DesktopApi, profileId: string | null, failure?: 
  * `deckId` is the deck it was going into, or null when it was a new one that has been removed.
  */
 export async function installFailed(api: DesktopApi, title: string, e: any, deckId: string | null) {
+  // Not a failure: the deck is running and was left alone (manager.js _installFor), because it is
+  // on a run or the install would replace packages it has open. Nothing to send.
+  if (e?.code === 'run-under-way' || e?.code === 'stop-first') {
+    await notify(e.message, { title: e.code === 'stop-first' ? 'Stop the deck first' : 'A run is under way' });
+    return;
+  }
   const output = e?.output ? String(e.output) : '';
   const choice = await chooseDialog({
     title,

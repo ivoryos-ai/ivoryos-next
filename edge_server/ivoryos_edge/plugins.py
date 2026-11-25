@@ -83,6 +83,9 @@ class Plugin:
         # copy: an instrument added to or replaced in the deck is the same object seen here.
         self.instruments: dict[str, Any] = {}
         self._on_start: list[Callable] = []
+        # The deck file's "package.module:attribute" this came from (load_plugin_refs), so the
+        # launcher can tell which of the deck's entries loaded. None for run(plugins=[...]).
+        self.ref: str | None = None
         self._sockets: set[WebSocket] = set()
         self._last: Any = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -186,7 +189,8 @@ class Plugin:
 
     def describe(self) -> dict:
         return {"id": self.id, "name": self.name, "url": f"/plugins/{self.id}/", "placement": self.placement,
-                "modes": self.modes, "icon": self.icon, "kind": "python"}
+                "modes": self.modes, "icon": self.icon, "kind": "python",
+                **({"ref": self.ref} if self.ref else {})}
 
 
 def _observed(original: Callable, instrument: str, method: str, callback: Callable, plugin_id: str,
@@ -255,12 +259,28 @@ def _is_flask_blueprint(obj) -> bool:
     return any(c.__name__ == "Blueprint" and c.__module__.startswith("flask") for c in type(obj).__mro__)
 
 
-def load_plugin_refs(refs: Iterable[str]) -> tuple[list[Plugin], list[dict]]:
+def plugin_ref(entry) -> str | None:
+    """The reference of a deck file's `plugins` entry, or None when it is switched off.
+
+    An entry is "package.module:attribute", or, written by the launcher for a plugin switched
+    off, {"ref": "package.module:attribute", "enabled": false} (the instruments' rule)."""
+    if isinstance(entry, dict):
+        if entry.get("enabled") is False:
+            return None
+        return str(entry.get("ref") or "")
+    return str(entry)
+
+
+def load_plugin_refs(refs: Iterable) -> tuple[list[Plugin], list[dict]]:
     """Import the plugins a deck file lists, as "package.module:attribute" (attribute defaults
-    to `plugin`). One that fails is reported, never fatal, the same rule as instruments."""
+    to `plugin`). One that fails is reported, never fatal, the same rule as instruments. An entry
+    switched off (`plugin_ref`) is skipped."""
     plugins, errors = [], []
-    for ref in refs or []:
-        module_name, _, attr = str(ref).partition(":")
+    for entry in refs or []:
+        ref = plugin_ref(entry)
+        if ref is None:
+            continue
+        module_name, _, attr = ref.partition(":")
         try:
             obj = getattr(importlib.import_module(module_name), attr or "plugin")
             if not isinstance(obj, Plugin):
@@ -272,6 +292,7 @@ def load_plugin_refs(refs: Iterable[str]) -> tuple[list[Plugin], list[dict]]:
                         "runs only v2 plugins (ivoryos_edge.plugins.Plugin); see 'Moving a Flask blueprint "
                         "plugin over' in docs/plugins.md")
                 raise TypeError(f"{ref} is a {type(obj).__name__}, not an ivoryos_edge.plugins.Plugin")
+            obj.ref = ref
             plugins.append(obj)
         except Exception as e:
             errors.append({"plugin": str(ref), "stage": "import", "error": f"{type(e).__name__}: {e}",
@@ -288,7 +309,8 @@ def start_plugin(app, plugin: Plugin, instruments: dict) -> dict | None:
         try:
             hook(instruments)
         except Exception as e:
-            error = {"plugin": plugin.id, "stage": "on_start", "error": f"{type(e).__name__}: {e}",
+            error = {"plugin": plugin.id, **({"ref": plugin.ref} if plugin.ref else {}),
+                     "stage": "on_start", "error": f"{type(e).__name__}: {e}",
                      "detail": traceback.format_exc()}
             print(f"Plugin '{plugin.id}' on_start failed: {e}")
             break

@@ -15,6 +15,7 @@ import DeckPanel from '@/components/launcher/DeckPanel';
 import HubBrowser, { type HubKind } from '@/components/launcher/HubBrowser';
 import type { InstrumentSeed } from '@/components/launcher/PrivateRepos';
 import ProfileSettings from '@/components/launcher/ProfileSettings';
+import { notAppliedTitle, okToRestart } from '@/components/launcher/restart';
 import SettingsPanel from '@/components/launcher/SettingsPanel';
 import UpgradeDialog, { type UpgradeReason } from '@/components/launcher/UpgradeDialog';
 import { Button, STATE_LABEL, StatusDot, cardClass } from '@/components/launcher/ui';
@@ -773,7 +774,10 @@ function ProfileView({ api, profile, hubUrl, pro, onUpgrade, link, sharedWith, t
     setTab('log');
     run(() => startThenOpen(api, profile.id, () => api.start(profile.id), () => setTab('main')));
   };
-  const restartProfile = () => {
+  // The only way a running deck is restarted from this page: a click, and with a run under way
+  // a second one (okToRestart). No edit, install or saved setting does it.
+  const restartProfile = async () => {
+    if (!await okToRestart(api, profile)) return;
     setTab('log');
     run(() => startThenOpen(api, profile.id, () => api.restart(profile.id), () => setTab('main')));
   };
@@ -798,6 +802,14 @@ function ProfileView({ api, profile, hubUrl, pro, onUpgrade, link, sharedWith, t
             <StatusDot status={s} />
             <span>{busy ? s.message : STATE_LABEL[s.state]}</span>
             {running && s.url && <span className="font-mono text-xs">{s.url}</span>}
+            {running && s.installing && <span className="text-xs">{s.installing}</span>}
+            {/* On every tab, for every kind of change (manager.js _pending): a running profile is
+                never restarted for the person, so what it has not applied is always said. */}
+            {running && s.needsRestart && (
+              <span className="flex items-center gap-1 shrink-0 whitespace-nowrap px-1.5 py-0.5 rounded-md text-xs font-medium bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300" title={notAppliedTitle(profile)}>
+                <AlertTriangle className="w-3.5 h-3.5" /> Not applied yet: restart to apply
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -807,7 +819,7 @@ function ProfileView({ api, profile, hubUrl, pro, onUpgrade, link, sharedWith, t
             // Starting shows the Log: it is where a start is seen to happen (or to fail), line by line.
             <Button tone="go" disabled={profile.problems.length > 0} title={profile.problems.join(' ')} onClick={startProfile}><Play className="w-4 h-4" /> Start</Button>
           )}
-          <Button disabled={!running} onClick={restartProfile} title="Stop and start again: reloads the deck or script"><RotateCw className="w-4 h-4" /> Restart</Button>
+          <Button disabled={!running} onClick={restartProfile} className={running && s.needsRestart ? 'ring-2 ring-amber-400/80' : ''} title={running && s.needsRestart ? 'Stop and start again, applying what changed since it started. Asks first if a run is under way.' : 'Stop and start again: reloads the deck or script'}><RotateCw className="w-4 h-4" /> Restart</Button>
           <Button tone={running ? 'primary' : 'default'} disabled={!running} title="Open this edge in a tab of this window" onClick={() => run(() => api.open(profile.id))}><LayoutGrid className="w-4 h-4" /> Open</Button>
           <Button disabled={!running} title="Open this edge in your web browser instead" onClick={() => run(() => api.openInBrowser(profile.id))}><ExternalLink className="w-4 h-4" /></Button>
         </div>
@@ -1045,6 +1057,7 @@ function CodePanel({ api, profile, run }: { api: DesktopApi; profile: Profile; r
   };
   const saveAndRestart = async () => {
     await save();
+    if (running && !await okToRestart(api, profile)) return; // saved; the run under way goes on
     // Opens the deck's page when it is back, unless the person went on editing meanwhile.
     run(() => startThenOpen(api, profile.id, () => (running ? api.restart(profile.id) : api.start(profile.id)), () => {}));
   };

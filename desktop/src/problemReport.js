@@ -13,6 +13,8 @@
 // Pure apart from what the caller passes in, so it is tested without Electron
 // (test/problemReport.test.js).
 
+const { pluginRef, pluginEnabled } = require('./deckEdit');
+
 // The log is the current session's (what the Log tab shows), so this only trims a very long one.
 const LOG_LINES = 1000;
 const MAX_BODY = 150_000; // the table refuses more than 200,000 characters
@@ -80,7 +82,9 @@ function describeDeck(deck) {
     for (const inst of deck.instruments || []) {
         lines.push(`- ${inst.name}: ${inst.import || '?'}.${inst.class || '?'}${inst.enabled === false ? ' (disabled)' : ''}`);
     }
-    if ((deck.plugins || []).length) lines.push(`plugins: ${deck.plugins.join(', ')}`);
+    if ((deck.plugins || []).length) {
+        lines.push(`plugins: ${deck.plugins.map((p) => `${pluginRef(p)}${pluginEnabled(p) ? '' : ' (disabled)'}`).join(', ')}`);
+    }
     return lines.join('\n');
 }
 

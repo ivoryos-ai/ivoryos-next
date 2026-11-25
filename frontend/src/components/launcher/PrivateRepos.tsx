@@ -179,7 +179,7 @@ export default function PrivateRepos({ api, access, pro, onUpgrade, onPicked }: 
           ))}
         </ul>
       )}
-      <p className="text-xs text-gray-500 dark:text-gray-400">Import installs the branch&apos;s current commit into this deck&apos;s Python and restarts the deck. Import again later to move to a newer commit.</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400">Import installs the branch&apos;s current commit into this deck&apos;s Python. A running deck loads it when you restart it. Import again later to move to a newer commit.</p>
     </div>
   );
 }

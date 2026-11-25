@@ -8,6 +8,8 @@
 //
 // Everything here is pure and synchronous, so it is tested without Electron or Python.
 
+const { pluginRef, pluginEnabled } = require('./deckEdit');
+
 const DECK_FORMAT = 'ivoryos-deck/1';
 const NAME_RE = /^[A-Za-z][A-Za-z0-9_]*$/;
 // A deck's `plugins` entry: "package.module:attribute" (ivoryos_edge.plugins.load_plugin_refs).
@@ -160,11 +162,15 @@ function mergeIntoDeck(deck, manifest) {
     const paths = [...(base.paths || [])];
     for (const p of manifest.paths || []) if (!paths.includes(p)) paths.push(p);
 
+    // Matched by reference, whichever form the deck holds it in. Adding one that is on the deck but
+    // switched off turns it back on: that is what the person asked for.
     const plugins = [...(base.plugins || [])];
     const pluginsAdded = [];
     for (const ref of manifest.plugins || []) {
         const clean = ref.trim();
-        if (!plugins.includes(clean)) { plugins.push(clean); pluginsAdded.push(clean); }
+        const at = plugins.findIndex((p) => pluginRef(p) === clean);
+        if (at === -1) { plugins.push(clean); pluginsAdded.push(clean); }
+        else if (!pluginEnabled(plugins[at])) { plugins[at] = clean; pluginsAdded.push(clean); }
     }
 
     return {

@@ -200,6 +200,8 @@ There are two Restart buttons, and they take different routes to the same result
 ```mermaid
 flowchart TB
     subgraph A["Restart in the launcher"]
+        A0{"a run in<br/>progress?"} -- "yes: asks first,<br/>naming the run" --> A1
+        A0 -- no --> A1
         A1["launcher stops the process<br/>(asks politely: SIGTERM;<br/>forces it after 8 s)"] --> A2["launcher starts the same<br/>command again"] --> A3["waits for /api/status,<br/>reloads the tab"]
     end
     subgraph B["Restart on the edge's Instruments page"]
@@ -223,6 +225,10 @@ takes it down if the loop itself is closed). A script (`python demo.py`) cannot 
 its instruments already exist, holding their ports, before it asks IvoryOS to run; restarting it
 from the page on Windows still detaches it from the terminal, and it says so. Run such a script
 from the launcher (a script profile) to restart it cleanly.
+
+Neither happens by itself. Editing a running deck, adding to it from the Hub or saving its
+settings never restarts it: the change is saved, the profile's header says **Not applied yet:
+restart to apply**, and the deck goes on running what it started with until you press Restart.
 
 One difference worth knowing: the launcher's Stop and Restart let the server shut down gracefully,
 while the page's Restart exits immediately. Either way the operating system releases serial ports

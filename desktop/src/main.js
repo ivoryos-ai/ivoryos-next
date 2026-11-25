@@ -194,6 +194,21 @@ let attention = null;
 const shownNotifications = new Set(); // held until clicked or closed: macOS drops a collected one's click
 let notifyHealth = null; // null: not tried yet; {ok: true} | {ok: false, error, at}
 
+/**
+ * Restart from the tray menu: with a run under way it takes a second yes, as the page's Restart
+ * does (frontend components/launcher/restart.ts). Restarting ends the run where it is.
+ */
+async function confirmRestart(profile) {
+    const run = attention && attention.lastRun(profile.id);
+    if (!run) return true;
+    const { response } = await dialog.showMessageBox({
+        type: 'warning', buttons: ['Cancel', 'Restart anyway'], defaultId: 0, cancelId: 0,
+        message: 'A run is under way',
+        detail: `${run.name ? `"${run.name}"` : 'A run'} is under way on ${profile.name}. Restarting ends it where it is: the rest of its steps, and its cleanup, do not run.`,
+    });
+    return response === 1;
+}
+
 function watchRunningDecks() {
     if (!attention) return;
     attention.sync(manager.list()
@@ -1021,6 +1036,10 @@ function registerIpc() {
     handle('launcher:remove', async (id) => { closeEdgeTab(id); await manager.remove(id); });
     handle('launcher:start', (id) => announceOutcome(id, 'start', manager.start(id)));
     handle('launcher:stop', async (id) => { closeEdgeTab(id); await manager.stop(id); });
+    // The run a deck is on now ({id, name}) or null, from its queue socket (attention.js): what a
+    // restart would end. The page asks before restarting; the app itself never restarts a running
+    // deck (manager.js "what a running profile has not applied yet").
+    handle('launcher:active-run', (id) => (attention ? attention.lastRun(id) : null));
     handle('launcher:restart', async (id) => { const status = await announceOutcome(id, 'start', manager.restart(id)); reloadEdgeTab(id); return status; });
     handle('launcher:open', (id, page, opts) => openEdgeTab(id, page, opts));
     handle('launcher:show-tab', (id) => showTab(id || null));
@@ -1095,6 +1114,12 @@ function registerIpc() {
     handle('launcher:instrument:save', (id, originalName, entry) => manager.saveInstrument(id, originalName, entry));
     handle('launcher:instrument:remove', (id, name) => manager.removeInstrument(id, name));
     handle('launcher:instrument:enable', (id, name, enabled) => manager.setInstrumentEnabled(id, name, enabled));
+    handle('launcher:plugin:remove', (id, ref) => manager.removePlugin(id, ref));
+    handle('launcher:plugin:enable', (id, ref, enabled) => manager.setPluginEnabled(id, ref, enabled));
+    handle('launcher:packages', (id) => manager.deckPackages(id));
+    handle('launcher:packages:check', (id) => manager.checkPackageUpdates(id));
+    handle('launcher:packages:update', (id, key, version) => announceOutcome(id, 'install', manager.updatePackage(id, key, version)));
+    handle('launcher:packages:remove', (id, keys) => manager.removePackages(id, keys));
     handle('launcher:install', (id, manifest) => announceOutcome(id, 'install', manager.install(id, manifest)));
     handle('launcher:free-name', (id, suggestion) => freeName(manager.readDeck(id), suggestion));
     handle('launcher:rebuild-python', async () => {
@@ -1352,7 +1377,7 @@ function refreshTray() {
                     state === 'running' || busy
                         ? { label: 'Stop', enabled: !busy, click: act(async () => { closeEdgeTab(p.id); await manager.stop(p.id); }) }
                         : { label: 'Start', enabled: p.problems.length === 0, click: act(() => manager.start(p.id)) },
-                    { label: 'Restart', enabled: state === 'running', click: act(async () => { await manager.restart(p.id); reloadEdgeTab(p.id); }) },
+                    { label: 'Restart', enabled: state === 'running', click: act(async () => { if (!(await confirmRestart(p))) return; await manager.restart(p.id); reloadEdgeTab(p.id); }) },
                 ],
             };
         }),
@@ -1491,7 +1516,11 @@ app.whenReady().then(async () => {
     // development run is the stock Electron binary, so set the Dock icon by hand.
     if (process.platform === 'darwin' && app.dock && fs.existsSync(ICON)) app.dock.setIcon(nativeImage.createFromPath(ICON));
     serveFrontend();
-    manager = new ProfileManager({ home: home(), getRuntime, frontendDir: resources().frontendDir, cloudComingSoon: CLOUD_COMING_SOON });
+    manager = new ProfileManager({
+        home: home(), getRuntime, frontendDir: resources().frontendDir, cloudComingSoon: CLOUD_COMING_SOON,
+        // Nothing is installed into a deck that is on a run (manager._installFor).
+        activeRun: (id) => (attention ? attention.lastRun(id) : null),
+    });
     // Once per app version, before any page loads: the HTTP cache a new version inherits holds
     // the pages the previous version's edges served (openEdgeTab says why that breaks them).
     if (manager.cacheClearedFor !== app.getVersion()) {

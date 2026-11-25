@@ -24,6 +24,38 @@ to reorder them; <kbd>Ctrl</kbd>+<kbd>B</kbd> hides the sidebar from anywhere.
 
 Several profiles run at the same time, each on its own port.
 
+## A deck's instruments, plugins and packages
+
+A deck profile's **Instruments** tab lists what is on the deck. Each instrument and each plugin has
+an **on** switch, which keeps it in the deck file without loading it (an unplugged device, a plugin
+you do not need today), and **Remove**.
+
+**Nothing restarts a running deck for you.** Switching something on or off, editing or removing an
+instrument, adding from the Hub, saving a setting or the script: each is saved at once, and the
+deck goes on running what it started with, so a run under way is not interrupted and the deck
+stays on Cloud. Whenever what is saved differs from what the deck is running, its header says
+**Not applied yet: restart to apply** (hover it for what changed), the rows that differ say so
+(*still loaded until restart*, *loads at restart*), and **Restart** is yours to press when nothing
+is running. Undo the change and the notice goes away.
+
+Installing never stops a running deck either. An install that only adds packages goes in while
+the deck runs and waits for your restart. One that would replace a package already installed
+(every package update, some optimizer changes) asks you to stop the deck first, because a running
+Python holds those files open. And nothing is installed while a run is under way.
+
+Under them, **Driver packages** lists the Python packages the deck asks for, each with the version
+installed and what on the deck uses it. All decks share one Python environment, so **nothing is
+ever uninstalled**; the list only says what this deck needs:
+
+- Removing an instrument or plugin also takes off the list the packages only it needed (worked out
+  from what the installed packages depend on). They stay installed.
+- A package nothing on the deck uses (left from before this existed, or added by hand) says so.
+  Remove it, or **Remove unused** for all of them.
+- **Check for updates** looks for the newest version of each that still installs with the rest of
+  the deck's packages. **Update** installs it and pins the deck to it (stop the deck first: it is
+  not stopped for you); if it cannot be installed, the deck is left as it was. Optimizers are chosen in the deck's Settings instead, from versions
+  tested together, and a private repository moves to a newer commit by importing it again.
+
 ## Start, Open, Stop, Restart
 
 **Start** checks the Python environment (the first time it downloads Python and installs the edge),
@@ -39,8 +71,10 @@ off for a deck only this computer should open.
 
 **Stop** asks the process to shut down and forces it after a few seconds. **Restart** is always a
 new process (Python cannot reliably let go of a serial port otherwise): it re-reads the deck file,
-re-imports the drivers and reconnects every instrument. Restart on the deck's Instruments page
-does the same through the deck itself, and is refused while a run is going unless you confirm.
+re-imports the drivers and reconnects every instrument. With a run under way the app asks first,
+naming the run: restarting ends it where it is, without its cleanup. Restart on the deck's
+Instruments page does the same through the deck itself, and is refused while a run is going unless
+you confirm.
 
 ## Script profile settings
 
