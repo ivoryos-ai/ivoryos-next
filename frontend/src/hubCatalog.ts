@@ -26,6 +26,42 @@ function packageOf(requirement: string): string {
   return r.split(/[\s\[<>=!~;]/)[0].replace(/_/g, '-');
 }
 
+/** Where a Hub row's package comes from: a package index, a code repository, or an archive file. */
+export type PackageLabel = { label: string; requirement: string; source: 'index' | 'repository' | 'file' };
+
+/**
+ * What a Hub row installs, for the tag on its card, or null when it names no package.
+ * `requirement` is what pip is given: the row's own text, with the `git+` a bare repository URL
+ * needs (requirementFor in desktop/src/hubCatalog.js, which the install uses). `label` is that,
+ * short enough to tell two cards apart in a narrow tag: an index package as written, extras and
+ * pin included (`plr-ivoryos[serial]==1.0.0b3`); a repository as host and path, keeping a pinned
+ * `@ref` (`github.com/numat/ismatec`); an archive by its file name; `name @ url` by its name.
+ */
+export function packageLabel(pipName: string | null | undefined): PackageLabel | null {
+  const target = (pipName || '').trim();
+  if (!target) return null;
+  const vcs = /^(git|hg|bzr|svn)\+/i.test(target);
+  const archive = /\.(whl|tar\.gz|tgz|zip)(#.*)?$/i.test(target);
+  const url = /^(https?|ssh):\/\//i.test(target) || target.startsWith('git@');
+  const requirement = !vcs && !archive && url ? `git+${target}` : target;
+  const named = /^([A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]*\])?)\s*@\s*\S/.exec(target);
+  if (named && !/^git@/i.test(target)) return { label: named[1], requirement, source: archive ? 'file' : 'repository' };
+  if (archive) {
+    const file = target.replace(/#.*$/, '').split('/').pop();
+    return { label: file || target, requirement, source: 'file' };
+  }
+  if (!vcs && !url) return { label: target, requirement, source: 'index' };
+  const label = target
+    .replace(/^(git|hg|bzr|svn)\+/i, '')
+    .replace(/^[a-z]+:\/\//i, '')
+    .replace(/^[^@/]+@([^:/]+):/, '$1/') // git@github.com:owner/repo
+    .replace(/^[^@/]+@/, '') // user@host/...
+    .replace(/#.*$/, '')
+    .replace(/\.git(?=@|$)/, '')
+    .replace(/\/+(?=@|$)/, '');
+  return { label: label || target, requirement, source: 'repository' };
+}
+
 /**
  * One card per plugin: a plugin published in both forms (a v1 Flask blueprint for the original
  * IvoryOS and a v2 ivoryos_edge Plugin, same name, same package) shows only its v2 row here, the

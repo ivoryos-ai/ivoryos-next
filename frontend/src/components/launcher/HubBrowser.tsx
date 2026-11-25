@@ -8,7 +8,7 @@ import {
 import { confirmDialog, notify } from '@ivoryos/shared-ui';
 import type { Deck, DesktopApi, HubLinkRequest, HubModule, HubPlatform, HubPlugin, HubTemplate } from '@/desktop';
 import { emptyFields, toForm, type FormValues } from '@/launcherArgs';
-import { inScope, preferV2, type Scope } from '@/hubCatalog';
+import { inScope, packageLabel, preferV2, type Scope } from '@/hubCatalog';
 import ArgsForm from './ArgsForm';
 import PrivateRepos, { type InstrumentSeed } from './PrivateRepos';
 import { LinkDetail, PlatformCard, PlatformDetail } from './HubPlatforms';
@@ -523,8 +523,26 @@ function Picture({ module, className = '' }: { module: HubModule; className?: st
   );
 }
 
+/**
+ * What a driver installs, as a tag beside its connection tags: several Hub drivers often wrap one
+ * instrument and their cards look alike until you see which package each one brings. Short on the
+ * card, the exact `pip install` on hover.
+ */
+function PackageTag({ pipName }: { pipName: string | null | undefined }) {
+  const pkg = packageLabel(pipName);
+  if (!pkg) return null;
+  const Icon = pkg.source === 'repository' ? GitBranch : Package;
+  return (
+    <span title={`pip install ${pkg.requirement}`} className="inline-flex items-center gap-1 min-w-0 px-1.5 py-0.5 rounded border border-gray-200 dark:border-white/10 text-[10px] font-mono text-gray-500 dark:text-gray-400">
+      <Icon className="w-3 h-3 shrink-0 opacity-70" />
+      <span className="truncate">{pkg.label}</span>
+    </span>
+  );
+}
+
 function ModuleCard({ module: m, onPick }: { module: HubModule; onPick: () => void }) {
   const device = m.devices?.name && m.devices.name !== m.name ? m.devices.name : null;
+  const maker = [m.devices?.vendor?.trim(), device].filter(Boolean).join(' · ');
   return (
     <button
       type="button"
@@ -544,11 +562,12 @@ function ModuleCard({ module: m, onPick }: { module: HubModule; onPick: () => vo
           <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate group-hover:text-accent-fg">{m.name}</span>
           <VisibilityBadge row={m} />
         </div>
-        <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{[m.devices?.vendor?.trim(), device].filter(Boolean).join(' · ') || m.pip_name}</div>
+        {maker && <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{maker}</div>}
         {m.description && <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">{m.description}</div>}
-        {!!m.connection?.length && (
-          <div className="mt-auto pt-1 flex flex-wrap gap-1">
-            {m.connection.map(c => <span key={c} className="px-1.5 py-0.5 rounded border border-gray-200 dark:border-white/10 text-[10px] font-medium text-gray-500 dark:text-gray-400">{c.toUpperCase()}</span>)}
+        {(!!m.pip_name?.trim() || !!m.connection?.length) && (
+          <div className="mt-auto pt-1 flex items-center gap-1 min-w-0">
+            <PackageTag pipName={m.pip_name} />
+            {m.connection?.map(c => <span key={c} className="shrink-0 px-1.5 py-0.5 rounded border border-gray-200 dark:border-white/10 text-[10px] font-medium text-gray-500 dark:text-gray-400">{c.toUpperCase()}</span>)}
           </div>
         )}
       </div>
