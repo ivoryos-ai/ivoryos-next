@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { loadProfiles, saveProfiles, withDefaults, validateProfile, commandFor } = require('../src/profiles');
+const { loadProfiles, saveProfiles, withDefaults, validateProfile, commandFor, choiceEnv } = require('../src/profiles');
 const {
     updateInstrument, removeInstrument, setInstrumentEnabled, freeName, DeckEditError, removePlugin, setPluginEnabled,
     loadSignature,
@@ -304,4 +304,24 @@ test('a script with no project around it gets no module path of its own', () => 
     const { modulePathFor } = require('../src/profiles');
     assert.equal(modulePathFor(script, path.dirname(script), []), null);
     assert.equal(modulePathFor(script, path.dirname(script), ['/mine']), '/mine', 'only what the person set');
+});
+
+test("a script profile's object choices reach the edge as its name lists, after the person's own (issue 88)", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ivoryos-prof-'));
+    const p = withDefaults(home, {
+        kind: 'script', script: '/lab/deck.py',
+        env: { IVORYOS_EXCLUDE_NAMES: 'old_cam' },
+        instrumentChoices: { calibration: true, camera: false, 'bad name': false, other: 'yes' },
+    });
+    // Only names someone switched, as booleans; nothing the edge could not read from a comma list.
+    assert.deepEqual(p.instrumentChoices, { calibration: true, camera: false });
+    const env = commandFor(p, { python: 'py' }).env;
+    assert.equal(env.IVORYOS_EXCLUDE_NAMES, 'old_cam,camera');
+    assert.equal(env.IVORYOS_INCLUDE_NAMES, 'calibration');
+    // None set, none sent; and a deck profile never gets them.
+    assert.deepEqual(choiceEnv(withDefaults(home, { kind: 'script', script: '/lab/deck.py' })), {});
+    assert.deepEqual(choiceEnv({ kind: 'deck', instrumentChoices: { pump: false } }), {});
+    // The choices survive a save and a restart of the app.
+    saveProfiles(home, { profiles: [p] });
+    assert.deepEqual(loadProfiles(home).profiles[0].instrumentChoices, { calibration: true, camera: false });
 });

@@ -76,6 +76,17 @@ naming the run: restarting ends it where it is, without its cleanup. Restart on 
 Instruments page does the same through the deck itself, and is refused while a run is going unless
 you confirm.
 
+## A script's instruments
+
+Every object a script makes at the top of the file is an instrument, except what clearly is not:
+a pandas table, a numpy array, a plot, a web app, Python's own objects (a `Path`, a lock, a
+logger), and objects with nothing to call. A script profile's **Overview** lists what the running
+script put on the deck and, folded under it, what it left out, each with an **on** switch. A switch
+is saved with the profile and applies when you restart the script. Switched off, an object is only
+kept off the deck: the script still makes it, so a port it opened stays open. The choice is the
+app's: the same script run from a terminal or PyCharm uses `exclude_names` and `include_names` in
+its `run()` call instead, and an object those name is shown as "set in the script", with no switch.
+
 ## Script profile settings
 
 A script profile needs its Python file and nothing else. The rest is under **Advanced** in its

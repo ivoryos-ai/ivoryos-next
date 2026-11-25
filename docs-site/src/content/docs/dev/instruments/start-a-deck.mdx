@@ -32,11 +32,12 @@ python my_bench.py          # http://localhost:8080
 ```
 
 Every module-level object becomes an instrument, by the rules in
-[What IvoryOS reads](/dev/instruments/what-ivoryos-reads/#which-objects-are-instruments). Objects
-that are yours but not instruments go in `exclude_names`:
+[What IvoryOS reads](/dev/instruments/what-ivoryos-reads/#which-objects-are-instruments): data,
+plotting and web objects, and Python's own, are left out. Objects that are yours but not
+instruments go in `exclude_names`, and one the rules leave out goes in `include_names`:
 
 ```python
-ivoryos_edge.run(__name__, port=8090, exclude_names=["CONFIG"], logger="my_lab")
+ivoryos_edge.run(__name__, port=8090, exclude_names=["CONFIG"], include_names=["camera"], logger="my_lab")
 ```
 
 `logger` names one or more loggers whose records go to the deck's output (the Log tab in the

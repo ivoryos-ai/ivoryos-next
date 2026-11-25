@@ -131,6 +131,8 @@ class ProfileManager extends EventEmitter {
             parts.deck = loadSignature(readDeckFile(profile.deck));
         } else {
             try { parts.script = crypto.createHash('sha1').update(fs.readFileSync(profile.script)).digest('hex'); } catch { parts.script = null; }
+            // Which of the script's objects are instruments (setInstrumentChoice): its "deck".
+            parts.deck = stable(profile.instrumentChoices || {});
         }
         return parts;
     }
@@ -523,6 +525,24 @@ class ProfileManager extends EventEmitter {
 
     setInstrumentEnabled(id, name, enabled) {
         return this._editDeck(id, (deck) => setInstrumentEnabled(deck, name, enabled));
+    }
+
+    /**
+     * A script profile's own switch for one of its script's objects (GitHub issue 88): true puts
+     * it on the deck although the edge's rules leave it out, false leaves it off although they put
+     * it on, null forgets the choice. Saved on the profile and passed to the edge through the
+     * environment (profiles.js choiceEnv), so it applies at the next start, like any deck edit;
+     * the object is still built by the script either way. The page decides which of the three a
+     * click means, since only the running edge knows what the rules say.
+     */
+    setInstrumentChoice(id, name, choice) {
+        const profile = this.get(id);
+        if (profile.kind !== 'script') throw new Error('Only a script profile chooses among its objects; a deck switches its entries.');
+        if (!name || /[\s,]/.test(String(name))) throw new Error(`'${name}' is not a name in a script.`);
+        const choices = { ...(profile.instrumentChoices || {}) };
+        if (choice === true || choice === false) choices[name] = choice;
+        else delete choices[name];
+        return this.update(id, { instrumentChoices: choices });
     }
 
     /** Take a plugin off the deck, and its package off the list when nothing else needs it (still installed). */

@@ -24,7 +24,10 @@ import uuid
 from typing import Callable, List, Optional, Union
 from typing import List as seq  # a lowercase alias: no name rule would catch it
 
+import pytest
+
 from ivoryos_edge.plugins import Plugin
+from ivoryos_edge.script_objects import names_from_env, sort_script_objects
 from ivoryos_edge.server import _script_instruments
 
 
@@ -104,3 +107,123 @@ def test_a_driver_file_named_like_a_standard_module_is_still_user_code(tmp_path,
     pump = driver.Pump()
     found, _ = _script_instruments(_script(pump=pump))
     assert found == {"pump": pump}
+
+
+# --- GitHub issue 88: data, plots and web objects, empty objects, and choosing by name ---------
+
+
+class Settings:
+    """The script's own object with nothing to call."""
+    def __init__(self):
+        self.port = "COM3"
+
+
+class Stage:
+    @property
+    def position(self) -> float:
+        return 0.0
+
+
+class Flex:
+    """Only the sum of its parts (parts.py): nothing of its own to call, still an instrument."""
+    def __ivoryos_instruments__(self):
+        return {"left": Pump()}
+
+
+def _by_name(entries):
+    return {e["name"]: e for e in entries}
+
+
+def test_data_and_web_objects_are_not_instruments():
+    np = pytest.importorskip("numpy")
+    pd = pytest.importorskip("pandas")
+    fastapi = pytest.importorskip("fastapi")
+    pump = Pump()
+    found, skipped = _script_instruments(_script(
+        pump=pump, calibration=pd.DataFrame({"a": [1]}), weights=np.array([1.0]),
+        rng=np.random.default_rng(0), router=fastapi.APIRouter(),
+    ))
+    assert found == {"pump": pump}
+    assert skipped["calibration"] == "DataFrame, from pandas"
+    assert skipped["weights"] == "ndarray, from numpy"
+    assert skipped["rng"] == "Generator, from numpy"
+    assert skipped["router"] == "APIRouter, from fastapi"
+
+
+def test_an_object_with_nothing_to_call_is_not_an_instrument():
+    stage, flex = Stage(), Flex()
+    found, skipped = _script_instruments(_script(settings=Settings(), stage=stage, flex=flex))
+    assert found == {"stage": stage, "flex": flex}  # a property is a step; parts make an instrument
+    assert skipped == {"settings": "nothing to call"}
+
+
+def test_include_names_puts_on_the_deck_what_the_rules_leave_out():
+    pd = pytest.importorskip("pandas")
+    table, settings = pd.DataFrame({"a": [1]}), Settings()
+    found, skipped = _script_instruments(
+        _script(table=table, settings=settings, MODE=Mode.FAST),
+        include_names=["table", "settings", "MODE", "missing"])
+    assert found == {"table": table, "settings": settings, "MODE": Mode.FAST}
+    assert skipped == {}
+
+
+def test_exclude_wins_over_include():
+    found, skipped = _script_instruments(_script(pump=Pump()), exclude_names=["pump"], include_names=["pump"])
+    assert found == {} and skipped == {"pump": "exclude_names"}
+
+
+def test_no_name_list_makes_a_type_an_instrument():
+    found, entries = sort_script_objects(_script(List=List, maybe=Optional[float]),
+                                         include_names=["List"], shown=["maybe"])
+    assert found == {}
+    assert [(e["kind"], e["offered"]) for e in entries] == [("type", False), ("type", False)]
+
+
+def test_the_launchers_choices_and_who_decided():
+    pump, settings, other = Pump(), Settings(), Pump()
+    found, entries = sort_script_objects(
+        _script(pump=pump, settings=settings, other=other, camera=Pump(), extra=Settings()),
+        exclude_names=["camera"], include_names=["extra"],
+        hidden=["pump", "camera"], shown=["settings", "extra"])
+    assert found == {"settings": settings, "other": other, "extra": found["extra"]}
+    e = _by_name(entries)
+    # The launcher's choices, which it may change again.
+    assert (e["pump"]["instrument"], e["pump"]["by"], e["pump"]["offered"]) == (False, "launcher", True)
+    assert (e["settings"]["instrument"], e["settings"]["by"]) == (True, "launcher")
+    assert e["settings"]["why"] == "nothing to call"  # kept: on the deck *although* the rule says not
+    # The script's own lists win over the launcher's, and are not offered to change.
+    assert (e["camera"]["by"], e["camera"]["offered"]) == ("script", False)
+    assert (e["extra"]["instrument"], e["extra"]["by"], e["extra"]["offered"]) == (True, "script", False)
+    # Nobody chose: the rules.
+    assert (e["other"]["instrument"], e["other"]["by"], e["other"]["why"]) == (True, "rule", None)
+    assert e["pump"]["type"].endswith(".Pump")
+
+
+def test_names_from_the_environment(monkeypatch):
+    monkeypatch.setenv("IVORYOS_EXCLUDE_NAMES", " pump, ,camera ")
+    assert names_from_env("IVORYOS_EXCLUDE_NAMES") == ["pump", "camera"]
+    monkeypatch.delenv("IVORYOS_INCLUDE_NAMES", raising=False)
+    assert names_from_env("IVORYOS_INCLUDE_NAMES") == []
+
+
+class Reader:
+    def read(self, dtype=float, channels={1, 2}, scale: float = 1.5, wells=("A1", "B1"), mode: str = "fast",
+             blank: float = float("nan"), limit: float = float("inf")):
+        return 0.0
+
+
+def test_a_default_json_cannot_hold_does_not_break_the_schema():
+    # One such parameter used to make every /api/status a 500 (a DataFrame switched on, or
+    # a driver with `dtype=float`).
+    import json
+    from ivoryos_edge.introspection import inspect_device_module
+    params = inspect_device_module(Reader())["read"]["parameters"]
+    json.dumps(params, allow_nan=False)  # as the response renders it
+    assert (params["blank"]["default"], params["limit"]["default"]) == ("nan", "inf")
+    assert params["dtype"]["default"] == repr(float)
+    assert sorted(params["channels"]["default"]) == [1, 2]
+    # What JSON could already hold is unchanged.
+    assert (params["scale"]["default"], params["mode"]["default"]) == (1.5, "fast")
+    assert params["wells"]["default"] == ["A1", "B1"]
+    pd = pytest.importorskip("pandas")
+    json.dumps(inspect_device_module(pd.DataFrame({"a": [1]})), allow_nan=False)
