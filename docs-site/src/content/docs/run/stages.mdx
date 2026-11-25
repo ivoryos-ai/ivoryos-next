@@ -5,6 +5,8 @@ sidebar:
   order: 4
 ---
 
+import Shot from '../../../components/Shot.astro';
+
 A design whose steps are saved workflows is already an orchestration: *weigh the solids*, then
 *add the solvents*, then *analyze*. Run from Once, Iterate or Optimize it has **one** configuration,
 so the solids each sample gets and the solvents it gets must share one table. **Stages** gives each
@@ -13,16 +15,22 @@ an optimization.
 
 ## Build a design in stages
 
-1. In the Designer, drag saved workflows in from the toolbox as **links**, with any plain steps you
-   want between them (a tare, a *swap the plate* prompt).
-2. Open **Run → Stages**. The design is cut into stages: each link is one, each stretch of plain
-   steps between links is one, the design's Prep goes with the first and its Cleanup with the last.
-   An If or While that wraps a link cannot be cut, and the page says so.
-3. Open a stage. It shows the same configurator its mode uses, in place: the Once form, the
-   Iterate table or the Optimize settings. Each stage keeps separate settings for each mode, and
-   the lit mode is how it will run. There is no Save: what you type is kept as you type it.
-4. Each stage's line reads *Not set up yet*, *Not ready: missing value for 'rate' in row 2*, or
-   *Iterate · 12 rows*. When every stage is ready, **Run**.
+In the Designer, drag saved workflows in as **links**, with any plain steps you want between them
+(a tare, a *swap the plate* prompt).
+
+<Shot name="designer-links" alt="A design made of two linked workflows" />
+
+Then open **Run → Stages**.
+
+<Shot name="run-stages" alt="The Stages tab: one stage per linked workflow, each with its own way to run" />
+
+- Each link is a stage, and each stretch of plain steps between links is one. The design's Prep
+  goes with the first stage and its Cleanup with the last.
+- An If or While that wraps a link cannot be cut, and the page says so.
+- Each stage keeps separate settings for each mode, and the lit mode is how it will run. There is
+  no Save: what you type is kept as you type it.
+- A stage's line reads *Not set up yet*, *Not ready: missing value for 'rate' in row 2*, or
+  *Iterate · 12 rows*.
 
 ## How it runs
 

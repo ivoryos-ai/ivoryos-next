@@ -6,6 +6,7 @@ sidebar:
 ---
 
 import { Aside, Steps } from '@astrojs/starlight/components';
+import Shot from '../../../../components/Shot.astro';
 
 A driver is a plain Python class, one instance per device. Nothing is imported from IvoryOS and
 nothing is registered: at startup the deck **introspects** each instrument object, and every
@@ -100,6 +101,8 @@ module level or prefix them.
 </Aside>
 
 ## Check what the deck read
+
+<Shot name="instruments" alt="The Instruments page: each public method of the example's SyringePump as a form" />
 
 - **Instruments page.** Every step is listed under its instrument with its form; run one by hand
   to test the driver before it goes in a workflow.

@@ -12,13 +12,14 @@ import { WS_BASE } from '@/config';
  *
  *   queue      the queue status (queue.py global_payload), after every step and queue change
  *   proposals  `{pending, version}` of the agent proposals waiting for a person (proposalFeed.ts)
+ *   workflows  `{version}`, new whenever a saved workflow changes (workflowCatalog.ts)
  *
  * Listen with `useEdgeTopic`. A listener that arrives after a topic's last message is given that
  * message at once, as if it had just connected. The socket reconnects on its own (backing off up
  * to ten seconds), and is kept for a while after the last listener leaves, so moving between pages
  * does not reconnect.
  */
-export type EdgeTopic = 'queue' | 'proposals';
+export type EdgeTopic = 'queue' | 'proposals' | 'workflows';
 type Listener = (data: any) => void;
 
 const RETRY_MS = [500, 1000, 2000, 5000, 10000];

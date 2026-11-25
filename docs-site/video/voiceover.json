@@ -1,0 +1,121 @@
+{
+  "voice": "af_heart",
+  "speed": 1.0,
+  "pronounce": {
+    "IvoryOS": "Ivory O S"
+  },
+  "lines": {
+    "01-intro": {
+      "say": "This is IvoryOS. It runs a lab's instruments from one place. In the next few minutes we will set up a lab, design a workflow, run it, and look at the results.",
+      "screen": "The app's welcome page."
+    },
+    "02-hub": {
+      "say": "A new lab can start three ways. We will take the first: the Automation Hub, where drivers, complete platforms and workflows are shared.",
+      "screen": "The pointer passes the three cards and opens Browse the Hub."
+    },
+    "03-platform": {
+      "say": "A platform is a whole lab, ready to install. This one is a simulated lab made for learning, so there is nothing to plug in.",
+      "screen": "The Hub's Platforms list; SDL Education Package is opened."
+    },
+    "04-contents": {
+      "say": "It brings seven instruments, a live view of the lab, and two example workflows. An optimizer can be added here too. Everything that is ticked goes into a new deck.",
+      "screen": "The install page scrolls through Instruments, Plugins, Workflows and Optimizers; BayBE is ticked."
+    },
+    "05-install": {
+      "say": "Create the deck, and confirm. The drivers are installed on this computer, which takes a minute or two the first time.",
+      "screen": "Create deck and install, then Install in the confirmation. The wait is cut."
+    },
+    "06-deck": {
+      "say": "A deck is one set of instruments, with its own workflows and its own history. Press Start.",
+      "screen": "The new deck's page in the launcher, with its instruments listed. Start is pressed."
+    },
+    "07-opens": {
+      "say": "When the deck is ready, its page opens on the Designer. The bar along the top has every page of the deck. The list on the left can be hidden to make room.",
+      "screen": "The deck opens on the Designer; the launcher's sidebar is hidden."
+    },
+    "08-designer": {
+      "say": "Workflows are built here. The toolbox lists every method of every instrument as a step.",
+      "screen": "The Designer, with the toolbox on the left and an empty canvas."
+    },
+    "09-step": {
+      "say": "Take a step and put it on the canvas. It opens, ready to fill in.",
+      "screen": "Pick up vial from tray is carried from the toolbox to the canvas."
+    },
+    "10-variable": {
+      "say": "A value can be typed in. Or start it with a hash sign and give it a name, and it stays open until the workflow is run.",
+      "screen": "3 is typed into vial_number, then replaced with #vial."
+    },
+    "11-more": {
+      "say": "The next steps go in the same way. The arm carries the vial to the analysis station, and the station analyzes it.",
+      "screen": "Two more steps are added (played fast)."
+    },
+    "12-output": {
+      "say": "A step that measures something can save its result under a name. Later steps can use it, and it becomes a column in the data.",
+      "screen": "The analyze step's result is named signal."
+    },
+    "13-return": {
+      "say": "Then the arm takes the vial back to where it came from.",
+      "screen": "Two last steps are added (played fast)."
+    },
+    "14-save": {
+      "say": "Name the workflow and save it. Every save is kept as a version in the Library.",
+      "screen": "The workflow is named and Save is pressed; a note says it was saved as version 1."
+    },
+    "15-python": {
+      "say": "And if you would rather read code, the same workflow is there as Python.",
+      "screen": "View as Python opens the script in a drawer beside the canvas."
+    },
+    "16-library": {
+      "say": "The Library lists every saved workflow, with its versions. The two examples that came from the Hub are here as well, and Load to Designer opens any of them.",
+      "screen": "The Library: the new workflow at version 1, beside the two examples from the Hub."
+    },
+    "17-view": {
+      "say": "Before running it, look at the lab itself. This platform came with a plugin: a view of the lab that moves when the instruments do. Open it, and keep it beside the page.",
+      "screen": "3D Sim is opened from the top bar and docked beside the page."
+    },
+    "18-instruments": {
+      "say": "On the Instruments page, every method of every instrument can be run by hand. It is the quickest way to check that an instrument answers.",
+      "screen": "Instruments: the robotic arm picks a vial up from the tray, and puts it back."
+    },
+    "19-run-page": {
+      "say": "Now the workflow. Run opens the Run page, and the Once tab asks for each value that was left open.",
+      "screen": "Run is chosen in the top bar; the Once tab shows one field, vial."
+    },
+    "20-preview": {
+      "say": "Fill it in. Preview shows exactly what is about to happen, step by step.",
+      "screen": "3 is typed; Preview is opened and closed."
+    },
+    "21-run": {
+      "say": "Then Run. The bar at the bottom follows the run, and the lab view shows the arm doing it.",
+      "screen": "Run is pressed; the run bar appears and the arm moves."
+    },
+    "22-steps": {
+      "say": "Open the bar to watch each step, with what it was given and what it returned. Pause and stop are on the same bar.",
+      "screen": "The run bar is opened to its step list until the run ends."
+    },
+    "23-iterate": {
+      "say": "Iterate runs the same workflow over a table, with one row for each sample.",
+      "screen": "The Iterate tab and its table."
+    },
+    "24-rows": {
+      "say": "Type the values in, or import a spreadsheet, and run.",
+      "screen": "Vials 1, 2 and 4 are typed in and Run is pressed (the run is played fast)."
+    },
+    "25-data": {
+      "say": "Every run is kept in Data History. Choose one to see its table: what each sample was given, and what it measured.",
+      "screen": "Data History; the run over three samples is selected."
+    },
+    "26-row": {
+      "say": "Open a row for its steps: what each one was given, what it returned, and how long it took.",
+      "screen": "Row 1 is opened to its five steps."
+    },
+    "27-export": {
+      "say": "The Data button downloads that table as a file.",
+      "screen": "The pointer rests on Data, at the top right of the run."
+    },
+    "28-docs": {
+      "say": "There is more: optimization, safety limits, and connecting your own instruments. It is all in the documentation.",
+      "screen": "Closing card."
+    }
+  }
+}

@@ -227,6 +227,15 @@ export function makeDesktopApi(lab: Lab, realFetch: typeof fetch): DesktopApi {
       lab.setInstruments(id, (lab.get(id).deck.instruments || []).map(i => (i.name === name ? { ...i, enabled } : i)));
       return edited(id);
     },
+    // The tour's decks are deck profiles; a script profile, should one be made, keeps its choice.
+    setInstrumentChoice: async (id, name, choice) => {
+      const d = lab.get(id);
+      const choices = { ...(d.profile.instrumentChoices || {}) };
+      if (choice === null) delete choices[name]; else choices[name] = choice;
+      d.profile = { ...d.profile, instrumentChoices: choices };
+      changed();
+      return lab.profiles().find(p => p.id === id)!;
+    },
     // The tour never loads plugins, so these only change what the deck lists.
     removePlugin: async (id, ref) => {
       const d = lab.get(id);

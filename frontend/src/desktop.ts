@@ -65,6 +65,8 @@ export type Profile = {
   args?: string[];
   python?: string | null;
   dataDir?: string | null;
+  /** A script profile's own on/off for its script's objects, over the edge's rules: only names someone switched (manager.js setInstrumentChoice). */
+  instrumentChoices?: Record<string, boolean>;
   status: ProfileStatus;
   problems: string[];
   windowOpen: boolean;
@@ -396,6 +398,8 @@ export interface DesktopApi {
   saveInstrument(id: string, originalName: string | null, entry: DeckInstrument): Promise<Deck>;
   removeInstrument(id: string, name: string): Promise<Deck>;
   setInstrumentEnabled(id: string, name: string, enabled: boolean): Promise<Deck>;
+  /** A script profile: put one of its script's objects on the deck (true), leave it off (false), or follow the edge's rules again (null). */
+  setInstrumentChoice(id: string, name: string, choice: boolean | null): Promise<Profile>;
   /** Take a plugin (by its "package.module:attribute") off the deck; its package stays installed. */
   removePlugin(id: string, ref: string): Promise<Deck>;
   /** Keep a plugin listed on the deck but do not load it. */

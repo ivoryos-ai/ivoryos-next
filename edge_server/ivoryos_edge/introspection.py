@@ -354,7 +354,10 @@ def extract_type_info(annotation, default=inspect.Parameter.empty, _depth=0, _se
             # A Literal's default as the label a workflow stores ("1.0", not the 1 JSON makes of it).
             param_data["default"] = found["label"]
         else:
-            param_data["default"] = default
+            # As JSON can hold it: a default that is a class (`dtype=float`, pandas'
+            # `to_dict(into=dict)`), a set or an object used to be published raw, and one such
+            # parameter made every `/api/status` a 500 and stopped the deck version being recorded.
+            param_data["default"] = _published_value(default)
 
     for marker in markers:
         param_data.update(marker.ivoryos_schema())
@@ -722,6 +725,31 @@ def has_member(instance, name):
         return True
     except AttributeError:
         return False
+
+
+def has_steps(instance) -> bool:
+    """Whether `inspect_device_module` would find anything on this object to make a step of: a
+    public property, or a public attribute that is callable. Looked up statically, so no getter
+    runs and nothing is called. When `dir()` itself fails, the answer is yes: a guess that hides
+    an instrument costs more than one that shows an empty card."""
+    try:
+        if next(iter(_iter_class_properties(type(instance))), None) is not None:
+            return True
+        names = dir(instance)
+    except Exception:
+        return True
+    for name in names:
+        if name.startswith("_"):
+            continue
+        try:
+            static = inspect.getattr_static(instance, name)
+        except Exception:
+            continue
+        if isinstance(static, property):
+            continue
+        if callable(static) or isinstance(static, (staticmethod, classmethod)):
+            return True
+    return False
 
 
 def _unwrapped_for_description(method, name):
@@ -1209,6 +1237,9 @@ def _published_value(value):
     """
     import dataclasses
     import enum
+    import math
+    if isinstance(value, float) and not math.isfinite(value):
+        return repr(value)  # 'nan', 'inf': JSON has no such number, and the response refuses it
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, enum.Enum):

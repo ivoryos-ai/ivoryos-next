@@ -6,70 +6,61 @@ sidebar:
 ---
 
 import { Aside } from '@astrojs/starlight/components';
+import Shot from '../../../components/Shot.astro';
 
 A run is watched where it was started. The chip at the bottom of the Run page reads **Idle**,
-**N queued** or **Queue paused**; when a run starts it widens into the **run bar**, and shrinks
-back when the run is over. On every other page a small floating card shows the same thing.
+**N queued** or **Queue paused**. When a run starts it widens into the **run bar**, and shrinks
+back when the run is over. On other pages a small floating card shows the same thing.
 
-![The run bar during a run](../../../assets/screenshots/live-run.png)
+<Shot name="live-run" alt="The run bar during a run, with its controls" />
 
-## The run bar
+**Pause** waits for the step under way to finish; the same button resumes.
 
-Left to right: the run's name and what it is doing (*running · step 7 of 11 · reactor.hold*), then
-the controls:
-
-| Control | What it does |
+| Stop | What happens |
 |---|---|
-| **Preview** | every step and every call this run will make |
-| **Pause** | pause after the current step; the same button resumes |
-| **Stop after this iteration** (the flag) | a *graceful stop*: finish the row, batch or trial the run is on, then stop. It asks whether to run the cleanup steps and whether the queued runs should go on. |
-| **Stop now** (the square) | stop at once. Cleanup does not run, and the queue stays held until you resume it. |
-| **Queue** | opens the queue drawer |
-| **Show the steps** | opens the step list above the bar |
+| **Stop after this iteration** (the flag) | Finishes the sample, batch or trial it is on, then stops. It asks whether to run cleanup and whether queued runs go on. |
+| **Stop now** (the square) | Stops at once. Cleanup does not run, and the queue is held until you resume it. |
 
-The progress strip along the top of the bar is the run's only progress bar. Opened, the steps live
-in a box you can drag taller or shorter; it follows the running step unless you scroll it
-yourself. Steps still to come can be edited from here (the pencil) before the run reaches them.
+## The steps
 
-![The run bar opened to show the steps](../../../assets/screenshots/live-run-steps.png)
+<Shot name="live-run-steps" alt="The run bar opened to show every step" />
+
+The list follows the running step unless you scroll it yourself. Drag the bar along its top to make the list taller;
+double-click it to reset.
 
 ## When the run needs you
 
-**A step failed.** The run and the queue pause, and a pop-up appears on whichever page you are on:
-the step, the error, and the choices. **Change values and retry** edits the step's arguments
-first. **Retry step** runs it again, **Skip step** goes on without it, **Stop, run cleanup** ends
-the run after its cleanup steps (offered when there is a cleanup still ahead), **Stop run** ends it
-at once with no cleanup, since a failure may have left the deck in a state cleanup should not walk
-into. Nothing is retried or skipped on its own. The error and what you chose stay with the run.
+**A step failed.** Nothing is retried or skipped by itself. The run and the queue wait, and this
+appears on whichever page you are on:
 
-![A failed step waiting for a decision](../../../assets/screenshots/run-decision.png)
+<Shot name="run-decision" alt="A failed step waiting for a decision: change and retry, retry, skip, or stop" />
 
-**A User input step.** The prompt appears the same way, with a field for the answer when the step
-saves one, or just **Continue** for a pause.
+Plain **Stop run** leaves cleanup out because a failure may have left the deck in a state cleanup
+should not walk into. The error and what you chose stay with the run's record.
 
-![A User input prompt](../../../assets/screenshots/user-input-prompt.png)
+**A User input step.**
 
-**The optimizer** cannot suggest, or refuses a round's results: same pop-up, with its own choices
-(*Ask again*, *Record again*, *Go on without it*). See [Optimize](/run/optimize/).
+<Shot name="user-input-prompt" alt="A User input step's prompt" />
+
+A User input step with no variable name is a plain pause: the message and **Continue**.
+
+**The optimizer** cannot suggest, or refuses a round's results: the same kind of pop-up, with its
+own choices. See [Optimize](/run/optimize/).
 
 <Aside type="tip" title="Away from the screen">
-In the desktop app these moments become system notifications, with sound for what needs you, and
-the Dock or taskbar icon bounces until you look. In a browser, the page asks once whether it may
-notify you while its tab is in the background. See
+The desktop app turns these moments into system notifications, with sound for what needs you. In a
+browser the page asks once whether it may notify you. See
 [Settings and notifications](/guide/settings-and-notifications/).
 </Aside>
 
 ## The queue
 
-Runs execute one at a time. Starting a run while one is going (**Add to Queue**) puts it behind.
-Open the drawer from the chip or the bar's Queue button:
+Runs go one at a time. Starting a run while another is going (**Add to Queue**) puts it behind.
 
-![The queue drawer](../../../assets/screenshots/queue-drawer.png)
+<Shot name="queue-drawer" alt="The queue drawer: the run under way and what waits behind it" />
 
-- **Now** is the running run; **Up next** is what waits, in order, with its size in its own unit
-  (steps and rows, or iterations for an optimization).
-- The pencil renames a queued run; the sliders open its page again with its values, where **Save
-  changes** replaces it in the queue; the arrows move it sooner or later; the trash removes it.
-- **Resume queue** appears whenever the queue is held, which happens after **Stop now**, after a
-  failed run was stopped, and after a graceful stop told to hold. Nothing waiting starts until you
-  press it, though a new run you submit while nothing else waits starts anyway.
+- A queued run's size is in its own unit: steps and rows, or iterations for an optimization.
+- Changing a queued run's values opens its Run page again; **Save changes** puts it back in place.
+- **Resume queue** appears whenever the queue is held: after **Stop now**, after a failed run was
+  stopped, or after a graceful stop told to hold. A new run you start while nothing else waits
+  starts anyway.

@@ -1,0 +1,629 @@
+{
+  "assistant": [
+    {
+      "title": "Three modes",
+      "text": "Ask about past runs, draft a workflow, or draft safety limits and rules."
+    },
+    {
+      "title": "You decide",
+      "text": "A draft is only a proposal until you accept it."
+    },
+    {
+      "title": "Describe it",
+      "text": "In your own words. The draft is checked against this deck’s real methods."
+    }
+  ],
+  "cloud-connect": [
+    {
+      "title": "Device name",
+      "text": "How this deck is listed in Cloud. You can change it when you approve."
+    },
+    {
+      "title": "Connect",
+      "text": "Shows a code. Enter it in Cloud to approve this deck."
+    }
+  ],
+  "data-history-list": [
+    {
+      "title": "Search",
+      "text": "By name, a value, an instrument or a method. Select deletes several at once."
+    },
+    {
+      "title": "Sort and filter",
+      "text": "Newest, oldest, by name or length, and by status."
+    },
+    {
+      "title": "A run",
+      "text": "Green finished, amber finished with issues, red failed. Click to open it."
+    }
+  ],
+  "data-history-optimization": [
+    {
+      "title": "Configuration",
+      "text": "The engine, the budget, the search space and the objectives the run used."
+    },
+    {
+      "title": "Optimizer plots",
+      "text": "Drawn by the optimizer itself, for the latest optimization since the deck started."
+    }
+  ],
+  "data-history-run": [
+    {
+      "title": "Timeline",
+      "text": "One bar per step, to scale. Prep, each sample and cleanup are marked above."
+    },
+    {
+      "title": "Data",
+      "text": "One row per sample: the values it was given, then the values its steps saved."
+    },
+    {
+      "title": "Export",
+      "text": "Data is this table as CSV. Log is every step."
+    }
+  ],
+  "data-history-steps": [
+    {
+      "title": "Prep and cleanup",
+      "text": "Each ran once. Click a line to open its steps."
+    },
+    {
+      "title": "From a #variable",
+      "text": "A coloured value came from the run’s inputs."
+    },
+    {
+      "title": "What a step saved",
+      "text": "The result, under the name the workflow gave it."
+    }
+  ],
+  "data-history-trials": [
+    {
+      "title": "One row per trial",
+      "text": "What the optimizer suggested, then the objectives the trial measured."
+    }
+  ],
+  "designer-batch": [
+    {
+      "title": "Once per batch",
+      "text": "Click the layers icon. Purple means the step runs once for a group of rows, not for each."
+    }
+  ],
+  "designer-empty": [
+    {
+      "title": "Toolbox",
+      "text": "Everything this deck can do. Each instrument method is one step."
+    },
+    {
+      "title": "Canvas",
+      "text": "Drag a step here. Steps run top to bottom."
+    },
+    {
+      "title": "#auto",
+      "text": "On: a dropped step leaves every value open, to fill in at run time."
+    }
+  ],
+  "designer-file-menu": [
+    {
+      "title": "More",
+      "text": "Read the workflow as Python, or move it as a JSON file."
+    }
+  ],
+  "designer-header": [
+    {
+      "title": "Name",
+      "text": "How the workflow is saved and found."
+    },
+    {
+      "title": "New",
+      "text": "Start an empty workflow."
+    },
+    {
+      "title": "Save",
+      "text": "Adds a version to the Library."
+    },
+    {
+      "title": "More",
+      "text": "View as Python, export or import JSON."
+    }
+  ],
+  "designer-links": [
+    {
+      "title": "Link",
+      "text": "With Link on, a saved workflow dragged in stays one step."
+    },
+    {
+      "title": "A linked workflow",
+      "text": "One step, pinned to the saved version. Its open values are the step’s inputs."
+    },
+    {
+      "title": "View or detach",
+      "text": "See the steps it will run, or turn it into steps of your own."
+    }
+  ],
+  "designer-logic": [
+    {
+      "title": "Logic steps",
+      "text": "Wait, ask a person, set a variable, branch, loop, write a note."
+    },
+    {
+      "title": "If",
+      "text": "The steps down to End if run only when the condition holds."
+    },
+    {
+      "title": "Copy or link",
+      "text": "Drag a saved workflow in as your own steps, or as one step that follows the original."
+    }
+  ],
+  "designer-overview": [
+    {
+      "title": "Toolbox",
+      "text": "Logic steps, saved workflows, then every method of every instrument."
+    },
+    {
+      "title": "Phases",
+      "text": "Prep runs once first, Main for every sample, Cleanup once last."
+    },
+    {
+      "title": "A step",
+      "text": "One line that reads like its call: instrument, method, arguments."
+    },
+    {
+      "title": "Run it",
+      "text": "Configure asks for the open values. Optimize lets an optimizer choose them."
+    }
+  ],
+  "designer-prep": [
+    {
+      "title": "Prep",
+      "text": "Runs once, before the first sample: prime the pumps, blank the spectrometer."
+    },
+    {
+      "title": "Cleanup",
+      "text": "Runs once, after the last sample. Hold a dragged step over a tab to move it there."
+    }
+  ],
+  "designer-python": [
+    {
+      "title": "The script",
+      "text": "Prep, main and cleanup as functions. It follows the canvas as you edit."
+    },
+    {
+      "title": "Download",
+      "text": "Save it as a .py file."
+    }
+  ],
+  "designer-step": [
+    {
+      "title": "A value",
+      "text": "Type it, or type #name to leave it open for the run."
+    },
+    {
+      "title": "Save the result",
+      "text": "Later steps read it as #absorbance_312."
+    },
+    {
+      "title": "Batch, more, delete",
+      "text": "Run once per batch, disable or duplicate, or remove."
+    }
+  ],
+  "first-data": [
+    {
+      "title": "The result",
+      "text": "The value you gave, and the temperature the step read back."
+    }
+  ],
+  "first-drag": [
+    {
+      "title": "Find a step",
+      "text": "Type part of its name. Here: load vial, on the reactor."
+    },
+    {
+      "title": "Drop it on the canvas",
+      "text": "Hold the step, carry it over, let go."
+    }
+  ],
+  "first-result": [
+    {
+      "title": "Save what it returns",
+      "text": "Type a name after the arrow. The reading is kept under it."
+    }
+  ],
+  "first-run": [
+    {
+      "title": "Once",
+      "text": "One run, one value. The other tabs take a table or an optimizer."
+    },
+    {
+      "title": "Give the value",
+      "text": "The one thing you left open."
+    },
+    {
+      "title": "Run",
+      "text": "The reactor heats. The bar at the bottom follows it."
+    }
+  ],
+  "first-save": [
+    {
+      "title": "Name it",
+      "text": "Click the name and type."
+    },
+    {
+      "title": "Save",
+      "text": "It is now in the Library."
+    },
+    {
+      "title": "Configure",
+      "text": "Opens the Run page, to give temperature_c a value."
+    }
+  ],
+  "first-variable": [
+    {
+      "title": "Leave a value open",
+      "text": "Type #temperature_c. You give the number when you run."
+    }
+  ],
+  "instruments": [
+    {
+      "title": "Instruments",
+      "text": "Everything on the deck, each with its number of methods."
+    },
+    {
+      "title": "Execute",
+      "text": "Fill in the fields and run the method now, outside the queue."
+    },
+    {
+      "title": "Limit",
+      "text": "Set the range this field may take, or its unit."
+    },
+    {
+      "title": "Restart and deck version",
+      "text": "Restart reloads the drivers. The version changes when the instruments do."
+    }
+  ],
+  "instruments-execute": [
+    {
+      "title": "Action log",
+      "text": "Each call you make here, with what it returned or the error it raised."
+    }
+  ],
+  "library": [
+    {
+      "title": "Tags",
+      "text": "Add any number. Chips above the list filter by them."
+    },
+    {
+      "title": "Version history",
+      "text": "Every save is kept. Open any of them in the Designer."
+    },
+    {
+      "title": "Load to Designer",
+      "text": "Puts the workflow on the canvas to edit or run."
+    },
+    {
+      "title": "Working first",
+      "text": "Workflows this deck can no longer run go last, with a badge."
+    }
+  ],
+  "library-tags": [
+    {
+      "title": "Add a tag",
+      "text": "Any word. A workflow can carry several."
+    },
+    {
+      "title": "Save",
+      "text": "Tags are labels only: no new version is made."
+    }
+  ],
+  "library-versions": [
+    {
+      "title": "Current",
+      "text": "What Load to Designer opens."
+    },
+    {
+      "title": "An older version",
+      "text": "Open it, then save to make it the newest."
+    }
+  ],
+  "live-run": [
+    {
+      "title": "The run bar",
+      "text": "Name, current step and progress."
+    },
+    {
+      "title": "Pause or stop",
+      "text": "Pause, stop after this sample, or stop now."
+    },
+    {
+      "title": "Queue and steps"
+    }
+  ],
+  "live-run-iterate": [
+    {
+      "title": "Sample by sample",
+      "text": "The badge says which sample the run is on. Each row runs the whole of Main."
+    },
+    {
+      "title": "Change what is left",
+      "text": "Edit, add or remove samples the run has not reached."
+    }
+  ],
+  "live-run-optimize": [
+    {
+      "title": "Trial by trial",
+      "text": "Green trials are done. Each one runs the whole of Main with new values."
+    },
+    {
+      "title": "Change budget",
+      "text": "Add trials or end sooner while it runs."
+    }
+  ],
+  "live-run-steps": [
+    {
+      "title": "Running now",
+      "text": "Finished steps are ticked."
+    },
+    {
+      "title": "Change a step",
+      "text": "Before it runs."
+    }
+  ],
+  "queue-drawer": [
+    {
+      "title": "Now",
+      "text": "The run under way. The deck runs one at a time."
+    },
+    {
+      "title": "Up next",
+      "text": "What waits, in order. Rename it, change its values, move it sooner or later, or remove it."
+    }
+  ],
+  "run-decision": [
+    {
+      "title": "What went wrong",
+      "text": "The step and its error. The run and the queue wait for you."
+    },
+    {
+      "title": "Change and retry",
+      "text": "Correct the step’s values, then run it again."
+    },
+    {
+      "title": "Retry or skip",
+      "text": "Run the step again as it is, or go on without it."
+    },
+    {
+      "title": "Stop",
+      "text": "With cleanup first, or at once, leaving the deck as it is."
+    }
+  ],
+  "run-iterate": [
+    {
+      "title": "One column per #variable",
+      "text": "With the type the driver expects under its name."
+    },
+    {
+      "title": "One row per sample",
+      "text": "Rows run top to bottom. A row left empty is not a sample."
+    },
+    {
+      "title": "CSV in and out",
+      "text": "Bring samples from a spreadsheet, or save these."
+    },
+    {
+      "title": "Batch size",
+      "text": "How many rows share one once-per-batch step. 1 runs each row start to finish."
+    }
+  ],
+  "run-iterate-batch": [
+    {
+      "title": "Once per batch",
+      "text": "This column feeds a batch step: one value for each group."
+    },
+    {
+      "title": "Groups",
+      "text": "A purple line starts each group of rows."
+    },
+    {
+      "title": "First row counts",
+      "text": "Greyed cells are ignored: the group takes its first row’s value."
+    }
+  ],
+  "run-once": [
+    {
+      "title": "Ways to run",
+      "text": "Once is one sample. Iterate is a table of them. Optimize lets an optimizer choose."
+    },
+    {
+      "title": "One field per #variable",
+      "text": "Typed as the driver declares it. An empty field offers None or the driver’s default."
+    },
+    {
+      "title": "Preview",
+      "text": "Every call this run will make, before anything moves."
+    },
+    {
+      "title": "Run",
+      "text": "Starts now. Reads Add to queue while another run is going."
+    }
+  ],
+  "run-once-guard-hint": [
+    {
+      "title": "Marked as you type",
+      "text": "A value past its limit turns red and says why."
+    },
+    {
+      "title": "The limit",
+      "text": "Shown under the field, in its unit."
+    },
+    {
+      "title": "Pick a position",
+      "text": "A field limited to a tray opens the tray to choose from."
+    }
+  ],
+  "run-optimize": [
+    {
+      "title": "Engine",
+      "text": "The optimizer that suggests each trial."
+    },
+    {
+      "title": "Budget and batch",
+      "text": "How many trials in all, and how many are suggested at a time."
+    },
+    {
+      "title": "Search space",
+      "text": "A range, a list of choices, or a fixed value for each #variable."
+    }
+  ],
+  "run-optimize-objectives": [
+    {
+      "title": "Objective",
+      "text": "Any number a step saves. Maximize or minimize it."
+    },
+    {
+      "title": "Stop early",
+      "text": "End the campaign once a trial reaches this value."
+    },
+    {
+      "title": "Existing data",
+      "text": "Start from earlier runs or a CSV instead of from nothing."
+    }
+  ],
+  "run-optimize-start": [
+    {
+      "title": "Start",
+      "text": "Prep runs once, then one trial after another until the budget is used."
+    },
+    {
+      "title": "Suggest only",
+      "text": "Get suggestions to run by hand, and enter the results yourself."
+    }
+  ],
+  "run-preview": [
+    {
+      "title": "What will run",
+      "text": "Linked workflows are expanded: this is exactly what is queued."
+    },
+    {
+      "title": "Prep, once",
+      "text": "Before the first sample. Cleanup, at the end, also runs once."
+    },
+    {
+      "title": "Per sample",
+      "text": "Main steps repeat for every row. A batch step shows ×1 per batch."
+    }
+  ],
+  "run-refused": [
+    {
+      "title": "Refused before anything moves",
+      "text": "The message names the step, the value and the limit it broke."
+    }
+  ],
+  "run-stages": [
+    {
+      "title": "A stage",
+      "text": "Each linked workflow is one. Its line says whether it is ready."
+    },
+    {
+      "title": "How it runs",
+      "text": "Pick one and it opens in place: a form, a table, or an optimizer."
+    },
+    {
+      "title": "Run",
+      "text": "Offered once every stage is ready. Each is queued as its own run, in order."
+    }
+  ],
+  "safety-limits": [
+    {
+      "title": "Four kinds of guard",
+      "text": "Limits on a field, trays of positions, deck states, and rules between instruments."
+    },
+    {
+      "title": "A limit",
+      "text": "The lowest and highest value this field may take, and the unit its numbers are in."
+    },
+    {
+      "title": "Per instrument",
+      "text": "The number is how many limits it has."
+    },
+    {
+      "title": "Save",
+      "text": "Nothing changes until you save. Then it holds for every run and every manual call."
+    }
+  ],
+  "safety-rules": [
+    {
+      "title": "When",
+      "text": "The call the rule watches for."
+    },
+    {
+      "title": "Require",
+      "text": "What must hold at that moment. A reading is taken from the instrument right then."
+    },
+    {
+      "title": "Otherwise",
+      "text": "The call is blocked and the person is told this."
+    }
+  ],
+  "safety-states": [
+    {
+      "title": "A state",
+      "text": "A condition of the deck, in your lab’s own words."
+    },
+    {
+      "title": "How it is known",
+      "text": "From the calls that change it, or by asking an instrument each time."
+    },
+    {
+      "title": "A call that changes it",
+      "text": "After reactor.load_vial the state is loaded."
+    },
+    {
+      "title": "Now",
+      "text": "Its value at this moment. Set it by hand if it is unknown."
+    }
+  ],
+  "safety-trays": [
+    {
+      "title": "Add a tray",
+      "text": "Start from a common plate or rack, or set your own size."
+    },
+    {
+      "title": "Size and naming",
+      "text": "Rows, columns, and how its positions are written: A1, A01 or numbers."
+    },
+    {
+      "title": "Blocked position",
+      "text": "Click a position to block it. It stays on the tray but may not be used."
+    },
+    {
+      "title": "Where it is used",
+      "text": "The field that only takes this tray’s positions."
+    }
+  ],
+  "settings": [
+    {
+      "title": "Theme",
+      "text": "Light, dark, or whatever the computer uses."
+    },
+    {
+      "title": "Navigation",
+      "text": "Pages down the left, or along the top as in the desktop app."
+    },
+    {
+      "title": "Notifications",
+      "text": "Tell me when a run waits for input or a step fails."
+    }
+  ],
+  "user-input-prompt": [
+    {
+      "title": "The step’s message",
+      "text": "Shown on whichever page you are on. The run waits."
+    },
+    {
+      "title": "Answer and continue",
+      "text": "The answer is saved under the step’s variable name for later steps."
+    },
+    {
+      "title": "Answer later",
+      "text": "Minimised, the prompt waits here."
+    }
+  ]
+}

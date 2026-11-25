@@ -13,6 +13,7 @@ import { packageConflictDialog } from '@/components/launcher/packageConflict';
 import CloudEarlyAccess from '@/components/launcher/CloudEarlyAccess';
 import { sharedIdentity } from '@/components/launcher/CloudConnection';
 import DeckPanel from '@/components/launcher/DeckPanel';
+import ScriptObjects from '@/components/launcher/ScriptObjects';
 import HubBrowser, { type HubKind } from '@/components/launcher/HubBrowser';
 import type { InstrumentSeed } from '@/components/launcher/PrivateRepos';
 import ProfileSettings from '@/components/launcher/ProfileSettings';
@@ -928,6 +929,7 @@ function ScriptOverview({ api, profile, openSettings, openCode }: { api: Desktop
         {!!profile.args?.length && <Row label="Arguments"><span className="font-mono">{profile.args.join(' ')}</span></Row>}
         <Row label="Data">{profile.dataDir ? <span className="font-mono break-all">{profile.dataDir}</span> : 'The script’s own runs and workflows'}</Row>
       </div>
+      <ScriptObjects api={api} profile={profile} />
       {/* Only when some are set: few scripts read any, and an empty card explaining them was noise. */}
       {env.length > 0 && (
         <div className={`${cardClass} p-4`}>

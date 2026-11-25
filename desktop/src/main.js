@@ -1115,6 +1115,7 @@ function registerIpc() {
     handle('launcher:instrument:save', (id, originalName, entry) => manager.saveInstrument(id, originalName, entry));
     handle('launcher:instrument:remove', (id, name) => manager.removeInstrument(id, name));
     handle('launcher:instrument:enable', (id, name, enabled) => manager.setInstrumentEnabled(id, name, enabled));
+    handle('launcher:script:instrument', (id, name, choice) => manager.setInstrumentChoice(id, name, choice));
     handle('launcher:plugin:remove', (id, ref) => manager.removePlugin(id, ref));
     handle('launcher:plugin:enable', (id, ref, enabled) => manager.setPluginEnabled(id, ref, enabled));
     handle('launcher:packages', (id) => manager.deckPackages(id));

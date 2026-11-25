@@ -72,7 +72,43 @@ function withDefaults(home, profile) {
         // edge package's folders), so a script started here sees the same runs and workflows as
         // when it is started from a terminal. Set it to give the script a separate history.
         dataDir: profile.dataDir === undefined ? null : profile.dataDir,
+        // The person's own on/off for the script's objects, {name: true|false}, over the edge's
+        // rules (script_objects.py): true puts one on the deck, false leaves it off. Only names
+        // someone switched are here; the rest follow the rules.
+        instrumentChoices: cleanChoices(profile.instrumentChoices),
     };
+}
+
+/** {name: boolean}, dropping anything else: a name the edge could not read from a comma list. */
+function cleanChoices(choices) {
+    const out = {};
+    if (!choices || typeof choices !== 'object' || Array.isArray(choices)) return out;
+    for (const [name, on] of Object.entries(choices)) {
+        if (typeof on === 'boolean' && /^[^\s,]+$/.test(name)) out[name] = on;
+    }
+    return out;
+}
+
+/**
+ * A script profile's choices as the edge reads them: IVORYOS_EXCLUDE_NAMES and
+ * IVORYOS_INCLUDE_NAMES, comma separated, after any the person set in the profile's own
+ * environment. Empty for a deck profile, whose entries are switched in the deck file.
+ */
+function choiceEnv(profile) {
+    if (profile.kind !== 'script') return {};
+    const choices = profile.instrumentChoices || {};
+    const own = profile.env || {};
+    const list = (variable, on) => {
+        const names = String(own[variable] || '').split(',').map((n) => n.trim()).filter(Boolean);
+        for (const [name, value] of Object.entries(choices)) if (value === on) names.push(name);
+        return [...new Set(names)].join(',');
+    };
+    const out = {};
+    const hide = list('IVORYOS_EXCLUDE_NAMES', false);
+    const show = list('IVORYOS_INCLUDE_NAMES', true);
+    if (hide) out.IVORYOS_EXCLUDE_NAMES = hide;
+    if (show) out.IVORYOS_INCLUDE_NAMES = show;
+    return out;
 }
 
 /** Problems that would stop a profile from starting, as readable sentences. */
@@ -250,6 +286,7 @@ function commandFor(profile, ctx) {
         // A release where Cloud is not offered yet: the deck's own pages do not offer it either.
         ...(ctx.cloudComingSoon ? { IVORYOS_CLOUD_COMING_SOON: '1' } : {}),
         ...profile.env,
+        ...choiceEnv(profile),
         IVORYOS_PORT: String(profile.port),
         IVORYOS_HOST: host,
         ...(profile.dataDir ? { IVORYOS_DATA_DIR: profile.dataDir } : {}),
@@ -294,6 +331,6 @@ function writeDeckFile(file, deck) {
 
 module.exports = {
     modulePathFor,
-    DEFAULT_PORT, loadProfiles, saveProfiles, withDefaults, validateProfile, commandFor, usesOwnInterpreter,
+    DEFAULT_PORT, loadProfiles, saveProfiles, withDefaults, validateProfile, commandFor, usesOwnInterpreter, choiceEnv,
     readDeckFile, writeDeckFile, profileDir, newId,
 };

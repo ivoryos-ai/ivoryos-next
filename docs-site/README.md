@@ -6,15 +6,16 @@ The user guide and developer guide, built with [Astro Starlight](https://starlig
 npm install
 npm run dev          # http://localhost:4321
 npm run build        # static site in dist/, deployable to any static host
-npm run screenshots  # regenerate every screenshot from the example deck (see below)
+npm run screenshots  # regenerate every annotated picture from the example deck (see below)
 ```
 
 Pages live in `src/content/docs/` (`start/`, `guide/`, `run/`, `desktop/`, `cloud/`, `dev/*`,
 `reference/`); the sidebar is generated from those folders in `astro.config.mjs`.
 
-Screenshots are generated, not pasted: `scripts/screenshots.mjs` drives the installed Google
-Chrome against `scripts/docs-deck.py` (the example lab in a data folder of its own) and captures
-each documented state. To regenerate after an interface change:
+Pictures are generated with their notes, not pasted: `scripts/screenshots.mjs` drives the installed
+Google Chrome against `scripts/docs-deck.py` (the example lab in a data folder of its own), draws
+each picture's rings and notes on the page (`scripts/annotate.mjs`) and saves it under
+`src/assets/annotated/`. To regenerate after an interface change:
 
 ```bash
 rm -rf .deck-data

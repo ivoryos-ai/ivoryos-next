@@ -6,6 +6,7 @@ sidebar:
 ---
 
 import { Tabs, TabItem, Steps, Aside } from '@astrojs/starlight/components';
+import Shot from '../../../components/Shot.astro';
 
 There are two ways to run IvoryOS. **The desktop app** is the one to pick unless you already have a
 Python workflow of your own: it manages Python, your decks and driver installs for you.
@@ -48,23 +49,23 @@ Python workflow of your own: it manages Python, your decks and driver installs f
 
 </Steps>
 
-You land on the welcome page, which offers three things: **Try the example** (a simulated lab,
-nothing to plug in), **Add a deck** (your own instruments) and the Automation Hub. Continue with
-[Try the example](/start/try-the-example/).
+You land on the welcome page:
+
+<Shot name="launcher-welcome" alt="The desktop app's welcome page" />
+
+Continue with [Try the example](/start/try-the-example/).
 
 ## The edge server alone (pip)
 
-The deck is a plain Python package, `ivoryos-edge`. Use it directly when you already have a script
-that creates your instruments, or on a machine where you want no desktop app. The package carries
-its web interface, which is built from the repository's frontend, and it is not on PyPI yet, so
-build it from a checkout (Python 3.10 or newer, Node.js 22 and [uv](https://docs.astral.sh/uv/)):
+The deck is a plain Python package, `ivoryos-edge`, with its web interface inside. Use it directly
+when you already have a script that creates your instruments, or on a machine where you want no
+desktop app (Python 3.10 or newer):
 
 ```bash
-npm install && npm run build:edge
-pip install edge_server/dist/ivoryos_edge-*.whl
+pip install ivoryos-edge
 ```
 
-or, to work on IvoryOS itself, `pip install -e ./edge_server` after `npm --prefix frontend run build`.
+To work on IvoryOS itself, see [Development setup](/dev/internals/development-setup/).
 
 Then end your script with `ivoryos_edge.run(__name__)` and run it:
 

@@ -444,6 +444,28 @@ def read_version(workflows_dir, name, version=None):
         return dict(row.body)
 
 
+# --- change notices -----------------------------------------------------------------------------
+# Who to tell when a saved workflow is added, changed, re-tagged or deleted. The server registers
+# the page socket's `workflows` topic here (live.py), so an open Designer's toolbox follows changes
+# made anywhere: a save from either app, a push from Cloud, an accepted proposal, a delete. Told
+# from the store itself rather than from each route, so a new way of writing a workflow cannot
+# forget to. A file changed by hand on disk is noticed on the next read and announced by nothing.
+_change_listeners = []
+
+
+def on_change(listener):
+    """Call `listener()` after every write that changes what the workflows are."""
+    _change_listeners.append(listener)
+
+
+def _changed():
+    for listener in list(_change_listeners):
+        try:
+            listener()
+        except Exception as e:
+            print(f"Could not announce a workflow change: {e}")
+
+
 def _write_json(path, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as fp:
@@ -517,6 +539,9 @@ def save_version(workflows_dir, name, body, note=None, author=None):
         if stat is not None:
             row.file_mtime, row.file_size = stat
 
+    # After the commit, so whoever is told and reads it back finds the new version. A save that
+    # changed nothing returned above and is not announced.
+    _changed()
     return body, version, True
 
 
@@ -534,6 +559,7 @@ def delete_workflow(workflows_dir, name):
     except OSError:
         pass
     _write_meta_mirror(workflows_dir)
+    _changed()
 
 
 # --- tags ---------------------------------------------------------------------------------------
@@ -598,6 +624,7 @@ def set_tags(workflows_dir, name, tags):
             raise WorkflowNotFound(f"Workflow '{name}' not found")
         row.tags = cleaned
     _write_meta_mirror(workflows_dir)
+    _changed()
     return cleaned
 
 
