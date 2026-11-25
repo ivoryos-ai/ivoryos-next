@@ -178,6 +178,7 @@ function PlatformForm({ api, access, deck, platform, link, onDone }: {
   const install = async () => {
     setBusy('Preparing…');
     let created: string | null = null;
+    let attempt: ((own: boolean) => Promise<void>) | null = null;
     try {
       const entries = await Promise.all(chosen.map(r => api.hubEntry({ moduleId: r.module.id, name: r.name, connection: { args: r.form } })));
       const instruments: DeckInstrument[] = entries.map(e => e.instrument);
@@ -210,26 +211,37 @@ function PlatformForm({ api, access, deck, platform, link, onDone }: {
       );
       if (!ok) return;
 
-      setBusy('Installing drivers…');
-      let deckId = existing?.id || '';
-      if (target === 'new' || !deckId) {
-        const profile = await api.createProfile({ kind: 'deck', name: deckName.trim() });
-        created = profile.id;
-        deckId = profile.id;
-      }
-      await api.install(deckId, { name: target === 'new' ? deckName.trim() : undefined, packages, instruments, plugins: pluginRefs });
+      // `own`: with the deck in its own Python, offered when the platform cannot share the shared one.
+      attempt = async (own: boolean) => {
+        setBusy('Installing drivers…');
+        created = null;
+        let deckId = existing?.id || '';
+        if (target === 'new' || !deckId) {
+          const profile = await api.createProfile({ kind: 'deck', name: deckName.trim(), ...(own ? { environment: 'own' as const } : {}) });
+          created = profile.id;
+          deckId = profile.id;
+        } else if (own) {
+          await api.setEnvironment(deckId, 'own');
+        }
+        await api.install(deckId, { name: target === 'new' ? deckName.trim() : undefined, packages, instruments, plugins: pluginRefs });
 
-      if (pickedTemplates.length) {
-        setBusy('Adding workflows…');
-        const bodies = await Promise.all(pickedTemplates.map(t => api.hubTemplate(t.id)));
-        await api.addWorkflows(deckId, bodies.map(({ template: t }) => ({ name: t.workflowName || templateTitle(t), body: t.workflow })));
-      }
-      onDone(created);
+        if (pickedTemplates.length) {
+          setBusy('Adding workflows…');
+          const bodies = await Promise.all(pickedTemplates.map(t => api.hubTemplate(t.id)));
+          await api.addWorkflows(deckId, bodies.map(({ template: t }) => ({ name: t.workflowName || templateTitle(t), body: t.workflow })));
+        }
+        onDone(created);
+      };
+      await attempt(false);
     } catch (e: any) {
       // A new deck that did not install is an empty profile nobody asked for; the one the browser
       // was opened on is left as the failed install left it (manager.js writes nothing on failure).
-      if (created) await api.removeProfile(created).catch(() => {});
-      await installFailed(api, 'Could not install the platform', e, created ? null : (existing?.id ?? null));
+      const removeCreated = async () => { if (created) await api.removeProfile(created).catch(() => {}); };
+      await removeCreated();
+      const again = attempt;
+      await installFailed(api, 'Could not install the platform', e, created ? null : (existing?.id ?? null), again ? async () => {
+        try { await again(true); } catch (err) { await removeCreated(); throw err; }
+      } : undefined);
     } finally {
       setBusy(null);
     }

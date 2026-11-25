@@ -9,6 +9,12 @@
 // uv does the heavy lifting: it downloads a standalone CPython if the machine has none (so the
 // user never installs Python), and installs packages an order of magnitude faster than pip,
 // which matters because a driver install happens with the edge stopped.
+//
+// Decks share this one environment unless a deck is given its own (`forDeck`, issue 82), which
+// is how two decks needing different versions of one package run on one computer. A deck's own
+// environment is the same kind of thing in `envs/<profile id>/`, with the same edge. uv links its
+// files from its cache rather than copying them, so a second environment holding PyTorch takes
+// seconds and little disk (measured: 2 s and about 50 MB for a copy of a 1.1 GB environment).
 
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -20,6 +26,17 @@ function venvPython(venvDir) {
     return process.platform === 'win32'
         ? path.join(venvDir, 'Scripts', 'python.exe')
         : path.join(venvDir, 'bin', 'python');
+}
+
+/** Where the launcher keeps its Python (main.js makes the shared runtime here). */
+function runtimeDir(home) {
+    return path.join(home, 'runtime');
+}
+
+/** The folder of a deck's own environment, beside the shared one. Profile ids are `p_<hex>`. */
+function deckEnvironmentDir(dir, id) {
+    if (!/^[A-Za-z0-9_-]+$/.test(String(id))) throw new Error(`Not a profile id: ${id}`);
+    return path.join(dir, 'envs', String(id));
 }
 
 /** Run a command, streaming its output to `onLine`; resolve with the output, reject on failure. */
@@ -54,6 +71,7 @@ class PythonRuntime {
      * @param {object} opts.edgeSource  how to install the edge: {kind: 'wheel', path} or
      *                                  {kind: 'editable', path} (a source checkout, in development)
      * @param {(line: string) => void} [opts.onLine]
+     * @param {string} [opts.firstSetup]  what ensure() says while it makes the venv
      */
     constructor(opts) {
         this.uv = opts.uv;
@@ -62,10 +80,39 @@ class PythonRuntime {
         this.statePath = path.join(opts.dir, 'state.json');
         this.edgeSource = opts.edgeSource;
         this.onLine = opts.onLine || (() => {});
+        this.firstSetup = opts.firstSetup || 'Setting up Python (first launch only)…';
+        this.decks = new Map(); // profile id -> that deck's own PythonRuntime
+        this._edgeRequirements = null; // {fingerprint, requirements}
     }
 
     get python() {
         return venvPython(this.venv);
+    }
+
+    // --- a deck's own environment (manager.js: profile `environment: 'own'`) ------------------------
+
+    /**
+     * The environment a deck that has its own runs in: a runtime like this one in `envs/<id>/`,
+     * with the same edge. Not created here: its ensure() does that, the first time it is used.
+     */
+    forDeck(id) {
+        if (!this.decks.has(id)) {
+            this.decks.set(id, new PythonRuntime({
+                uv: this.uv, dir: deckEnvironmentDir(this.dir, id), edgeSource: this.edgeSource, onLine: this.onLine,
+                firstSetup: 'Setting up this deck’s own Python…',
+            }));
+        }
+        return this.decks.get(id);
+    }
+
+    hasDeckEnvironment(id) {
+        return fs.existsSync(venvPython(path.join(deckEnvironmentDir(this.dir, id), 'venv')));
+    }
+
+    /** Throw a deck's own environment away (it moved back to the shared one, or was removed). */
+    removeDeckEnvironment(id) {
+        fs.rmSync(deckEnvironmentDir(this.dir, id), { recursive: true, force: true });
+        this.decks.delete(id);
     }
 
     _readState() {
@@ -152,7 +199,7 @@ class PythonRuntime {
     async ensure({ onProgress = () => {} } = {}) {
         const state = this._readState();
         if (!fs.existsSync(this.python)) {
-            onProgress('Setting up Python (first launch only)…');
+            onProgress(this.firstSetup);
             fs.mkdirSync(this.dir, { recursive: true });
             await run(this.uv, ['venv', '--python', PYTHON_VERSION, '--seed', this.venv], { onLine: this.onLine });
             delete state.edge;
@@ -211,17 +258,75 @@ class PythonRuntime {
      * its last successful install, which is what keeps an ordinary start fast; tracked per `key`
      * (the launcher passes the profile id) because several decks share this one environment.
      * After reset() every list is installed again, so a rebuilt environment still has the drivers.
+     *
+     * `install` is what is actually given to uv, when it is more than the deck's list: in the
+     * shared environment, the deck's list together with every other deck's and the edge's own
+     * requirements (manager.js `_planInstall`), so that no other deck's package is replaced by a
+     * version it cannot use. The fingerprint is still of the deck's own list.
      */
-    async ensurePackages(requirements, { key = 'default', onProgress = () => {} } = {}) {
-        const state = this._readState();
-        const fingerprint = JSON.stringify([...requirements].sort());
-        if ((state.packagesByKey || {})[key] === fingerprint) return;
+    async ensurePackages(requirements, { key = 'default', onProgress = () => {}, install = null } = {}) {
+        if (this.packagesUpToDate(requirements, key)) return;
         if (requirements.length) {
             onProgress(`Installing ${requirements.length} driver package${requirements.length === 1 ? '' : 's'}…`);
-            await this.install(requirements);
+            await this.install(install || requirements);
         }
         const latest = this._readState();
-        this._writeState({ ...latest, packagesByKey: { ...(latest.packagesByKey || {}), [key]: fingerprint } });
+        this._writeState({ ...latest, packagesByKey: { ...(latest.packagesByKey || {}), [key]: JSON.stringify([...requirements].sort()) } });
+    }
+
+    /** Whether `requirements` is what was last installed successfully for `key`. */
+    packagesUpToDate(requirements, key = 'default') {
+        return (this._readState().packagesByKey || {})[key] === JSON.stringify([...requirements].sort());
+    }
+
+    /** The list last installed successfully for `key` (as ensurePackages recorded it), or null. */
+    installedPackages(key) {
+        const recorded = (this._readState().packagesByKey || {})[key];
+        try { return recorded ? JSON.parse(recorded) : null; } catch { return null; }
+    }
+
+    /** Forget what was installed for `key`, so its next ensurePackages installs (a deck moving in). */
+    forgetPackages(key) {
+        const state = this._readState();
+        if (!state.packagesByKey || !(key in state.packagesByKey)) return;
+        delete state.packagesByKey[key];
+        this._writeState(state);
+    }
+
+    /**
+     * The edge's own requirements as installed here (`Requires-Dist` of ivoryos-edge, extras left
+     * out), for every resolution to include: a driver pinning an old SQLAlchemy would otherwise
+     * replace the one the edge needs, and every deck in the environment would stop starting. The
+     * requirements rather than the edge itself, because uv reinstalls an editable edge (a
+     * development checkout) on every dry run, which read as "would replace a package" to a deck
+     * that is running. Cached until the edge build changes. Never throws: [] when it cannot say.
+     */
+    async edgeRequirements() {
+        const fingerprint = this._edgeFingerprint();
+        if (this._edgeRequirements && this._edgeRequirements.fingerprint === fingerprint) return this._edgeRequirements.requirements;
+        const probe = 'import json, importlib.metadata as m\ntry:\n    r = m.requires("ivoryos-edge") or []\nexcept Exception:\n    r = []\nprint(json.dumps([x for x in r if "extra ==" not in x and "extra==" not in x]))';
+        let requirements = [];
+        try {
+            requirements = JSON.parse((await run(this.python, ['-c', probe])).trim().split(/\r?\n/).pop());
+        } catch { /* not set up yet: nothing to protect */ }
+        this._edgeRequirements = { fingerprint, requirements };
+        return requirements;
+    }
+
+    /**
+     * Whether `requirements` can be installed here, without installing anything (the resolution
+     * an install does, as a dry run): {ok: true, changes} or {ok: false, output}. `changes` are
+     * parseDryRun's; a '-' is an installed package that would be replaced.
+     */
+    async resolve(requirements) {
+        if (!requirements.length) return { ok: true, changes: [] };
+        const { parseDryRun } = require('./deckPackages');
+        try {
+            const out = await run(this.uv, ['pip', 'install', '--dry-run', '--python', this.python, '--torch-backend', 'cpu', ...requirements]);
+            return { ok: true, changes: parseDryRun(out) };
+        } catch (e) {
+            return { ok: false, output: String(e.output || e.message) };
+        }
     }
 
     /**
@@ -372,9 +477,15 @@ class PythonRuntime {
         }
     }
 
-    /** Throw the venv away; the next ensure() rebuilds it. For a broken environment. */
+    /**
+     * Throw the venv away; the next ensure() rebuilds it. For a broken environment. Decks' own
+     * environments go too: each is rebuilt, with its deck's packages, the next time it starts.
+     */
     reset() {
         fs.rmSync(this.venv, { recursive: true, force: true });
+        fs.rmSync(path.join(this.dir, 'envs'), { recursive: true, force: true });
+        this.decks.clear();
+        this._edgeRequirements = null;
         const state = this._readState();
         delete state.edge;
         delete state.packagesByKey;
@@ -382,4 +493,4 @@ class PythonRuntime {
     }
 }
 
-module.exports = { PythonRuntime, PYTHON_VERSION, venvPython, run };
+module.exports = { PythonRuntime, PYTHON_VERSION, venvPython, run, runtimeDir, deckEnvironmentDir };

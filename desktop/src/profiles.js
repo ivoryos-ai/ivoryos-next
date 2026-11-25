@@ -56,6 +56,9 @@ function withDefaults(home, profile) {
             // Each deck profile keeps its own runs and workflows: a demo deck and the real bench
             // should not share one history.
             dataDir: profile.dataDir || path.join(profileDir(home, id), 'data'),
+            // 'shared': the launcher's one Python environment, with every other such deck.
+            // 'own': an environment of its own (runtime.js forDeck), for packages that cannot share.
+            environment: profile.environment === 'own' ? 'own' : 'shared',
         };
     }
     return {

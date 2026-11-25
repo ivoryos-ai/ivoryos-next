@@ -4,6 +4,7 @@ import { AlertTriangle, ExternalLink, GitBranch, Loader2, Lock, Search, Sparkles
 import type { ArgDef, DesktopApi, GitConnection, GitImport, GitProvider, GitRepo } from '@/desktop';
 import { GitConnections } from './AccountPanel';
 import { Button, inputClass } from './ui';
+import { installFailed } from './ReportProblem';
 import { addTo, type DeckAccess } from './hubUi';
 
 /** A class picked from an imported repository, with its constructor as the code declares it. */
@@ -169,9 +170,17 @@ export default function PrivateRepos({ api, access, pro, onUpgrade, onPicked }: 
               </div>
               <Button small tone="primary" disabled={!!importing} onClick={async () => {
                 setImporting(r.id); setError(null);
+                const attempt = (own: boolean) => addTo(access, r.name, async deck => {
+                  if (own) await api.setEnvironment(deck.id, 'own');
+                  setImported({ repo: r, result: await api.gitImport(deck.id, provider!, r.id) });
+                });
                 try {
-                  await addTo(access, r.name, async deck => { setImported({ repo: r, result: await api.gitImport(deck.id, provider!, r.id) }); });
-                } catch (e: any) { setError(e.message); } finally { setImporting(null); }
+                  await attempt(false);
+                } catch (e: any) {
+                  // A conflict gets the dialog (its own Python, or a brief for an agent); anything else stays inline.
+                  if (e?.code === 'package-conflict') await installFailed(api, `Could not import ${r.name}`, e, access.target?.id ?? null, () => attempt(true));
+                  else setError(e.message);
+                } finally { setImporting(null); }
               }}>
                 {importing === r.id ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Installing…</> : `Import ${r.defaultBranch}`}
               </Button>

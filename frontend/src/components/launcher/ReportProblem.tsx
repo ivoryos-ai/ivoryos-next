@@ -5,6 +5,7 @@ import { CheckCircle2, Copy, ExternalLink, Loader2, Send } from 'lucide-react';
 import { chooseDialog, notify } from '@ivoryos/shared-ui';
 import type { DesktopApi, ReportFailure } from '@/desktop';
 import { Button, Modal, inputClass, labelClass } from './ui';
+import { packageConflictDialog } from './packageConflict';
 
 type Phase =
   | { phase: 'idle' }
@@ -140,12 +141,25 @@ export function openReport(api: DesktopApi, profileId: string | null, failure?: 
 /**
  * A Hub install that failed: its message and the end of pip's output, with the choice to send it.
  * `deckId` is the deck it was going into, or null when it was a new one that has been removed.
+ *
+ * `inOwnPython` does the same install again with the deck in its own Python (setting that up
+ * first, on a new deck too): offered when the packages cannot share the shared Python with another
+ * deck's (packageConflict.ts). Without it, the conflict is shown with the brief for an agent only.
  */
-export async function installFailed(api: DesktopApi, title: string, e: any, deckId: string | null) {
+export async function installFailed(api: DesktopApi, title: string, e: any, deckId: string | null, inOwnPython?: () => Promise<unknown>) {
   // Not a failure: the deck is running and was left alone (manager.js _installFor), because it is
   // on a run or the install would replace packages it has open. Nothing to send.
   if (e?.code === 'run-under-way' || e?.code === 'stop-first') {
     await notify(e.message, { title: e.code === 'stop-first' ? 'Stop the deck first' : 'A run is under way' });
+    return;
+  }
+  // Nothing was installed; what uv said, and what can be done about it.
+  if (e?.code === 'package-conflict' && e.detail) {
+    try {
+      await packageConflictDialog(api, e.detail, { own: inOwnPython });
+    } catch (again: any) {
+      await installFailed(api, title, again, deckId);
+    }
     return;
   }
   const output = e?.output ? String(e.output) : '';

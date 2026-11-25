@@ -56,6 +56,26 @@ ever uninstalled**; the list only says what this deck needs:
   not stopped for you); if it cannot be installed, the deck is left as it was. Optimizers are chosen in the deck's Settings instead, from versions
   tested together, and a private repository moves to a newer commit by importing it again.
 
+### When packages clash
+
+Every install is checked first against what the other decks in the shared Python have installed,
+and against what IvoryOS itself needs. Nothing is installed when they do not fit together; instead a
+dialog says what uv found, with what can be done:
+
+- **Another deck's packages** need different versions: **Give it its own Python** sets up an
+  environment for this deck alone, beside the shared one (a few seconds: uv links its files rather
+  than copying them), and does the install again there. Both decks then run, each with its versions.
+  The deck's **Settings → Python** shows which Python it uses, and moves it back to the shared one
+  when its packages fit there again.
+- **The deck's own packages** need different versions of one package: one Python holds one version,
+  so no environment helps. Put one of the drivers on another deck, or change a version.
+- **IvoryOS itself** needs other versions: the same, since a deck's own Python has IvoryOS in it too.
+
+In every case, **Copy** copies, written for an AI coding agent, the problem, the decks' package lists and the rules
+for trying fixes safely (in a throwaway environment, never the launcher's), to paste into Claude Code
+or another coding agent on this computer. If it changes the deck's package list, Start installs the
+new list, checked the same way. A deck file changed by hand is checked at Start too.
+
 ## Start, Open, Stop, Restart
 
 **Start** checks the Python environment (the first time it downloads Python and installs the edge),
@@ -121,10 +141,11 @@ IvoryOS** on its banner packages this log for the team; see
 | `profiles.json` | your profiles and the app's settings |
 | `profiles/<id>/deck.json` | a deck profile's instruments (Settings → Show deck file) |
 | `profiles/<id>/data/` | that deck's runs, workflows, safety config and Cloud pairing |
-| `runtime/venv/` | the Python environment all decks share, managed by uv |
+| `runtime/venv/` | the Python environment the decks share, managed by uv |
+| `runtime/envs/<id>/` | a deck's own Python environment, when it has one |
 | `logs/<id>.log` | each profile's output |
 
-Deleting `runtime/` is safe; it is rebuilt on the next start. Deleting `profiles/<id>/data/`
+Deleting `runtime/` is safe; it is rebuilt on the next start, own environments included. Deleting `profiles/<id>/data/`
 deletes that deck's run history.
 
 ## Python for your own editor

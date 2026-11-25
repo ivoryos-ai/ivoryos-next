@@ -1030,14 +1030,14 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'test'" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.10" },
-    { name = "paho-mqtt" },
+    { name = "paho-mqtt", specifier = ">=2.0" },
     { name = "pandas" },
     { name = "pydantic" },
     { name = "pytest", marker = "extra == 'test'" },
     { name = "pytest-asyncio", marker = "extra == 'test'" },
     { name = "python-dotenv" },
     { name = "python-socketio", extras = ["client"] },
-    { name = "sqlalchemy", extras = ["asyncio"] },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
     { name = "uvicorn" },
 ]
 provides-extras = ["test", "mcp", "claude"]

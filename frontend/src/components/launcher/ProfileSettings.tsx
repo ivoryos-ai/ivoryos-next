@@ -6,6 +6,7 @@ import type { DesktopApi, Profile, CloudLink } from '@/desktop';
 import PythonEnvironment from './PythonEnvironment';
 import CloudConnection from './CloudConnection';
 import OptimizerSettings from './OptimizerSettings';
+import DeckEnvironment from './DeckEnvironment';
 import { okToRestart } from './restart';
 import { Button, DOCS_URL, Field, KeyValueRows, cardClass, inputClass } from './ui';
 
@@ -143,6 +144,8 @@ export default function ProfileSettings({ api, profile, link, sharedWith, onRemo
       </section>
 
       {!script && <OptimizerSettings api={api} profile={profile} />}
+
+      {!script && <DeckEnvironment api={api} profile={profile} />}
 
       {cloudOffered && <CloudConnection api={api} profile={profile} link={link} sharedWith={sharedWith} />}
 

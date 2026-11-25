@@ -304,7 +304,8 @@ On macOS in `~/Library/Application Support/IvoryOS/` (Windows: `%APPDATA%\IvoryO
 | `profiles.json` | your profiles and the Hub address |
 | `profiles/<id>/deck.json` | a deck profile's instruments (Settings → Show deck file) |
 | `profiles/<id>/data/` | that deck's runs, workflows and Cloud settings |
-| `runtime/venv/` | the Python environment all profiles use, managed by uv |
+| `runtime/venv/` | the Python environment the profiles share, managed by uv |
+| `runtime/envs/<id>/` | a deck's own Python environment, when its packages cannot share (below) |
 | `logs/<id>.log` | each profile's output (Log tab → Log file) |
 
 Deleting `runtime/` is safe: it is rebuilt on the next start. Deleting `profiles/<id>/data/`
@@ -320,6 +321,8 @@ deletes that deck's run history.
 | An instrument is red: `could not open port` | unplugged, powered off, wrong port | fix the cable or the `port`, then Restart |
 | "Stopped unexpectedly" | the process crashed | read the Log tab (the last lines say why) |
 | "uv was not found" | development build without uv | install uv (docs.astral.sh/uv), then Start again |
+| "… cannot share Python with …" | two decks need different versions of one package, and decks share one Python | **Give it its own Python** in that dialog (or the deck's Settings → Python): the deck gets an environment of its own, and both run |
+| "…'s packages cannot be installed together" | two drivers on one deck need different versions of one package | one Python holds one version: put one driver on another deck, or change a version. **Copy** puts the problem on the clipboard, written for a coding agent to look for versions that work |
 | The page in a tab is blank after a restart | it reloaded before the edge answered | click the tab and press Cmd/Ctrl+R |
 
 ## 12. Is this a normal way to build an app?

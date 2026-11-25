@@ -39,7 +39,10 @@ export default function OptimizerSettings({ api, profile }: { api: DesktopApi; p
       await api.setOptimizers(profile.id, draft);
       if (running) notify(`Installed. ${profile.name} offers it on its Optimize page after you restart it.`, { title: 'Not applied yet' });
     } catch (e: any) {
-      await installFailed(api, 'Could not install the optimizers', e, profile.id);
+      await installFailed(api, 'Could not install the optimizers', e, profile.id, async () => {
+        await api.setEnvironment(profile.id, 'own');
+        await api.setOptimizers(profile.id, draft);
+      });
     } finally {
       setBusy(false);
       load();

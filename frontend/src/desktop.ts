@@ -25,6 +25,24 @@ export type ProfileStatus = {
   pending?: ('deck' | 'script' | 'packages' | 'settings' | 'cloud')[];
   /** What is being installed into a deck that is running (it is not stopped for an install). */
   installing?: string | null;
+  /** Why its packages could not be installed when it started, with what can be done (desktop/src/packageConflicts.js). */
+  conflict?: PackageConflict | null;
+};
+
+/**
+ * A deck's packages that cannot be installed (desktop/src/packageConflicts.js). `kind`: its own
+ * list does not resolve ('deck'), it does not beside IvoryOS ('edge'), or it does not beside
+ * another deck's in the shared Python ('shared', which the deck having its own Python fixes).
+ * `brief` is the same, written for an AI coding agent.
+ */
+export type PackageConflict = {
+  kind: 'deck' | 'edge' | 'shared';
+  title: string;
+  explanation: string;
+  deck: { id: string; name: string; file: string };
+  others: { id: string; name: string; file: string; packages: string[] }[];
+  packages: string[];
+  brief: string;
 };
 
 export type Profile = {
@@ -39,6 +57,8 @@ export type Profile = {
   env: Record<string, string>;
   // deck
   deck?: string;
+  /** 'shared': the launcher's one Python, with the other decks. 'own': a Python of its own. */
+  environment?: 'shared' | 'own';
   // script
   script?: string;
   cwd?: string;
@@ -388,6 +408,11 @@ export interface DesktopApi {
   updatePackage(id: string, key: string, version: string): Promise<Deck>;
   /** Take packages off the deck's list. Nothing is uninstalled. */
   removePackages(id: string, keys: string[]): Promise<Deck>;
+  /**
+   * Give a deck its own Python ('own'), installing its packages there first, or put it back in the
+   * shared one ('shared': checked against the other decks like an install; refused while it runs).
+   */
+  setEnvironment(id: string, environment: 'own' | 'shared'): Promise<Profile>;
   install(id: string, manifest: { name?: string; packages: string[]; instruments: DeckInstrument[]; plugins?: string[] }): Promise<{ added: string[]; replaced: string[]; pluginsAdded?: string[] }>;
   /** Add workflows to a profile's library without replacing any; a name in use gets a number. */
   addWorkflows(id: string, workflows: { name: string; body: Record<string, unknown> }[]): Promise<{ requested: string; saved: string }[]>;
@@ -409,6 +434,8 @@ export interface DesktopApi {
   /** Open IvoryOS Cloud as a tab of this window (tab id CLOUD_TAB). */
   /** The launcher's own interpreter (the environment deck profiles and Hub installs use). */
   launcherPython(): Promise<string>;
+  /** The Python a profile runs with: a script's interpreter, a deck's own, or the shared one. */
+  profilePython(id: string): Promise<string>;
   /** An interpreter's version and whether IvoryOS is installed in it; null for the launcher's own. */
   inspectPython(python: string | null): Promise<PythonInfo>;
   /** Make (or reuse) `<folder>/.venv` with IvoryOS installed; returns its interpreter. */
@@ -510,7 +537,38 @@ export type CloudCheck = {
   suggestion?: { url: string; reason: string };
 };
 
+/**
+ * A failure from the app, as an Error again. The app sends it as a plain object
+ * (desktop/src/preload.js), because Electron's context bridge copies only an Error's message: its
+ * `code`, `output` and `detail` were lost on the way, so no page could tell a refused install
+ * ('stop-first') or a package conflict from any other failure.
+ */
+function asError(e: unknown): unknown {
+  if (!e || typeof e !== 'object' || !(e as { ivoryosError?: boolean }).ivoryosError) return e;
+  const { message, code, output, detail } = e as { message: string; code?: string; output?: string; detail?: unknown };
+  return Object.assign(new Error(message), { code, output, detail });
+}
+
+let wrapped: { raw: object; api: DesktopApi } | null = null;
+
 export function desktopApi(): DesktopApi | null {
   if (typeof window === 'undefined') return null;
-  return ((window as unknown as { ivoryosDesktop?: DesktopApi }).ivoryosDesktop) ?? null;
+  const raw = (window as unknown as { ivoryosDesktop?: object }).ivoryosDesktop;
+  if (!raw) return null;
+  // One wrapper per bridge, so the api is the same object on every render (effects depend on it).
+  // A copy rather than a Proxy: the bridge's properties are read-only and non-configurable, and a
+  // Proxy may not answer for those with anything but the original.
+  if (!wrapped || wrapped.raw !== raw) {
+    const api: Record<string, unknown> = {};
+    for (const key of Object.keys(raw)) {
+      const value = (raw as Record<string, unknown>)[key];
+      api[key] = typeof value !== 'function' ? value : (...args: unknown[]) => {
+        let out: unknown;
+        try { out = (value as (...a: unknown[]) => unknown).apply(raw, args); } catch (e) { throw asError(e); }
+        return out && typeof (out as Promise<unknown>).then === 'function' ? (out as Promise<unknown>).catch((e: unknown) => { throw asError(e); }) : out;
+      };
+    }
+    wrapped = { raw, api: api as unknown as DesktopApi };
+  }
+  return wrapped.api;
 }
