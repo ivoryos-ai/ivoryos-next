@@ -225,7 +225,9 @@ class PythonRuntime {
     }
 
     /**
-     * Install pip requirements into the venv. Call with the edge stopped (see supervisor).
+     * Install pip requirements into the venv. Into a deck that is running only when nothing
+     * installed is replaced (`installPlan`, manager.js `_installFor`): a running interpreter holds
+     * its packages' compiled files open, and on Windows those cannot be replaced until it exits.
      * PyTorch comes as its CPU-only build (`--torch-backend cpu`), for every install into this
      * environment, so one install never swaps it for another build: on Linux the default from
      * PyPI carries the CUDA libraries, a few GB nobody asked for. Ax and BayBE pull it in.
@@ -258,6 +260,107 @@ class PythonRuntime {
         } catch (e) {
             return { error: fs.existsSync(python) ? (e.output || e.message).trim().split('\n').pop() : 'No Python at this path.' };
         }
+    }
+
+    /**
+     * Which of a deck's packages each of its instruments and plugins needs, and what is installed
+     * (deckPackages.js explains why this is worked out rather than recorded). `input` is
+     * deckPackages.probeInput(deck); the answer is {requirements: {key: {dist, version} | null},
+     * entries: {entryId: [key]}}. An entry needs the distribution that provides one of its
+     * modules and everything that distribution depends on (whatever the markers say: counting
+     * one too many keeps a package on the list, which is the harmless direction). A local archive
+     * is matched to its distribution by the file it was installed from (direct_url.json).
+     */
+    async probeDeckPackages(input, python = this.python) {
+        const probe = [
+            'import json, os, re, sys, importlib.metadata as m',
+            'from urllib.parse import urlparse, unquote',
+            'q = json.loads(sys.argv[1])',
+            'norm = lambda s: re.sub(r"[-_.]+", "-", s).lower()',
+            'dists = {}',
+            'for d in m.distributions():',
+            '    n = d.metadata["Name"]',
+            '    if n and norm(n) not in dists:',
+            '        dists[norm(n)] = d',
+            'def deps(n):',
+            '    out = []',
+            '    for r in dists[n].requires or []:',
+            '        g = re.match(r"\\s*([A-Za-z0-9][A-Za-z0-9._-]*)", r)',
+            '        if g:',
+            '            out.append(norm(g.group(1)))',
+            '    return out',
+            'def closure(start):',
+            '    seen, stack = set(), list(start)',
+            '    while stack:',
+            '        n = stack.pop()',
+            '        if n in seen or n not in dists:',
+            '            continue',
+            '        seen.add(n)',
+            '        stack.extend(deps(n))',
+            '    return seen',
+            'def archive(d):',
+            '    try:',
+            '        url = (json.loads(d.read_text("direct_url.json") or "null") or {}).get("url") or ""',
+            '    except Exception:',
+            '        return None',
+            '    return os.path.basename(unquote(urlparse(url).path)).lower() if url.startswith("file:") else None',
+            'by_file = {}',
+            'for n, d in dists.items():',
+            '    f = archive(d)',
+            '    if f:',
+            '        by_file[f] = n',
+            'reqs = {}',
+            'for r in q["requirements"]:',
+            '    n = r.get("name") or (by_file.get(os.path.basename(r["path"]).lower()) if r.get("path") else None)',
+            '    reqs[r["key"]] = n if n in dists else None',
+            'top = m.packages_distributions()',
+            'entries = {}',
+            'for e in q["entries"]:',
+            '    need = closure({norm(x) for mod in e["modules"] for x in top.get(mod, [])})',
+            '    entries[e["id"]] = [k for k, n in reqs.items() if n and n in need]',
+            'print(json.dumps({"requirements": {k: ({"dist": n, "version": dists[n].version} if n else None) for k, n in reqs.items()}, "entries": entries}))',
+        ].join('\n');
+        const out = await run(python, ['-c', probe, JSON.stringify(input)]);
+        return JSON.parse(out.trim().split(/\r?\n/).pop());
+    }
+
+    /**
+     * The newest version of one of a deck's packages that installs together with the rest of that
+     * deck's list, as the deck would install it (the same `uv pip install`, as a dry run, with
+     * this one package let go up from what is installed). `requirements` is the deck's list,
+     * `target` a deckPackages.parseRequirement() of one of them and `installed` its version.
+     * Never offers a downgrade, and a pre-release is offered when the installed one is one (the
+     * `>=` names it, which is what uv needs to consider pre-releases of that package).
+     * @returns {Promise<{latest: string|null, changes: {change: string, name: string, version: string}[], error?: string}>}
+     */
+    async upgradeCandidate(requirements, target, installed) {
+        const { parseDryRun } = require('./deckPackages');
+        const loose = `${target.display}${target.extras}${installed ? `>=${installed}` : ''}${target.marker}`;
+        const others = requirements.filter((r) => String(r).trim() !== target.requirement);
+        try {
+            const out = await run(this.uv, ['pip', 'install', '--dry-run', '--python', this.python, '--torch-backend', 'cpu',
+                '--upgrade-package', target.display, '--refresh-package', target.display, ...others, loose]);
+            const changes = parseDryRun(out);
+            const mine = changes.find((c) => c.change === '+' && c.name === target.name);
+            return { latest: mine ? mine.version : null, changes: changes.filter((c) => c.name !== target.name) };
+        } catch (e) {
+            // uv's explanation is its last lines, drawn with box characters for a terminal.
+            const lines = String(e.output || e.message).trim().split(/\r?\n/).filter(Boolean);
+            const error = lines.slice(-3).join(' ').replace(/[╰─▶│×]/g, ' ').replace(/\s+/g, ' ').trim();
+            return { latest: null, changes: [], error };
+        }
+    }
+
+    /**
+     * What installing `requirements` would change in the environment, without changing anything
+     * (`uv pip install --dry-run`, the resolution an install does): [{change, name, version}]. A
+     * '-' is a package already installed that would be replaced or removed, which is what a
+     * running deck cannot take (manager.js `_installFor`). Throws as the install would.
+     */
+    async installPlan(requirements) {
+        if (!requirements.length) return [];
+        const { parseDryRun } = require('./deckPackages');
+        return parseDryRun(await run(this.uv, ['pip', 'install', '--dry-run', '--python', this.python, '--torch-backend', 'cpu', ...requirements]));
     }
 
     /** `uv pip check`: installed packages whose requirements are not met. Never throws. */

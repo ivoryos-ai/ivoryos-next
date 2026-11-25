@@ -1,7 +1,7 @@
 "use client";
 import React, { useCallback, useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { confirmDialog } from '@ivoryos/shared-ui';
+import { notify } from '@ivoryos/shared-ui';
 import type { DesktopApi, OptimizerChoice, Profile } from '@/desktop';
 import { installFailed } from './ReportProblem';
 import { Button, cardClass, inputClass } from './ui';
@@ -31,11 +31,13 @@ export default function OptimizerSettings({ api, profile }: { api: DesktopApi; p
   const changed = state.catalog.some(o => (draft[o.id] ?? null) !== (state.selected[o.id] ?? null));
 
   const apply = async () => {
-    if (profile.status.state === 'running'
-      && !await confirmDialog('Installing restarts the deck. Continue?', { title: 'Restart the deck?', confirmLabel: 'Install and restart' })) return;
+    // A running deck is not restarted for this (manager.js _installFor): it is refused when it
+    // cannot go in beside a running deck, and otherwise waits for the person's restart.
+    const running = profile.status.state === 'running';
     setBusy(true);
     try {
       await api.setOptimizers(profile.id, draft);
+      if (running) notify(`Installed. ${profile.name} offers it on its Optimize page after you restart it.`, { title: 'Not applied yet' });
     } catch (e: any) {
       await installFailed(api, 'Could not install the optimizers', e, profile.id);
     } finally {

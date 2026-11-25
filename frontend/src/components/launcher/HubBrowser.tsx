@@ -606,7 +606,7 @@ function ConfigureForm({ api, access, module, onDone }: { api: DesktopApi; acces
           `Install ${packages.join(', ') || 'nothing new'} and add “${instrument.name}” (${instrument.import}.${instrument.class}) to ${deckLabel(access.target)}.`,
           ...(empty.length ? [`Left empty, so not passed to the driver: ${empty.join(', ')}. If the driver needs them it will not load; you can fill them in later with Edit.`] : []),
           ...warnings,
-          'Drivers run on this computer with access to your instruments. The deck restarts to load it.',
+          'Drivers run on this computer with access to your instruments. A deck that is running is not restarted: it loads this when you restart it.',
         ].join('\n\n'),
         { title: 'Install and add?', confirmLabel: 'Install and add' },
       );

@@ -41,12 +41,13 @@ async def until(check, tries=100, every=0.02):
 
 def test_a_page_is_sent_every_topic_as_it_connects():
     with TestClient(app).websocket_connect("/api/ws") as ws:
-        messages = [ws.receive_json(), ws.receive_json()]
+        messages = [ws.receive_json(), ws.receive_json(), ws.receive_json()]
     topics = {m["topic"]: m["data"] for m in messages}
-    assert set(topics) == {"queue", "proposals"}
+    assert set(topics) == {"queue", "proposals", "workflows"}
     # The same status /api/ws/queue sends.
     assert "runs" in topics["queue"] and "queue_paused" in topics["queue"]["status"]
     assert topics["proposals"]["pending"] == 0 and topics["proposals"]["version"]
+    assert topics["workflows"]["version"]
 
 
 @pytest.mark.asyncio
@@ -76,6 +77,64 @@ async def test_proposal_changes_reach_open_pages_and_reading_them_does_not(api_w
             assert again.status_code == 409
             await asyncio.sleep(0.1)
             assert len(page.topic("proposals")) == 3
+    finally:
+        live.hub.disconnect(page)
+
+
+@pytest.mark.asyncio
+async def test_workflow_changes_reach_open_pages_from_every_door(api_workflows_dir):
+    """An open Designer's toolbox follows saved workflows (issue 92): every write announces itself,
+    whichever way it came in, and a save that changed nothing does not."""
+    page = Page()
+    await live.hub.connect(page)
+    versions = lambda: [m["version"] for m in page.topic("workflows")]
+    try:
+        assert len(versions()) == 1
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            # A save from the Designer (or Cloud's editor): announced, and the stored body comes back.
+            resp = await ac.post("/api/workflows/Wash", json=DRAFT)
+            assert resp.status_code == 200, resp.text
+            saved = resp.json()
+            assert saved["body"]["version"] == saved["version"] == 1
+            assert saved["body"]["body_hash"] == saved["body_hash"]
+            assert saved["body"]["script"] == DRAFT["script"]
+            assert await until(lambda: len(versions()) == 2)
+
+            # The same body again is not an edit, and says nothing.
+            again = await ac.post("/api/workflows/Wash", json=DRAFT)
+            assert again.json()["created_version"] is False
+            await asyncio.sleep(0.1)
+            assert len(versions()) == 2
+
+            # Re-filing it.
+            await ac.put("/api/workflows/Wash/tags", json={"tags": ["cleaning"]})
+            assert await until(lambda: len(versions()) == 3)
+
+            # A proposal accepted into the library.
+            filed = await ac.post("/api/agent/propose", json={"name": "Pushed Draft", "body": DRAFT})
+            accepted = await ac.post(f"/api/agent/proposals/{filed.json()['id']}/accept", json={})
+            assert accepted.status_code == 200 and accepted.json()["saved"], accepted.text
+            assert await until(lambda: len(versions()) == 4)
+
+            # Deleting runs in a worker thread (a plain `def` route), off the server's loop.
+            gone = await ac.delete("/api/workflows/Wash")
+            assert gone.status_code == 200, gone.text
+            assert await until(lambda: len(versions()) == 5)
+
+        assert len(set(versions())) == 5
+    finally:
+        live.hub.disconnect(page)
+
+
+@pytest.mark.asyncio
+async def test_a_workflow_pushed_from_cloud_is_announced(api_workflows_dir):
+    from ivoryos_edge.server import handle_sequence_push
+
+    page = Page()
+    await live.hub.connect(page)
+    try:
+        await handle_sequence_push({"name": "From Cloud", "body": DRAFT})
+        assert await until(lambda: len(page.topic("workflows")) == 2)
     finally:
         live.hub.disconnect(page)
 

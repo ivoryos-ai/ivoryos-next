@@ -4,8 +4,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { loadProfiles, saveProfiles, withDefaults, validateProfile, commandFor } = require('../src/profiles');
-const { updateInstrument, removeInstrument, setInstrumentEnabled, freeName, DeckEditError } = require('../src/deckEdit');
+const { loadProfiles, saveProfiles, withDefaults, validateProfile, commandFor, choiceEnv } = require('../src/profiles');
+const {
+    updateInstrument, removeInstrument, setInstrumentEnabled, freeName, DeckEditError, removePlugin, setPluginEnabled,
+    loadSignature,
+} = require('../src/deckEdit');
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'ivoryos-prof-'));
 
@@ -125,6 +128,40 @@ test('instruments can be switched off, back on, and removed', () => {
     assert.equal(off.instruments[1].enabled, false);
     assert.equal('enabled' in setInstrumentEnabled(off, 'balance', true).instruments[1], false);
     assert.deepEqual(removeInstrument(deck, 'pump').instruments.map((i) => i.name), ['balance']);
+});
+
+test('plugins can be switched off, back on, and removed', () => {
+    const withPlugins = { ...deck, plugins: ['view_kit.plugin:plugin', 'other.plugin:plugin'] };
+    const off = setPluginEnabled(withPlugins, 'view_kit.plugin:plugin', false);
+    assert.deepEqual(off.plugins, [{ ref: 'view_kit.plugin:plugin', enabled: false }, 'other.plugin:plugin']);
+    assert.deepEqual(withPlugins.plugins[0], 'view_kit.plugin:plugin', 'original untouched');
+    // Back on is the plain string again, which any edge reads.
+    assert.deepEqual(setPluginEnabled(off, 'view_kit.plugin:plugin', true).plugins, withPlugins.plugins);
+    // Removed whichever form it is in; the last one removed takes the key with it.
+    assert.deepEqual(removePlugin(off, 'view_kit.plugin:plugin').plugins, ['other.plugin:plugin']);
+    assert.equal('plugins' in removePlugin(removePlugin(off, 'view_kit.plugin:plugin'), 'other.plugin:plugin'), false);
+    assert.throws(() => removePlugin(withPlugins, 'ghost:plugin'), /no plugin/);
+    assert.throws(() => setPluginEnabled(withPlugins, 'ghost:plugin', false), DeckEditError);
+});
+
+test('loadSignature changes only with what a deck loads at startup', () => {
+    const base = { ...deck, plugins: ['view_kit.plugin:plugin'], packages: ['vendor-pumps==1.0'] };
+    const sig = loadSignature(base);
+    // Switched off, an instrument or a plugin is no longer loaded; back on, it is the deck it was.
+    const off = setInstrumentEnabled(base, 'balance', false);
+    assert.notEqual(loadSignature(off), sig);
+    assert.equal(loadSignature(setInstrumentEnabled(off, 'balance', true)), sig);
+    const pluginOff = setPluginEnabled(base, 'view_kit.plugin:plugin', false);
+    assert.notEqual(loadSignature(pluginOff), sig);
+    assert.equal(loadSignature(setPluginEnabled(pluginOff, 'view_kit.plugin:plugin', true)), sig);
+    assert.notEqual(loadSignature(updateInstrument(base, 'pump', { ...base.instruments[0], args: { port: 'COM4' } })), sig);
+    assert.notEqual(loadSignature(removePlugin(base, 'view_kit.plugin:plugin')), sig);
+    // Not loaded: the package list, the form the launcher keeps for an entry, the order of keys,
+    // and anything about an instrument that is switched off.
+    assert.equal(loadSignature({ ...base, packages: [] }), sig);
+    const reordered = { ...base, instruments: [{ args: { port: 'COM3' }, class: 'Pump', import: 'p', name: 'pump', signature: { init_args: [], kwargs: false } }, base.instruments[1]] };
+    assert.equal(loadSignature(reordered), sig);
+    assert.equal(loadSignature(updateInstrument(off, 'balance', { ...off.instruments[1], args: { port: 'COM9' } })), loadSignature(off));
 });
 
 test('freeName makes a usable, unused instrument name', () => {
@@ -267,4 +304,24 @@ test('a script with no project around it gets no module path of its own', () => 
     const { modulePathFor } = require('../src/profiles');
     assert.equal(modulePathFor(script, path.dirname(script), []), null);
     assert.equal(modulePathFor(script, path.dirname(script), ['/mine']), '/mine', 'only what the person set');
+});
+
+test("a script profile's object choices reach the edge as its name lists, after the person's own (issue 88)", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ivoryos-prof-'));
+    const p = withDefaults(home, {
+        kind: 'script', script: '/lab/deck.py',
+        env: { IVORYOS_EXCLUDE_NAMES: 'old_cam' },
+        instrumentChoices: { calibration: true, camera: false, 'bad name': false, other: 'yes' },
+    });
+    // Only names someone switched, as booleans; nothing the edge could not read from a comma list.
+    assert.deepEqual(p.instrumentChoices, { calibration: true, camera: false });
+    const env = commandFor(p, { python: 'py' }).env;
+    assert.equal(env.IVORYOS_EXCLUDE_NAMES, 'old_cam,camera');
+    assert.equal(env.IVORYOS_INCLUDE_NAMES, 'calibration');
+    // None set, none sent; and a deck profile never gets them.
+    assert.deepEqual(choiceEnv(withDefaults(home, { kind: 'script', script: '/lab/deck.py' })), {});
+    assert.deepEqual(choiceEnv({ kind: 'deck', instrumentChoices: { pump: false } }), {});
+    // The choices survive a save and a restart of the app.
+    saveProfiles(home, { profiles: [p] });
+    assert.deepEqual(loadProfiles(home).profiles[0].instrumentChoices, { calibration: true, camera: false });
 });

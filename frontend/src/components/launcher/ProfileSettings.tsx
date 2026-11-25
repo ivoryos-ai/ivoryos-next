@@ -6,6 +6,7 @@ import type { DesktopApi, Profile, CloudLink } from '@/desktop';
 import PythonEnvironment from './PythonEnvironment';
 import CloudConnection from './CloudConnection';
 import OptimizerSettings from './OptimizerSettings';
+import { okToRestart } from './restart';
 import { Button, DOCS_URL, Field, KeyValueRows, cardClass, inputClass } from './ui';
 
 type Draft = Pick<Profile, 'name' | 'port' | 'listenOnNetwork' | 'autoStart' | 'env' | 'script' | 'cwd' | 'args' | 'python' | 'dataDir'>;
@@ -45,7 +46,8 @@ export default function ProfileSettings({ api, profile, link, sharedWith, onRemo
       // `args` goes back as saved: the page no longer edits arguments (run() reads none), and a
       // profile that has some keeps them (shown on its Overview tab).
       await api.updateProfile(profile.id, { ...draft, port: Number(draft.port) });
-      if (running && await confirmDialog('Saved. Restart now so the running edge uses these settings?', { title: 'Restart?', confirmLabel: 'Restart' })) {
+      if (running && await confirmDialog('Saved. Restart now so the running edge uses these settings?', { title: 'Restart?', confirmLabel: 'Restart' })
+        && await okToRestart(api, profile)) {
         await api.restart(profile.id);
       }
     } catch (e: any) {

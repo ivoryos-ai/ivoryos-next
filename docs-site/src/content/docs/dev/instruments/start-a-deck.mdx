@@ -32,11 +32,12 @@ python my_bench.py          # http://localhost:8080
 ```
 
 Every module-level object becomes an instrument, by the rules in
-[What IvoryOS reads](/dev/instruments/what-ivoryos-reads/#which-objects-are-instruments). Objects
-that are yours but not instruments go in `exclude_names`:
+[What IvoryOS reads](/dev/instruments/what-ivoryos-reads/#which-objects-are-instruments): data,
+plotting and web objects, and Python's own, are left out. Objects that are yours but not
+instruments go in `exclude_names`, and one the rules leave out goes in `include_names`:
 
 ```python
-ivoryos_edge.run(__name__, port=8090, exclude_names=["CONFIG"], logger="my_lab")
+ivoryos_edge.run(__name__, port=8090, exclude_names=["CONFIG"], include_names=["camera"], logger="my_lab")
 ```
 
 `logger` names one or more loggers whose records go to the deck's output (the Log tab in the
@@ -81,7 +82,7 @@ A deck file describes the same thing as data, which is what the desktop app and 
 | `import`, `class`, `args` | `cls = getattr(import_module(import), class); obj = cls(**args)`. A value `{"$object": {import, class, args}}` builds a nested object first. |
 | `calls` | methods run after construction, in order (`connect()`). |
 | `enabled: false` | kept in the file, not loaded (an unplugged device). |
-| `plugins` | `package.module:attribute` of `Plugin` objects. |
+| `plugins` | `package.module:attribute` of `Plugin` objects. `{"ref": "package.module:attribute", "enabled": false}` keeps one listed without loading it (the launcher writes this when a plugin is switched off). |
 
 ```bash
 ivoryos-edge --deck deck.json --port 8090 --data-dir ~/decks/suzuki

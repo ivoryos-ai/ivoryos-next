@@ -23,9 +23,18 @@ except:
 | classes, functions, modules | what the script imports and defines, not devices |
 | `Plugin` objects | `run()` takes those itself |
 | values of a built-in type (`str`, `int`, `dict`, …) | settings, not devices |
-| values of a type from Python's standard library (`Path`, `Lock`, a logger, a `timedelta`) | said in the startup log, in case it hides an instrument |
+| typing names (`from typing import List`, `Optional[float]`) | types, not objects |
+| values of a type from Python's standard library (`Path`, `Lock`, a logger, a `timedelta`) | not devices |
+| data, plotting and web objects: a pandas `DataFrame`, a numpy array, a matplotlib figure, a FastAPI `APIRouter`, a Flask app | not devices |
+| objects with nothing to call (no public method or property) | nothing to make a step of |
 | enum members (`MODE = Mode.FAST`) | values, not devices |
 | names listed in `run(exclude_names=[...])` | the script's own objects that are not instruments, the one case no rule can tell |
+
+The startup log names each object left out and why. To use one as an instrument anyway, list it in
+`run(include_names=[...])`. A name in both lists stays out. In the desktop app, a script profile's
+**Overview** lists the script's objects with an **on** switch each, which does the same without
+editing the script and applies when you restart it. The script still builds an object that is off;
+it only stays off the deck.
 
 A capitalised name **is** an instrument (`HPLC = HPLC()`): IvoryOS Classic skipped those, NextGen
 does not.

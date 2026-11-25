@@ -263,6 +263,28 @@ def test_load_plugin_refs_reports_bad_entries():
     assert "not an ivoryos_edge.plugins.Plugin" in errors[0]["error"]
 
 
+def test_a_plugin_switched_off_in_the_deck_is_not_loaded():
+    # The launcher writes a plugin switched off as an object; one switched on as the plain string.
+    plugins, errors = load_plugin_refs([
+        {"ref": "no_such_module_xyz:plugin", "enabled": False},
+        {"ref": "json:dumps"},
+    ])
+    assert plugins == []
+    assert [e["plugin"] for e in errors] == ["json:dumps"]
+
+
+def test_a_plugin_from_the_deck_says_which_entry_it_came_from(tmp_path, monkeypatch):
+    # The launcher marks each deck entry loaded or failed by this `ref`.
+    (tmp_path / "deck_view.py").write_text(
+        "from ivoryos_edge.plugins import Plugin\nplugin = Plugin('Deck view')\n"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    plugins, errors = load_plugin_refs(["deck_view:plugin"])
+    assert errors == []
+    assert plugins[0].describe()["ref"] == "deck_view:plugin"
+    assert "ref" not in Plugin("Passed to run()").describe()
+
+
 def test_a_v1_flask_blueprint_plugin_is_named_as_such(tmp_path, monkeypatch):
     # A stand-in for flask.Blueprint, so the test needs no flask: matched by class name and module.
     (tmp_path / "legacy_view.py").write_text(

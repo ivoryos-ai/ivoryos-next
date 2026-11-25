@@ -144,6 +144,13 @@ a pip-installed plugin goes in `packages`.
 A plugin that fails to import, or whose `on_start` raises, is listed under `errors` in
 `GET /api/plugins` and the rest of the edge starts normally, the same rule as instruments.
 
+An entry written `{"ref": "my_plugin.plugin:plugin", "enabled": false}` stays in the file without
+being loaded, as `"enabled": false` does for an instrument. The desktop launcher's deck page lists a
+deck's plugins with an **on** switch (which writes that form, and the plain string again when
+switched back on) and **Remove**; the plugin's package stays installed either way. A plugin loaded
+from the deck file carries its reference as `ref` in `GET /api/plugins`, which is how the launcher
+marks each entry loaded or failed.
+
 **Page only, no Python**: a folder with an `index.html` inside `plugins/` beside the script or
 deck file still works exactly as before.
 

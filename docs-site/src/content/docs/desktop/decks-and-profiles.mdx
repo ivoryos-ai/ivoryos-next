@@ -46,7 +46,9 @@ Several profiles run at the same time, each on its own port.
 - A deck whose instruments did not all load opens on its Instruments tab, with the failures in red.
 - **Stop** asks the process to shut down and forces it after a few seconds.
 - **Restart** is always a new process: it re-reads the deck file, re-imports the drivers and
-  reconnects every instrument.
+  reconnects every instrument. With a run under way the app asks first, naming the run:
+  restarting ends it where it is, without its cleanup. Restart on the deck's Instruments page does
+  the same through the deck itself, and is refused while a run is going unless you confirm.
 
 <Shot name="launcher-add-driver" alt="Adding a driver that is already installed, by module and class" />
 
@@ -56,6 +58,39 @@ Anyone who can reach the port can drive the instruments, so turn **Reachable fro
 computers** off for a deck only this computer should open. Others open it at
 `http://<this computer's address>:<port>`.
 
+## A deck's instruments, plugins and packages
+
+A deck profile's **Instruments** tab lists what is on the deck. Each instrument and each plugin has
+an **on** switch, which keeps it in the deck file without loading it (an unplugged device, a plugin
+you do not need today), and **Remove**.
+
+**Nothing restarts a running deck for you.** Switching something on or off, editing or removing an
+instrument, adding from the Hub, saving a setting or the script: each is saved at once, and the
+deck goes on running what it started with, so a run under way is not interrupted and the deck
+stays on Cloud. Whenever what is saved differs from what the deck is running, its header says
+**Not applied yet: restart to apply** (hover it for what changed), the rows that differ say so
+(*still loaded until restart*, *loads at restart*), and **Restart** is yours to press when nothing
+is running. Undo the change and the notice goes away.
+
+Installing never stops a running deck either. An install that only adds packages goes in while
+the deck runs and waits for your restart. One that would replace a package already installed
+(every package update, some optimizer changes) asks you to stop the deck first, because a running
+Python holds those files open. And nothing is installed while a run is under way.
+
+Under them, **Driver packages** lists the Python packages the deck asks for, each with the version
+installed and what on the deck uses it. All decks share one Python environment, so **nothing is
+ever uninstalled**; the list only says what this deck needs:
+
+- Removing an instrument or plugin also takes off the list the packages only it needed (worked out
+  from what the installed packages depend on). They stay installed.
+- A package nothing on the deck uses (left from before this existed, or added by hand) says so.
+  Remove it, or **Remove unused** for all of them.
+- **Check for updates** looks for the newest version of each that still installs with the rest of
+  the deck's packages. **Update** installs it and pins the deck to it (stop the deck first: it is
+  not stopped for you); if it cannot be installed, the deck is left as it was. Optimizers are
+  chosen in the deck's Settings instead, from versions tested together, and a private repository
+  moves to a newer commit by importing it again.
+
 ## A script profile
 
 <Shot name="launcher-script" alt="A script profile's page: the same buttons, four tabs, and the script it runs" />
@@ -64,6 +99,17 @@ computers** off for a deck only this computer should open. Others open it at
 
 A script written for IvoryOS Classic (`import ivoryos`) is offered a conversion when started. The
 changed lines are kept above as comments, so going back is uncommenting.
+
+## A script's instruments
+
+Every object a script makes at the top of the file is an instrument, except what clearly is not:
+a pandas table, a numpy array, a plot, a web app, Python's own objects (a `Path`, a lock, a
+logger), and objects with nothing to call. A script profile's **Overview** lists what the running
+script put on the deck and, folded under it, what it left out, each with an **on** switch. A switch
+is saved with the profile and applies when you restart the script. Switched off, an object is only
+kept off the deck: the script still makes it, so a port it opened stays open. The choice is the
+app's: the same script run from a terminal or PyCharm uses `exclude_names` and `include_names` in
+its `run()` call instead, and an object those name is shown as "set in the script", with no switch.
 
 ## Script profile settings
 

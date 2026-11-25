@@ -276,7 +276,7 @@ function PlatformForm({ api, access, deck, platform, link, onDone }: {
                 {t === 'new' ? 'As a new deck' : `Add to ${profileName}`}
               </div>
               <div className="mt-1 pl-5 text-xs text-gray-500 dark:text-gray-400">
-                {t === 'new' ? 'Its own profile, runs, workflows and port. Nothing on your other decks changes.' : `Its instruments join the ${(deck?.instruments || []).length} already on this deck, which restarts.`}
+                {t === 'new' ? 'Its own profile, runs, workflows and port. Nothing on your other decks changes.' : `Its instruments join the ${(deck?.instruments || []).length} already on this deck. If it is running, it loads them when you restart it.`}
               </div>
             </label>
           ))}

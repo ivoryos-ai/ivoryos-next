@@ -87,3 +87,11 @@ test('plugins are validated as "module:attribute" references and merged without 
     // A deck without plugins does not gain an empty list.
     assert.equal('plugins' in mergeIntoDeck({ instruments: [] }, { instruments: [pump] }).deck, false);
 });
+
+test('adding a plugin that is on the deck but switched off turns it back on', () => {
+    const { manifest } = validateManifest({ plugins: ['view_kit.plugin:plugin'] });
+    const deck = { instruments: [], plugins: [{ ref: 'view_kit.plugin:plugin', enabled: false }, { ref: 'other.plugin:plugin', enabled: false }] };
+    const merged = mergeIntoDeck(deck, manifest);
+    assert.deepEqual(merged.deck.plugins, ['view_kit.plugin:plugin', { ref: 'other.plugin:plugin', enabled: false }]);
+    assert.deepEqual(merged.pluginsAdded, ['view_kit.plugin:plugin']);
+});
