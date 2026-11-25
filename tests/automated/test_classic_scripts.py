@@ -120,3 +120,11 @@ def test_exclude_names_carries_over():
     result = convert(source)
     assert 'ivoryos.run(__name__, exclude_names=["settings"])  # IvoryOS NextGen\n' in result["converted"]
     assert not any("exclude_names" in note for note in result["notes"])
+
+
+def test_include_names_carries_over():
+    # Classic 1.8.3 and NextGen both take it (GitHub issue 88): an object the rules leave out, used
+    # as an instrument anyway.
+    source = "import ivoryos\nivoryos.run(__name__, include_names=[\"OT2\"], debug=True)\n"
+    result = convert(source)
+    assert 'ivoryos.run(__name__, include_names=["OT2"])  # IvoryOS NextGen\n' in result["converted"]

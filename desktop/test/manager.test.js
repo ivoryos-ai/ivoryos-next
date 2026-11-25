@@ -453,3 +453,26 @@ test('Cloud-only mode is kept as saved but not in force while Cloud is not offer
     assert.equal(release.cloudOnly, false);
     assert.equal(release.store.cloudOnly, true);   // still saved for a build that offers Cloud
 });
+
+test("a script profile switches its script's objects on and off, applied at the next start (issue 88)", async () => {
+    const home = tmp();
+    const mgr = new ProfileManager({ home, getRuntime: async () => fakeRuntime() });
+    const p = mgr.create({ kind: 'script', name: 'Bench', script: FAKE, port: 9701 });
+    const { state } = pretendRunning(mgr, p.id);
+
+    mgr.setInstrumentChoice(p.id, 'calibration', true);
+    mgr.setInstrumentChoice(p.id, 'camera', false);
+    assert.deepEqual(mgr.get(p.id).instrumentChoices, { calibration: true, camera: false });
+    assert.deepEqual(state(), ['running', 'deck', 0]); // saved, shown as not applied, never restarted
+
+    // Forgetting both is back to what it started with: nothing to apply.
+    mgr.setInstrumentChoice(p.id, 'calibration', null);
+    mgr.setInstrumentChoice(p.id, 'camera', null);
+    assert.deepEqual(mgr.get(p.id).instrumentChoices, {});
+    assert.deepEqual(state(), ['running', '', 0]);
+
+    // A deck profile switches the entries of its deck file instead.
+    const [deckProfile] = mgr.list().filter((x) => x.kind === 'deck');
+    assert.throws(() => mgr.setInstrumentChoice(deckProfile.id, 'pump', false), /script profile/);
+    assert.throws(() => mgr.setInstrumentChoice(p.id, 'a,b', false), /not a name/);
+});
