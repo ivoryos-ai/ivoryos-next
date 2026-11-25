@@ -8,7 +8,7 @@ One style for every IvoryOS video (release videos, tutorials, promos), for both 
 | `cover.mjs` | Makes a cover from `style.json`: `--theme`, `--kind`, `--headline`, up to three `--point`s and a `--shot`. Refuses inputs that break a limit. |
 | `cover-classic.html`, `cover-next.html` | The two cover layouts. The classic one is `COVER_HTML` from the classic repository's `record.py`, unchanged in what it draws. |
 | `board.mjs` | Draws the whole style as one page (`out/style-board.html`): palette, title card, a moment in the app with every kind of on-screen text, closing card and cover, both themes side by side. |
-| `samples/` | The classic screen and logo the board is drawn with. NextGen's come from this repository. |
+| `samples/` | The classic screen the board is drawn with. NextGen's screen, and the mark both themes use, come from this repository. |
 
 ```bash
 node docs-site/video/kit/board.mjs

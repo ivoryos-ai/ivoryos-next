@@ -17,6 +17,8 @@ import { loadStyle, renderCover, dataUri } from './cover.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(HERE, 'out');
 const DOCS = path.join(HERE, '..', '..');
+// The one mark, for both themes (brand/ivoryos-logo.ai is its source).
+const MARK = path.join(DOCS, 'src', 'assets', 'ivoryos-mark.svg');
 const style = loadStyle();
 const L = style.shared.layout;
 
@@ -24,7 +26,6 @@ const L = style.shared.layout;
 const SAMPLES = {
   classic: {
     app: path.join(HERE, 'samples', 'classic-app.jpg'),
-    logo: path.join(HERE, 'samples', 'classic-logo.png'),
     cover: { kind: 'tutorial', headline: 'Getting started', points: ['Your instruments as Python classes', 'Design, run and track workflows', 'No front-end code to write'] },
     title: { kicker: 'IvoryOS tutorial', title: 'Getting started with IvoryOS', sub: 'From a few Python classes to a lab you can control, script and run from the browser.' },
     closing: { kicker: 'Try it', title: 'pip install ivoryos', sub: '' },
@@ -35,7 +36,6 @@ const SAMPLES = {
   },
   next: {
     app: path.join(DOCS, 'src', 'assets', 'screenshots', 'designer-workflow.png'),
-    logo: path.join(DOCS, 'src', 'assets', 'ivoryos-mark.svg'),
     cover: { kind: 'tutorial', headline: 'Getting started', points: ['A lab from the Automation Hub', 'Design a workflow, then run it', 'Every result kept as data'] },
     title: { kicker: '', title: 'Getting started with IvoryOS', sub: 'From the Automation Hub to your first results' },
     closing: { kicker: '', title: 'Documentation', sub: 'Link in the description' },
@@ -117,9 +117,9 @@ async function main() {
   for (const [key, t] of Object.entries(style.themes)) {
     const s = SAMPLES[key];
     const out = path.join(OUT, `cover-${key}.jpg`);
-    const made = await renderCover({ theme: key, ...s.cover, shot: s.app, logo: s.logo, out });
+    const made = await renderCover({ theme: key, ...s.cover, shot: s.app, logo: MARK, out });
     notes.push(...made.notes);
-    const logo = path.extname(s.logo) === '.svg' ? dataUri(s.logo) : dataUri(s.logo);
+    const logo = dataUri(MARK);
     cells.colour[key] = `<p class="summary">${esc(t.summary)}</p>${swatches(t)}`;
     cells.title[key] = card(t, logo, s.title, t.product.tagline);
     cells.app[key] = app(t, s, await jpeg(s.app, 1280));
