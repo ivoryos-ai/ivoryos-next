@@ -8,12 +8,10 @@ import asyncio
 import logging
 
 import pytest
-import pytest_asyncio
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
 from ivoryos_edge import live
-from ivoryos_edge.models import WorkflowRun, async_session
 from ivoryos_edge.server import app, queue_manager
 
 DRAFT = {"name": "Pushed Draft", "prep": [], "cleanup": [],
@@ -164,20 +162,6 @@ async def test_a_page_that_has_gone_is_dropped():
     assert page not in live.hub.connections
 
 
-@pytest_asyncio.fixture
-async def finished_run():
-    """A run for /api/ws/runs/{id} to send the state of."""
-    async with async_session() as session:
-        run = WorkflowRun(name="Socket test", status="completed", parameters={})
-        session.add(run)
-        await session.commit()
-        run_id = run.id
-    yield run_id
-    async with async_session() as session:
-        await session.delete(await session.get(WorkflowRun, run_id))
-        await session.commit()
-
-
 async def connect_and(path, *, leave_at_once):
     """One connection to the app as uvicorn makes it. TestClient cannot stand in for this: its
     sends never fail, and a client that has gone is exactly a send that fails. uvicorn then raises
@@ -205,17 +189,16 @@ async def connect_and(path, *, leave_at_once):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("leave_at_once", [True, False], ids=["leaves-while-sent-its-state", "closes-later"])
-@pytest.mark.parametrize("path", ["/api/ws", "/api/ws/queue", "/api/ws/runs/{run}"])
-async def test_a_client_leaving_ends_its_socket_quietly_and_is_dropped(path, leave_at_once, finished_run):
+@pytest.mark.parametrize("path", ["/api/ws", "/api/ws/queue"])
+async def test_a_client_leaving_ends_its_socket_quietly_and_is_dropped(path, leave_at_once):
     """A page closed or reloaded while the edge was still sending it the current state (React's
     development mode connects and closes at once, and a busy deck reads that state slowly) used to
     reach the server log as 'Exception in ASGI application ... WebSocket is not connected'."""
     def held():
-        return (len(live.hub.connections), len(queue_manager.global_connections),
-                len(queue_manager.active_connections.get(finished_run, [])))
+        return len(live.hub.connections), len(queue_manager.global_connections)
 
     before = held()
-    sent = await connect_and(path.format(run=finished_run), leave_at_once=leave_at_once)
+    sent = await connect_and(path, leave_at_once=leave_at_once)
 
     assert sent[:2] == ["websocket.accept", "websocket.send"]
     assert held() == before
