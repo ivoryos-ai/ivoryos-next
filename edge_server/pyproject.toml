@@ -8,10 +8,12 @@ requires-python = ">=3.10"
 dependencies = [
     "fastapi",
     "uvicorn",
-    "python-socketio[client]",
+    # uvicorn cannot serve a WebSocket by itself (/api/ws, /api/ws/queue, plugin events): without
+    # wsproto or websockets it answers every one with 404. wsproto used to arrive only by way of
+    # python-socketio, which nothing imports.
+    "wsproto",
     "pydantic",
     "python-dotenv",
-    "aiohttp",
     "sqlalchemy[asyncio]>=2.0",  # DeclarativeBase, Mapped, async_sessionmaker (models.py)
     "aiosqlite",
     "paho-mqtt>=2.0",  # CallbackAPIVersion (broker.py)
@@ -47,7 +49,6 @@ ivoryos_edge = ["ui/**/*"]
 test = [
     "pytest",
     "pytest-asyncio",
-    "httpx"
 ]
 # Only needed to expose the deck to an MCP client such as Claude Desktop
 # (python -m ivoryos_edge.agent.mcp_server). The edge server itself never imports it.

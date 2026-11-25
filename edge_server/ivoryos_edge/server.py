@@ -8,10 +8,11 @@ import uuid
 import base64
 import json
 from typing import Dict, Any, Optional
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
+from starlette.websockets import WebSocketState
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
@@ -1962,14 +1963,26 @@ async def move_run(run_id: int, req: Request):
     return {"status": "success"}
 
 
+async def _until_client_leaves(websocket: WebSocket) -> None:
+    """Hold a push-only socket open until its client goes; clients send these sockets nothing.
+
+    Not `receive_text()` in a loop: a send that finds the client gone (it left while being sent the
+    current state on connecting) marks the socket closed on the edge's side, the sender drops it,
+    and `receive_text()` then raises a bare RuntimeError, which uvicorn logs as an "Exception in
+    ASGI application" for a page that was only closed or reloaded.
+    """
+    while websocket.application_state == WebSocketState.CONNECTED:
+        if (await websocket.receive())["type"] == "websocket.disconnect":
+            return
+
+
 @app.websocket("/api/ws/runs/{run_id}")
 async def ws_run_status(websocket: WebSocket, run_id: int):
     await websocket.accept()
-    await queue_manager.subscribe(run_id, websocket)
     try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
+        await queue_manager.subscribe(run_id, websocket)
+        await _until_client_leaves(websocket)
+    finally:
         await queue_manager.unsubscribe(run_id, websocket)
 
 @app.websocket("/api/ws/queue")
@@ -1977,11 +1990,10 @@ async def ws_global_queue(websocket: WebSocket):
     """The queue status alone, as the desktop app (desktop/src/attention.js) reads it. Pages use
     /api/ws, which carries it as one of its topics."""
     await websocket.accept()
-    await queue_manager.subscribe_global(websocket)
     try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
+        await queue_manager.subscribe_global(websocket)
+        await _until_client_leaves(websocket)
+    finally:
         await queue_manager.unsubscribe_global(websocket)
 
 
@@ -1989,11 +2001,10 @@ async def ws_global_queue(websocket: WebSocket):
 async def ws_live(websocket: WebSocket):
     """A page's one socket: every topic of live.py, each sent in full as the page connects."""
     await websocket.accept()
-    await live.hub.connect(websocket)
     try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
+        await live.hub.connect(websocket)
+        await _until_client_leaves(websocket)
+    finally:
         live.hub.disconnect(websocket)
 
 @app.post("/api/queue/runs/{run_id}/pause")
