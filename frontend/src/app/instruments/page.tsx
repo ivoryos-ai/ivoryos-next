@@ -307,7 +307,15 @@ export default function InstrumentsPage() {
     };
   }, []);
 
-  if (!statusData) return <div className="p-8 text-gray-900 dark:text-white bg-gray-50 dark:bg-[#0a0a0a] min-h-screen">Loading instruments...</div>;
+  // While the deck loads, the page keeps its frame: the navigation stays where it is and the
+  // content area is empty, instead of a bare "Loading instruments..." that took the navigation away
+  // and drew it again. Same elements as below, so the Sidebar is not mounted twice.
+  if (!statusData) return (
+    <div className={`flex h-screen bg-gray-50 dark:bg-[#0a0a0a] text-gray-900 dark:text-white font-sans overflow-hidden ${theme}`}>
+      <Sidebar />
+      <main className="flex-1 flex flex-col relative overflow-hidden bg-gray-100 dark:bg-transparent" aria-busy="true" />
+    </div>
+  );
 
   const instruments = statusData.instruments || {};
   // Instruments the deck file lists that did not load (see deck_config.py on the edge). Selected

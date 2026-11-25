@@ -41,6 +41,8 @@ safety.guard.app = app
 # What a page's /api/ws carries, each sent in full as the page connects (live.py).
 live.hub.topic("queue", queue_manager.global_payload)
 live.hub.topic("proposals", live.proposals_state)
+live.hub.topic("workflows", live.workflows_state)
+wf.on_change(live.workflows_changed)
 
 # Requests something asks for on a timer, left out of the access log when they succeed: one line
 # per deck every 20 s from the launcher buried everything else in the log it shows. A failure is
@@ -2535,6 +2537,9 @@ async def save_workflow(name: str, req: Request):
         "version": version,
         "created_version": created,
         "body_hash": body.get("body_hash"),
+        # The body as stored (with its version and hash), so the Designer can put it in its toolbox
+        # without reading it back.
+        "body": body,
         "dependents": wf.dependents(WORKFLOWS_DIR, name),
     }
 
