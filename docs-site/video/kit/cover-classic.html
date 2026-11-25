@@ -1,0 +1,32 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+/* The IvoryOS Classic cover. This is COVER_HTML from the classic repository's
+   docs/release_videos/record.py, unchanged in what it draws; only the placeholders are
+   spelled with double braces. Change the look there and here together. */
+*{box-sizing:border-box;margin:0}
+body{width:1280px;height:720px;overflow:hidden;position:relative;color:{{color.text}};
+    font-family:{{font.family}};background:{{cover.background}}}
+.shot{position:absolute;left:575px;top:120px;width:880px;border-radius:16px;overflow:hidden;
+    box-shadow:0 30px 80px rgba(0,0,0,.55),0 0 0 3px rgba(125,211,200,.4);
+    transform:perspective(1700px) rotateY(-15deg) rotateX(3deg);transform-origin:left center}
+.shot img{display:block;width:100%}
+.text{position:absolute;left:72px;top:68px;width:540px}
+.brand{display:flex;align-items:center;gap:18px}
+.brand img{height:76px;border-radius:16px;background:#fff;padding:4px}
+.brand span{font-size:50px;font-weight:750;letter-spacing:-.01em}
+.kicker{margin-top:52px;font-size:27px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:{{color.accentLight}}}
+.headline{font-size:200px;font-weight:800;line-height:.92;letter-spacing:-.04em;margin-top:4px}
+.headline.words{font-size:96px;line-height:1;letter-spacing:-.02em;margin-top:10px}
+ul{list-style:none;padding:0;margin-top:30px;font-size:26px;line-height:1.5;color:#e2e8f0}
+li{padding-left:28px;position:relative}
+li::before{content:"";position:absolute;left:2px;top:.58em;width:12px;height:12px;border-radius:50%;background:{{color.accent}}}
+.tagline{position:absolute;left:72px;bottom:42px;font-size:21px;color:{{color.muted}}}
+</style></head><body>
+<div class="shot"><img src="{{shot}}" alt=""></div>
+<div class="text">
+    <div class="brand"><img src="{{logo}}" alt=""><span>{{product.name}}</span></div>
+    <div class="kicker">{{kicker}}</div>
+    <div class="headline {{size}}">{{headline}}</div>
+    <ul>{{points}}</ul>
+</div>
+<div class="tagline">{{product.tagline}}</div>
+</body></html>
