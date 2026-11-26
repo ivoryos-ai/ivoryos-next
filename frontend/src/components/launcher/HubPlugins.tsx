@@ -71,11 +71,16 @@ export function PluginDetail({ api, access, deck, plugin, onDone }: {
     );
     if (!ok) return;
     setBusy(true);
+    // `own`: the same, with the deck in its own Python (offered when it cannot share the shared one).
+    const attempt = (own: boolean) => addTo(access, plugin.name.trim(), async deck => {
+      if (own) await api.setEnvironment(deck.id, 'own');
+      await api.install(deck.id, { packages: entry.packages, instruments: [], plugins: entry.plugins });
+    });
     try {
-      if (!await addTo(access, plugin.name.trim(), deck => api.install(deck.id, { packages: entry.packages, instruments: [], plugins: entry.plugins }))) return;
+      if (!await attempt(false)) return;
       onDone();
     } catch (e: any) {
-      await installFailed(api, 'Could not add the plugin', e, access.target?.id ?? null);
+      await installFailed(api, 'Could not add the plugin', e, access.target?.id ?? null, async () => { if (await attempt(true)) onDone(); });
     } finally {
       setBusy(false);
     }

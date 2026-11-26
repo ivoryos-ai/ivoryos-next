@@ -21,9 +21,14 @@ if (location.protocol === 'http:' || location.protocol === 'https:') {
     }
 }
 
+// A failure crosses to the page as a plain object, not an Error: Electron's context bridge copies
+// only an Error's message, so its code (what a page tells kinds apart by: 'stop-first',
+// 'package-conflict', the Hub's 'offline'), pip's output and a conflict's detail never reached
+// the page. desktopApi() in frontend/src/desktop.ts makes it an Error again.
 const call = async (channel, ...args) => {
     const res = await ipcRenderer.invoke(channel, ...args);
-    if (res && res.ok === false) throw Object.assign(new Error(res.error), { output: res.output, code: res.code });
+    // eslint-disable-next-line no-throw-literal
+    if (res && res.ok === false) throw { ivoryosError: true, message: res.error, output: res.output, code: res.code, detail: res.detail };
     return res ? res.value : undefined;
 };
 
@@ -72,6 +77,7 @@ contextBridge.exposeInMainWorld('ivoryosDesktop', {
     checkPackageUpdates: (id) => call('launcher:packages:check', id),
     updatePackage: (id, key, version) => call('launcher:packages:update', id, key, version),
     removePackages: (id, keys) => call('launcher:packages:remove', id, keys),
+    setEnvironment: (id, environment) => call('launcher:environment:set', id, environment),
     install: (id, manifest) => call('launcher:install', id, manifest),
     readScript: (id) => call('launcher:script:read', id),
     writeScript: (id, text) => call('launcher:script:write', id, text),
@@ -83,6 +89,7 @@ contextBridge.exposeInMainWorld('ivoryosDesktop', {
     setHubUrl: (url) => call('hub:set-url', url),
     setCloudUrl: (url) => call('cloud:set-url', url),
     launcherPython: () => call('python:launcher'),
+    profilePython: (id) => call('python:for-profile', id),
     inspectPython: (python) => call('python:inspect', python),
     createVenv: (folder) => call('python:create-venv', folder),
     installEdgeInto: (python) => call('python:install-edge', python),

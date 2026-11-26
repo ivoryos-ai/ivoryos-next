@@ -5,10 +5,11 @@ import {
   LogIn, PanelLeftClose, PanelLeftOpen, Play, Plus, RotateCw, Save, Send, Settings, Sparkles, Square, Store, UserPlus, X,
 } from 'lucide-react';
 import { chooseDialog, notify, promptDialog } from '@ivoryos/shared-ui';
-import { CLOUD_TAB, desktopApi, type AccountInfo, type CloudLink, type DesktopApi, type HubLinkRequest, type Profile, type Snapshot, type Tabs, type UpdateStatus } from '@/desktop';
+import { CLOUD_TAB, desktopApi, type AccountInfo, type CloudLink, type DesktopApi, type HubLinkRequest, type PackageConflict, type Profile, type Snapshot, type Tabs, type UpdateStatus } from '@/desktop';
 import AccountPanel, { Avatar, type AuthMode } from '@/components/launcher/AccountPanel';
 import CloudPanel, { useCloudLinks } from '@/components/launcher/CloudPanel';
-import { openReport } from '@/components/launcher/ReportProblem';
+import { installFailed, openReport } from '@/components/launcher/ReportProblem';
+import { packageConflictDialog } from '@/components/launcher/packageConflict';
 import CloudEarlyAccess from '@/components/launcher/CloudEarlyAccess';
 import { sharedIdentity } from '@/components/launcher/CloudConnection';
 import DeckPanel from '@/components/launcher/DeckPanel';
@@ -773,14 +774,27 @@ function ProfileView({ api, profile, hubUrl, pro, onUpgrade, link, sharedWith, t
       }
     }
     setTab('log');
-    run(() => startThenOpen(api, profile.id, () => api.start(profile.id), () => setTab('main')));
+    starting(() => api.start(profile.id));
   };
+  // A start that stopped at the deck's packages (desktop/src/manager.js _planInstall): the same
+  // choices an install offers, and with its own Python it starts again. From the start itself, and
+  // from the banner's Options… afterwards.
+  const resolveConflict = async (conflict: PackageConflict | null | undefined = s.conflict) => {
+    if (!conflict) return;
+    try {
+      if (await packageConflictDialog(api, conflict, { own: () => api.setEnvironment(profile.id, 'own') })) await startProfile();
+    } catch (e: any) {
+      await installFailed(api, 'Could not set up its own Python', e, profile.id);
+    }
+  };
+  const starting = (start: () => Promise<unknown>) => run(() => startThenOpen(api, profile.id, start, () => setTab('main'))
+    .catch((e: any) => { if (e?.code === 'package-conflict' && e.detail) return resolveConflict(e.detail); throw e; }));
   // The only way a running deck is restarted from this page: a click, and with a run under way
   // a second one (okToRestart). No edit, install or saved setting does it.
   const restartProfile = async () => {
     if (!await okToRestart(api, profile)) return;
     setTab('log');
-    run(() => startThenOpen(api, profile.id, () => api.restart(profile.id), () => setTab('main')));
+    starting(() => api.restart(profile.id));
   };
   const tabs: { id: ProfileTab; label: string }[] = [
     { id: 'main', label: profile.kind === 'deck' ? 'Instruments' : 'Overview' },
@@ -846,6 +860,7 @@ function ProfileView({ api, profile, hubUrl, pro, onUpgrade, link, sharedWith, t
           <div className="flex items-start gap-2 text-sm text-red-700 dark:text-red-300">
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
             <span className="flex-1 break-words">{s.message}</span>
+            {s.conflict && <Button small tone="ghost" onClick={() => resolveConflict()}>Options…</Button>}
             <Button small tone="ghost" onClick={() => setTab('log')}>See log</Button>
             <Button small tone="ghost" onClick={report} title="Send this session's log and the environment to the IvoryOS team; you see it all first"><Send className="w-3.5 h-3.5" /> Send to IvoryOS</Button>
           </div>

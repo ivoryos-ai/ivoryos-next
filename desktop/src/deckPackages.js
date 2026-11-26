@@ -2,9 +2,9 @@
 // A deck's `packages` as something to manage: which instrument or plugin needs each one, what
 // version is installed, and the list kept in step with what is on the deck.
 //
-// Nothing here uninstalls anything. Decks share one environment (runtime.js), so a package one deck
-// stops listing may be another's; taking it off a deck's list only means that deck no longer asks
-// for it. What a package is *for* is not recorded anywhere: it is worked out from the environment
+// Nothing here uninstalls anything. Decks share one environment (runtime.js) unless one has its own,
+// so a package one deck stops listing may be another's; taking it off a deck's list only means that
+// deck no longer asks for it. What a package is *for* is not recorded anywhere: it is worked out from the environment
 // (PythonRuntime.probeDeckPackages): each entry's import module, the distribution that provides it,
 // and that distribution's dependencies, so it holds for decks installed before this existed, for
 // a Hub module's pinned dependencies (`pylabrobot` beside `plr-ivoryos`), and for private

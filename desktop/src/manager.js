@@ -3,9 +3,11 @@
 // port, each with a supervisor (supervisor.js) that restarts it on request and reports a crash.
 //
 // No Electron here, so the logic is testable on its own; main.js connects it to windows, dialogs
-// and IPC. All profiles share one Python environment (runtime.js): drivers installed for one deck
+// and IPC. Profiles share one Python environment (runtime.js): drivers installed for one deck
 // are importable by every profile, which is simpler than a venv per profile and costs only the
-// isolation between decks that, on one bench, are usually the same instruments anyway.
+// isolation between decks that, on one bench, are usually the same instruments anyway. So every
+// install into it is checked against the other decks' lists first (`_planInstall`), and a deck
+// whose packages cannot share it is given its own (`setEnvironment`, issue 82).
 
 const { EventEmitter } = require('node:events');
 const crypto = require('node:crypto');
@@ -27,6 +29,8 @@ const {
 } = require('./deckEdit');
 const { addWorkflows } = require('./library');
 const { selectionOf, withSelection } = require('./optimizers');
+const { combine, explainFailure, isUnsatisfiable, conflictTitle, conflictMessage, agentBrief } = require('./packageConflicts');
+const { runtimeDir, deckEnvironmentDir } = require('./runtime');
 
 function portIsFree(port) {
     return new Promise((resolve) => {
@@ -122,9 +126,9 @@ class ProfileManager extends EventEmitter {
      * these are small files read only for profiles that are running.
      */
     _startedWith(profile) {
-        const { port, listenOnNetwork, env, script, cwd, args, python, deck, dataDir } = profile;
+        const { port, listenOnNetwork, env, script, cwd, args, python, deck, dataDir, environment } = profile;
         const parts = {
-            settings: stable({ port, listenOnNetwork, env, script, cwd, args, python, deck, dataDir }),
+            settings: stable({ port, listenOnNetwork, env, script, cwd, args, python, deck, dataDir, environment }),
             cloud: this.store.cloudUrl || null,
         };
         if (profile.kind === 'deck') {
@@ -193,8 +197,9 @@ class ProfileManager extends EventEmitter {
     update(id, patch) {
         const at = this.store.profiles.findIndex((p) => p.id === id);
         if (at === -1) throw new Error('That profile no longer exists.');
-        // id and kind are identity: changing them would orphan the profile's deck and data.
-        const { id: _i, kind: _k, ...rest } = patch || {};
+        // id and kind are identity: changing them would orphan the profile's deck and data. Which
+        // Python a deck runs in changes only through setEnvironment, which installs into it first.
+        const { id: _i, kind: _k, environment: _e, ...rest } = patch || {};
         this.store.profiles[at] = withDefaults(this.home, { ...this.store.profiles[at], ...rest });
         this._save();
         return this.store.profiles[at];
@@ -209,6 +214,8 @@ class ProfileManager extends EventEmitter {
         this.store.profiles = this.store.profiles.filter((p) => p.id !== id);
         this.status.delete(id);
         this._save(); // the deck and data folders stay on disk; removing a profile loses no runs
+        // Its own Python, if it had one, is only installed packages: nothing of the deck's.
+        try { fs.rmSync(deckEnvironmentDir(runtimeDir(this.home), id), { recursive: true, force: true }); } catch { /* in use: left */ }
     }
 
     get hubUrl() {
@@ -380,21 +387,27 @@ class ProfileManager extends EventEmitter {
             this._setStatus(id, { state: 'error', message: problems.join(' ') });
             throw new Error(problems.join(' '));
         }
-        this._setStatus(id, { state: 'starting', message: 'Preparing Python…', error: null, port: profile.port, portNote: null, installing: null });
+        this._setStatus(id, { state: 'starting', message: 'Preparing Python…', error: null, conflict: null, port: profile.port, portNote: null, installing: null });
         // Taken before the process exists, so a change made while it starts counts as not applied.
         const startedWith = this._startedWith(profile);
         try {
-            const runtime = await this.getRuntime();
+            const onProgress = (message) => this._setStatus(id, { message });
+            // A deck with its own environment runs from it; everything else from the shared one.
+            const runtime = await this._runtimeFor(profile, onProgress);
             if (profile.kind === 'deck') {
                 const deck = readDeckFile(profile.deck);
                 // The first profile loadProfiles makes on a fresh install has no folder yet (only
                 // create() writes one), and the edge runs with dataDir as its cwd: spawning into a
                 // missing cwd fails as "spawn python.exe ENOENT", naming the wrong file.
                 fs.mkdirSync(profile.dataDir, { recursive: true });
-                await runtime.ensurePackages(deck.packages || [], {
-                    key: id,
-                    onProgress: (message) => this._setStatus(id, { message }),
-                });
+                const packages = deck.packages || [];
+                // Installed when the list changed since its last install (edited by hand, or by an
+                // agent following the conflict brief), checked against the other decks like any install.
+                const upToDate = runtime.packagesUpToDate && runtime.packagesUpToDate(packages, id);
+                if (!upToDate) {
+                    const plan = await this._planInstall(profile, runtime, packages, deck);
+                    await runtime.ensurePackages(packages, { key: id, install: plan.install, onProgress });
+                }
             }
             const other = [...this.running.keys()].map((rid) => this.get(rid)).find((p) => this.statusOf(p.id).port === profile.port);
             if (other) throw new Error(`Port ${profile.port} is already used by "${other.name}". Give this profile another port.`);
@@ -447,9 +460,173 @@ class ProfileManager extends EventEmitter {
             this._setStatus(id, {
                 state: 'error', message: e.message, error: e.message,
                 logTail: [e.output, run && run.supervisor.logTail].filter(Boolean).join('\n'),
+                // The deck page offers what the install dialog does: its own Python, the brief.
+                conflict: e.code === 'package-conflict' ? e.detail : null,
             });
             throw e;
         }
+    }
+
+    // --- which Python a profile runs in -------------------------------------------------------
+
+    _ownEnvironment(profile) {
+        return profile.kind === 'deck' && profile.environment === 'own';
+    }
+
+    /**
+     * The runtime a profile runs in: a deck's own (made the first time it is needed, so a deck
+     * created with `environment: 'own'`, or whose folder was thrown away, gets it on its next
+     * start) or the shared one.
+     */
+    async _runtimeFor(profile, onProgress = () => {}) {
+        const shared = await this.getRuntime();
+        if (!this._ownEnvironment(profile) || !shared.forDeck) return shared;
+        const own = shared.forDeck(profile.id);
+        await own.ensure({ onProgress });
+        return own;
+    }
+
+    /** The Python a profile runs with: a script's own interpreter, a deck's own environment, or the shared one. */
+    async pythonFor(id) {
+        const profile = this.get(id);
+        if (profile.kind === 'script') return profile.python || (await this.getRuntime()).python;
+        return (await this._runtimeFor(profile)).python;
+    }
+
+    /**
+     * The other decks in the shared environment, each with the packages it has there: what an
+     * install must not break. That is the requirements on its list that were installed for it
+     * (runtime.installedPackages), not its whole list: one added by hand and never installed is not
+     * something it has, and counting it let one deck's unfinished edit stop every other deck from
+     * installing, and named them as the conflict. It meets the others when it next starts. One
+     * taken off its list is no longer needed by it, though still installed, so it is free to change.
+     * A deck with its own environment is not among them, nor a script (it lists no packages). A
+     * private repository's archive that is gone from disk is left out, since it could not be
+     * installed again anyway.
+     */
+    _sharingDecks(exceptId, runtime) {
+        return this.store.profiles
+            .filter((p) => p.id !== exceptId && p.kind === 'deck' && !this._ownEnvironment(p))
+            .map((p) => {
+                let packages = readDeckFile(p.deck).packages || [];
+                if (runtime && runtime.installedPackages) {
+                    const has = new Set((runtime.installedPackages(p.id) || []).map((r) => String(r).trim()));
+                    packages = packages.filter((r) => has.has(String(r).trim()));
+                }
+                packages = packages.filter((r) => !packageKey(r).startsWith('path:') || fs.existsSync(String(r).trim()));
+                return { id: p.id, name: p.name, file: p.deck, packages };
+            })
+            .filter((o) => o.packages.length);
+    }
+
+    /**
+     * What to give uv so that `packages`, this deck's whole list, go in without breaking anything
+     * else in its environment: {install, changes} (`changes` is the dry run's, null when the
+     * runtime cannot dry-run). In the shared environment that is the deck's list together with
+     * every other deck's and the edge's own requirements, resolved as one: `uv pip install` of one
+     * deck's list alone replaced whatever another deck needed and reported success.
+     *
+     * When that does not resolve, nothing is installed and a 'package-conflict' error says which
+     * of three things it is (packageConflicts.js): the deck's own list ('deck'), its list beside
+     * IvoryOS's ('edge'), or its list beside another deck's ('shared', the one a deck's own
+     * environment fixes, naming those decks). `deckAfter` is the deck as it would be, for the
+     * brief's list of instruments.
+     */
+    async _planInstall(profile, runtime, packages, deckAfter = null) {
+        if (!runtime.resolve) return { install: packages, changes: null };
+        const edge = runtime.edgeRequirements ? await runtime.edgeRequirements() : [];
+        const others = this._ownEnvironment(profile) ? [] : this._sharingDecks(profile.id, runtime);
+        const all = combine(packages, edge, ...others.map((o) => o.packages));
+        const together = await runtime.resolve(all);
+        if (together.ok) return { install: all, changes: together.changes };
+
+        const conflict = (kind, output, culprits = []) => {
+            const deck = deckAfter || readDeckFile(profile.deck);
+            const detail = {
+                kind,
+                deck: { id: profile.id, name: profile.name, file: profile.deck },
+                others: culprits.map(({ id, name, file, packages: p }) => ({ id, name, file, packages: p })),
+                explanation: explainFailure(output),
+                packages,
+            };
+            detail.title = conflictTitle(detail);
+            detail.brief = agentBrief({
+                conflict: detail, requested: packages, current: readDeckFile(profile.deck).packages || [],
+                instruments: (deck.instruments || []).map((i) => ({ name: i.name, import: i.import, class: i.class })),
+                python: runtime.python, uv: runtime.uv, platform: process.platform,
+            });
+            return Object.assign(new Error(conflictMessage(detail)), { code: 'package-conflict', detail, output });
+        };
+
+        const alone = others.length ? await runtime.resolve(combine(packages, edge)) : together;
+        if (!alone.ok) {
+            // A download that failed, or a file that is missing, is not a conflict: said as uv says it.
+            if (!isUnsatisfiable(alone.output)) {
+                throw Object.assign(new Error(`Could not work out what to install: ${explainFailure(alone.output)}`), { output: alone.output });
+            }
+            const withoutEdge = edge.length ? await runtime.resolve(combine(packages)) : alone;
+            throw conflict(withoutEdge.ok ? 'edge' : 'deck', alone.output);
+        }
+        // Fine alone, not with the others: which of them. Several are tried at once (each is a
+        // resolution against the index); when no single one is to blame, all of them together are.
+        const culprits = [];
+        for (let i = 0; i < others.length; i += 3) {
+            const tried = await Promise.all(others.slice(i, i + 3).map(async (o) => ({ o, res: await runtime.resolve(combine(packages, edge, o.packages)) })));
+            for (const { o, res } of tried) if (!res.ok) culprits.push({ ...o, output: res.output });
+        }
+        if (!culprits.length && !isUnsatisfiable(together.output)) {
+            throw Object.assign(new Error(`Could not work out what to install: ${explainFailure(together.output)}`), { output: together.output });
+        }
+        throw conflict('shared', culprits.length ? culprits[0].output : together.output, culprits.length ? culprits : others);
+    }
+
+    /**
+     * Give a deck its own Python environment ('own'), or put it back in the shared one ('shared').
+     * Its packages are installed into the new one first, and only then does the profile say so,
+     * so a failure leaves it where it was. Moving out can happen while it runs (the new
+     * environment is beside the old, and it moves at its next restart, like any changed setting);
+     * moving back cannot, since its environment is thrown away, and is checked against the shared
+     * environment's other decks like any install.
+     */
+    setEnvironment(id, environment) {
+        if (!['own', 'shared'].includes(environment)) throw new Error(`Unknown environment: ${environment}`);
+        return this._exclusive(id, async () => {
+            const profile = this._deckProfile(id);
+            if ((profile.environment === 'own' ? 'own' : 'shared') === environment) return profile;
+            const run = this.running.get(id);
+            if (environment === 'shared' && run) {
+                throw Object.assign(new Error(`Stop ${profile.name} first: it is running from its own Python, which is removed when it moves back.`), { code: 'stop-first' });
+            }
+            const deck = readDeckFile(profile.deck);
+            const packages = deck.packages || [];
+            const shared = await this.getRuntime();
+            const before = this.statusOf(id);
+            const progress = (message) => this._setStatus(id, run ? { installing: message } : { state: 'installing', message });
+            try {
+                if (environment === 'own') {
+                    progress('Setting up its own Python…');
+                    const own = await this._runtimeFor({ ...profile, environment: 'own' }, progress);
+                    const plan = await this._planInstall({ ...profile, environment: 'own' }, own, packages, deck);
+                    own.forgetPackages?.(id);
+                    await own.ensurePackages(packages, { key: id, install: plan.install, onProgress: progress });
+                    // Back in the shared one later means installing there again.
+                    shared.forgetPackages?.(id);
+                } else {
+                    progress('Checking the shared Python…');
+                    const plan = await this._planInstall({ ...profile, environment: 'shared' }, shared, packages, deck);
+                    shared.forgetPackages?.(id);
+                    await shared.ensurePackages(packages, { key: id, install: plan.install, onProgress: progress });
+                    shared.removeDeckEnvironment?.(id);
+                }
+            } catch (e) {
+                this._setStatus(id, run ? { installing: null } : { state: before.state, message: before.message });
+                throw e;
+            }
+            this.store.profiles = this.store.profiles.map((p) => (p.id === id ? { ...p, environment } : p));
+            this._save();
+            this._setStatus(id, run ? { installing: null } : { state: 'stopped', message: environment === 'own' ? 'Has its own Python' : 'Uses the shared Python', conflict: null, error: null });
+            return this.get(id);
+        });
     }
 
     async _stop(id) {
@@ -506,16 +683,16 @@ class ProfileManager extends EventEmitter {
      */
     removeInstrument(id, name) {
         return this._editDeck(id, async (deck) => {
-            const neededBy = await this._neededBy(deck);
+            const neededBy = await this._neededBy(id, deck);
             const next = removeInstrument(deck, name);
             return withPackages(next, packagesAfterRemoving(deck, neededBy, [`instrument:${name}`]));
         });
     }
 
     /** Which of the deck's packages each entry needs, or null when Python cannot say (not set up yet). */
-    async _neededBy(deck) {
+    async _neededBy(id, deck) {
         try {
-            const runtime = await this.getRuntime();
+            const runtime = await this._runtimeFor(this.get(id));
             if (!runtime.probeDeckPackages) return null;
             return (await runtime.probeDeckPackages(probeInput(deck))).entries;
         } catch {
@@ -548,7 +725,7 @@ class ProfileManager extends EventEmitter {
     /** Take a plugin off the deck, and its package off the list when nothing else needs it (still installed). */
     removePlugin(id, ref) {
         return this._editDeck(id, async (deck) => {
-            const neededBy = await this._neededBy(deck);
+            const neededBy = await this._neededBy(id, deck);
             return withPackages(removePlugin(deck, ref), packagesAfterRemoving(deck, neededBy, [`plugin:${ref}`]));
         });
     }
@@ -559,7 +736,7 @@ class ProfileManager extends EventEmitter {
     async deckPackages(id) {
         const deck = this.readDeck(id);
         try {
-            const runtime = await this.getRuntime();
+            const runtime = await this._runtimeFor(this.get(id));
             const probe = await runtime.probeDeckPackages(probeInput(deck));
             return { rows: describePackages(deck, probe), error: null };
         } catch (e) {
@@ -574,7 +751,7 @@ class ProfileManager extends EventEmitter {
      */
     async checkPackageUpdates(id) {
         const deck = this.readDeck(id);
-        const runtime = await this.getRuntime();
+        const runtime = await this._runtimeFor(this.get(id));
         const probe = await runtime.probeDeckPackages(probeInput(deck)).catch(() => null);
         const requirements = deck.packages || [];
         const targets = requirements.map(parseRequirement).filter((r) => r.kind === 'name' && !optimizerOf(r.requirement));
@@ -603,7 +780,7 @@ class ProfileManager extends EventEmitter {
             if (at === -1) throw new Error(`This deck does not list ${key}.`);
             const packages = deck.packages.slice();
             packages[at] = withVersion(packages[at], version);
-            await this._installFor(id, packages, { doing: `Updating ${key}…`, done: 'Updated', failed: 'Update failed' },
+            await this._installFor(id, packages, { doing: `Updating ${key}…`, done: 'Updated', failed: 'Update failed', deck: { ...deck, packages } },
                 () => writeDeckFile(profile.deck, { ...deck, packages }));
             return readDeckFile(profile.deck);
         });
@@ -644,10 +821,15 @@ class ProfileManager extends EventEmitter {
      *     the status says it is not applied yet (`_pending`: 'packages', and 'deck' for what the
      *     commit added) until the person restarts it.
      * A stopped deck installs as before: 'installing', then 'stopped' or 'error' with pip's output.
+     *
+     * Before any of that, the list is planned against everything else in the deck's environment
+     * (`_planInstall`). A conflict installs nothing and leaves the deck's status as it was: the
+     * page shows it in a dialog (code 'package-conflict'). `words.deck` is the deck as it would be.
      */
     async _installFor(id, packages, words, commit) {
         const run = this.running.get(id);
-        const name = this.get(id).name;
+        const profile = this.get(id);
+        const name = profile.name;
         if (run) {
             let active = null;
             try { active = await this.activeRun(id); } catch { /* cannot tell: the dry run below still protects it */ }
@@ -658,22 +840,34 @@ class ProfileManager extends EventEmitter {
                 ), { code: 'run-under-way' });
             }
         }
-        const runtime = await this.getRuntime();
-        let plan = [];
-        if (run && runtime.installPlan) {
-            plan = await runtime.installPlan(packages);
-            const replaced = [...new Set(plan.filter((c) => c.change === '-').map((c) => `${c.name} ${c.version}`))];
+        const before = this.statusOf(id);
+        const progress = (message) => this._setStatus(id, run ? { installing: message } : { message });
+        if (run) progress('Checking packages…'); else this._setStatus(id, { state: 'installing', message: 'Checking packages…' });
+        let runtime;
+        let plan;
+        try {
+            runtime = await this._runtimeFor(profile, progress);
+            plan = await this._planInstall(profile, runtime, packages, words.deck);
+        } catch (e) {
+            // Nothing was installed: the deck is as it was.
+            this._setStatus(id, run ? { installing: null } : { state: before.state, message: before.message });
+            throw e;
+        }
+        let changes = plan.changes;
+        if (run) {
+            if (!changes && runtime.installPlan) changes = await runtime.installPlan(packages);
+            const replaced = [...new Set((changes || []).filter((c) => c.change === '-').map((c) => `${c.name} ${c.version}`))];
             if (replaced.length) {
+                this._setStatus(id, { installing: null });
                 throw Object.assign(new Error(
                     `This would replace ${replaced.length === 1 ? 'a package' : 'packages'} already installed (${replaced.slice(0, 4).join(', ')}${replaced.length > 4 ? ', …' : ''}), `
                     + `and ${name} is running on ${replaced.length === 1 ? 'it' : 'them'}. Stop ${name}, then try again. It is never stopped for you.`,
                 ), { code: 'stop-first' });
             }
         }
-        const progress = (message) => this._setStatus(id, run ? { installing: message } : { message });
         if (run) progress(words.doing); else this._setStatus(id, { state: 'installing', message: words.doing });
         try {
-            await runtime.ensurePackages(packages, { key: id, onProgress: progress });
+            await runtime.ensurePackages(packages, { key: id, install: plan.install, onProgress: progress });
             commit();
         } catch (e) {
             // A running deck is still running what it had; only a stopped one shows the failure as its state.
@@ -682,10 +876,10 @@ class ProfileManager extends EventEmitter {
             throw e;
         }
         if (run) {
-            if (plan.length) run.packagesChanged = true;
+            if (changes && changes.length) run.packagesChanged = true;
             this._setStatus(id, { installing: null });
         } else {
-            this._setStatus(id, { state: 'stopped', message: words.done });
+            this._setStatus(id, { state: 'stopped', message: words.done, conflict: null });
         }
     }
 
@@ -703,7 +897,7 @@ class ProfileManager extends EventEmitter {
         const profile = this._deckProfile(id);
         const { manifest } = validateManifest(manifestInput, { allowPaths });
         const merged = mergeIntoDeck(readDeckFile(profile.deck), manifest);
-        await this._installFor(id, merged.deck.packages || [], { doing: 'Installing drivers…', done: 'Installed', failed: 'Install failed' },
+        await this._installFor(id, merged.deck.packages || [], { doing: 'Installing drivers…', done: 'Installed', failed: 'Install failed', deck: merged.deck },
             () => writeDeckFile(profile.deck, merged.deck));
         return { added: merged.added, replaced: merged.replaced, pluginsAdded: merged.pluginsAdded };
     }
@@ -721,7 +915,7 @@ class ProfileManager extends EventEmitter {
             const profile = this._deckProfile(id);
             const deck = readDeckFile(profile.deck);
             const packages = withSelection(deck.packages || [], selection);
-            await this._installFor(id, packages, { doing: 'Installing optimizers…', done: 'Installed', failed: 'Install failed' },
+            await this._installFor(id, packages, { doing: 'Installing optimizers…', done: 'Installed', failed: 'Install failed', deck: { ...deck, packages } },
                 () => writeDeckFile(profile.deck, { ...deck, packages }));
             return selectionOf(packages);
         });

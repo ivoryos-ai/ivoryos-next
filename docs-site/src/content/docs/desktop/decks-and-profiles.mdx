@@ -91,6 +91,23 @@ ever uninstalled**; the list only says what this deck needs:
   chosen in the deck's Settings instead, from versions tested together, and a private repository
   moves to a newer commit by importing it again.
 
+### When packages clash
+
+Every install is first checked against what the other decks in the shared Python have installed,
+and against what IvoryOS itself needs. When they do not fit, nothing is installed, and a dialog
+says what uv found:
+
+- **Another deck's packages** need other versions: **Give it its own Python** sets up an
+  environment for this deck alone, in seconds, and installs there. Both decks then run. The deck's
+  **Settings → Python** shows which one it uses, and moves it back when its packages fit again.
+- **The deck's own packages**, or **IvoryOS itself**, need other versions: one Python holds one
+  version of each package, so no environment helps. Put one of the drivers on another deck, or
+  change a version.
+
+**Copy** copies the problem, every deck's package list and the rules for trying fixes safely,
+written for Claude Code or another coding agent on this computer. If it changes the deck's
+package list, Start installs it, checked the same way.
+
 ## A script profile
 
 <Shot name="launcher-script" alt="A script profile's page: the same buttons, four tabs, and the script it runs" />
@@ -162,8 +179,9 @@ VS Code, *Python: Select Interpreter* → Enter path.
 | `profiles.json` | your profiles and the app's settings |
 | `profiles/<id>/deck.json` | a deck profile's instruments (Settings → Show deck file) |
 | `profiles/<id>/data/` | that deck's runs, workflows, safety configuration and Cloud pairing |
-| `runtime/venv/` | the Python environment all decks share, managed by uv |
+| `runtime/venv/` | the Python environment the decks share, managed by uv |
+| `runtime/envs/<id>/` | a deck's own Python environment, when it has one |
 | `logs/<id>.log` | each profile's output |
 
-Deleting `runtime/` is safe: it is rebuilt on the next start. Deleting `profiles/<id>/data/`
+Deleting `runtime/` is safe: it is rebuilt on the next start, decks' own environments included. Deleting `profiles/<id>/data/`
 deletes that deck's run history.

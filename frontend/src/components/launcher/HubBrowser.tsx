@@ -591,6 +591,8 @@ function ConfigureForm({ api, access, module, onDone }: { api: DesktopApi; acces
 
   const add = async () => {
     setBusy(true);
+    // The install, done again with the deck in its own Python when it cannot share the shared one.
+    let attempt: ((own: boolean) => Promise<boolean>) | null = null;
     try {
       const { instrument, packages, warnings } = await api.hubEntry({
         moduleId: module.id,
@@ -611,10 +613,15 @@ function ConfigureForm({ api, access, module, onDone }: { api: DesktopApi; acces
         { title: 'Install and add?', confirmLabel: 'Install and add' },
       );
       if (!ok) return;
-      if (!await addTo(access, module.name, deck => api.install(deck.id, { packages, instruments: [instrument] }))) return;
+      attempt = (own: boolean) => addTo(access, module.name, async deck => {
+        if (own) await api.setEnvironment(deck.id, 'own');
+        await api.install(deck.id, { packages, instruments: [instrument] });
+      });
+      if (!await attempt(false)) return;
       onDone();
     } catch (e: any) {
-      await installFailed(api, 'Could not add the instrument', e, access.target?.id ?? null);
+      const again = attempt;
+      await installFailed(api, 'Could not add the instrument', e, access.target?.id ?? null, again ? async () => { if (await again(true)) onDone(); } : undefined);
     } finally {
       setBusy(false);
     }

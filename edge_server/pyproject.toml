@@ -14,9 +14,9 @@ dependencies = [
     "wsproto",
     "pydantic",
     "python-dotenv",
-    "sqlalchemy[asyncio]",
+    "sqlalchemy[asyncio]>=2.0",  # DeclarativeBase, Mapped, async_sessionmaker (models.py)
     "aiosqlite",
-    "paho-mqtt",
+    "paho-mqtt>=2.0",  # CallbackAPIVersion (broker.py)
     "httpx>=0.28.1",
     "pandas",
 ]

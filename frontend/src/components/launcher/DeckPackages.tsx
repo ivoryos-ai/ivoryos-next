@@ -63,7 +63,11 @@ export default function DeckPackages({ api, profileId, deck, running, onChanged 
       setUpdates(prev => { if (!prev) return prev; const next = { ...prev }; delete next[p.key]; return next; });
       onChanged();
     } catch (e: any) {
-      await installFailed(api, `Could not update ${p.name}`, e, profileId);
+      await installFailed(api, `Could not update ${p.name}`, e, profileId, async () => {
+        await api.setEnvironment(profileId, 'own');
+        await api.updatePackage(profileId, p.key, u.latest!);
+        onChanged();
+      });
     } finally {
       setBusy(null);
     }

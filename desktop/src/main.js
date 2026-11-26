@@ -27,7 +27,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
 const { ProfileManager } = require('./manager');
-const { PythonRuntime, run: runProcess } = require('./runtime');
+const { PythonRuntime, run: runProcess, runtimeDir } = require('./runtime');
 const { Account, pkcePair } = require('./account');
 const { HubCatalog } = require('./hubCatalog');
 const { GitConnections } = require('./gitRepos');
@@ -128,7 +128,7 @@ function getRuntime() {
                 });
             }
             if (!res.edgeSource) throw new Error('This build does not include the edge server package.');
-            const runtime = new PythonRuntime({ uv: res.uv, dir: path.join(home(), 'runtime'), edgeSource: res.edgeSource });
+            const runtime = new PythonRuntime({ uv: res.uv, dir: runtimeDir(home()), edgeSource: res.edgeSource });
             setRuntimeStatus({ state: 'preparing', message: 'Checking Python…' });
             await runtime.ensure({ onProgress: (message) => setRuntimeStatus({ message }) });
             setRuntimeStatus({ state: 'ready', message: `Python ready (${res.edgeSource.kind === 'editable' ? 'development edge' : 'bundled edge'})` });
@@ -961,13 +961,13 @@ async function importFromGit(profileId, provider, repoId, ref) {
     requirePro();
     const got = await git.download(provider, repoId, ref);
     await manager.install(profileId, { packages: [got.file], instruments: [] });
-    const runtime = await getRuntime();
+    const python = await manager.pythonFor(profileId);
     // Passed with -c rather than as a file: in a packaged build this folder is inside app.asar,
     // which Electron can read and Python cannot.
     const code = fs.readFileSync(path.join(__dirname, 'scan_driver.py'), 'utf8');
     let scan;
     try {
-        const out = await runProcess(runtime.python, ['-c', code, path.basename(got.file)]);
+        const out = await runProcess(python, ['-c', code, path.basename(got.file)]);
         scan = JSON.parse(out.trim().split(/\r?\n/).pop());
     } catch (e) {
         scan = { error: `Installed, but its classes could not be listed: ${String(e.output || e.message).trim().split('\n').pop()}` };
@@ -1000,7 +1000,8 @@ function handle(channel, fn) {
             // Errors are returned, not thrown: Electron would otherwise prefix every message with
             // "Error invoking remote method", which is not something to show a scientist. A code
             // goes along, so a page can tell kinds apart (the Hub's 'offline', hubCatalog.js).
-            return { ok: false, error: e.message, output: e.output, code: typeof e.code === 'string' ? e.code : undefined };
+            // `detail` is what a page needs to act on one kind (a package conflict's decks and brief).
+            return { ok: false, error: e.message, output: e.output, code: typeof e.code === 'string' ? e.code : undefined, detail: e.detail };
         }
     });
 }
@@ -1121,6 +1122,8 @@ function registerIpc() {
     handle('launcher:packages:check', (id) => manager.checkPackageUpdates(id));
     handle('launcher:packages:update', (id, key, version) => announceOutcome(id, 'install', manager.updatePackage(id, key, version)));
     handle('launcher:packages:remove', (id, keys) => manager.removePackages(id, keys));
+    // A deck's own Python environment, or back to the shared one (manager.js setEnvironment).
+    handle('launcher:environment:set', (id, environment) => announceOutcome(id, 'install', manager.setEnvironment(id, environment)));
     handle('launcher:install', (id, manifest) => announceOutcome(id, 'install', manager.install(id, manifest)));
     handle('launcher:free-name', (id, suggestion) => freeName(manager.readDeck(id), suggestion));
     handle('launcher:rebuild-python', async () => {
@@ -1139,6 +1142,7 @@ function registerIpc() {
     handle('cloud:pair-cancel', (profileId) => cancelCloudPairing(profileId));
     // Python environments the person also uses from their own editor.
     handle('python:launcher', async () => (await getRuntime()).python);
+    handle('python:for-profile', (id) => manager.pythonFor(id));
     handle('python:inspect', async (python) => (await getRuntime()).inspect(python || (await getRuntime()).python));
     handle('python:create-venv', async (folder) => {
         if (!folder || !fs.existsSync(folder)) throw new Error('Choose an existing folder first.');
@@ -1263,7 +1267,7 @@ function registerIpc() {
         // No profile and no failure: a report from Settings → Help, about nothing in particular.
         const status = profile ? manager.statusOf(id) : { state: failure.message ? 'error' : '', message: failure.message || '' };
         const runtime = runtimeStatus.state === 'error' ? null : await getRuntime().catch(() => null);
-        const python = profile && profile.kind === 'script' && profile.python ? profile.python : runtime && runtime.python;
+        const python = profile && runtime ? await manager.pythonFor(profile.id).catch(() => runtime.python) : runtime && runtime.python;
         const [environment, check] = runtime && python
             ? await Promise.all([runtime.describe(python), runtime.check(python)])
             : [{ error: runtimeStatus.message || 'The Python environment is not set up.' }, null];
@@ -1293,12 +1297,13 @@ function registerIpc() {
     });
 
     // A deck's optimizer backends (optimizers.js): the tested versions, the deck's choice, and
-    // what the shared environment has installed now.
+    // what its environment (its own, or the shared one) has installed now.
     handle('launcher:optimizers', async (id) => {
         // No id: a deck that does not exist yet (the Hub making a new one) has chosen nothing.
         const deck = id ? manager.readDeck(id) : { packages: [] };
         const runtime = await getRuntime().catch(() => null);
-        const env = runtime ? await runtime.describe(runtime.python) : { error: runtimeStatus.message };
+        const python = runtime && (id ? await manager.pythonFor(id).catch(() => runtime.python) : runtime.python);
+        const env = runtime ? await runtime.describe(python) : { error: runtimeStatus.message };
         return { catalog: OPTIMIZERS, selected: selectionOf(deck.packages || []), installed: env.optimizers || {}, error: env.error || null };
     });
     handle('launcher:optimizers:set', (id, selection) => announceOutcome(id, 'install', manager.setOptimizers(id, selection)));

@@ -268,6 +268,7 @@ export function makeDesktopApi(lab: Lab, realFetch: typeof fetch): DesktopApi {
       parseRequirement(req).key, { latest: null, changes: [], error: 'The tour downloads nothing, so it does not look for updates.' },
     ])),
     updatePackage: async () => { throw new Error(DESKTOP_ONLY); },
+    setEnvironment: async () => { throw new Error(DESKTOP_ONLY); },
     removePackages: async (id, keys) => {
       const d = lab.get(id);
       const drop = new Set(keys);
@@ -305,6 +306,7 @@ export function makeDesktopApi(lab: Lab, realFetch: typeof fetch): DesktopApi {
     account: async () => SIGNED_OUT,
     // The launcher's Python check (Settings): there is none to check, and none needed.
     inspectPython: async () => ({ ok: true, python: 'Simulated in your browser: the tour runs no Python', version: '3.12', edge: '(simulated)' }),
+    profilePython: async () => 'Simulated in your browser: the tour runs no Python',
     // The tour's scripts are its own simulated lab, never IvoryOS Classic.
     classicScript: async () => null,
     reorderProfiles: async () => {},
