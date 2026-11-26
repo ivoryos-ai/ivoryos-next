@@ -29,6 +29,7 @@ film yet.
 | `record.mjs`, `lib/recorder.mjs` | Starts the real app (`desktop/`) in a home folder of its own, runs the tutorial, and keeps what each page painted, the pointer's path and when each line began (`.work/take/`). Each beat is held for as long as its line lasts. |
 | `compose.mjs` | Puts the film together from the take: the launcher and the deck's page as one window, the pointer, zooms, chapter titles, the title and closing cards, and the narration mixed in. Writes the subtitles and `script.md`. |
 | `script.md` | The narration as a table, generated. Read it there; edit it in `voiceover.json`. |
+| `kit/` | The style every IvoryOS video is meant to share (`style.json`: a Classic and a NextGen theme, and the rules for on-screen text), a cover maker and a page that draws the whole style. Nothing above reads it yet; see `kit/README.md`. |
 
 ## What it needs
 

@@ -1,0 +1,179 @@
+{
+  "$comment": "The look and the rules of every IvoryOS video: release videos, tutorials and promos, for IvoryOS Classic and IvoryOS NextGen. `shared` holds what is the same for both products; `themes` holds what tells them apart. Lengths are CSS pixels of a 1280x720 layout, drawn at 1.5x for a 1920x1080 film. Read by cover.mjs and board.mjs in this folder; see README.md for what does not read it yet.",
+  "version": 1,
+
+  "shared": {
+    "frame": { "width": 1920, "height": 1080, "fps": 30 },
+    "layout": { "width": 1280, "height": 720, "scale": 1.5 },
+    "encode": { "codec": "libx264", "crf": 16, "pixelFormat": "yuv420p", "colour": "bt709", "range": "tv", "faststart": true },
+    "audio": { "loudnessLufs": -16, "truePeakDb": -1.5, "loudnessRange": 11, "codec": "aac", "bitrateKbps": 192, "sampleRate": 48000 },
+    "voice": {
+      "engine": "kokoro",
+      "voice": "af_heart",
+      "speed": 1.0,
+      "sentencePauseS": 0.35,
+      "lineGapS": 0.35,
+      "pronounce": { "IvoryOS": "Ivory O S" }
+    },
+    "pacing": { "readSecondsPerWord": 0.22, "beatLeadMs": 400, "beatTailMs": 800, "ringHoldS": [3, 5] },
+    "chapters": { "first": "Intro", "minCount": 3, "minSeconds": 10 },
+    "subtitles": { "maxCueChars": 84, "maxLineChars": 42, "maxLines": 2, "splitAt": ["sentence", "clause", "word"] },
+
+    "onScreenText": {
+      "$comment": "Every piece of text a video may put on screen, and its limits. A theme decides how each one looks, not whether it exists.",
+      "kinds": {
+        "caption": { "for": "What the viewer is looking at right now: a title, and at most one line under it.", "titleMaxWords": 8, "textMaxWords": 18 },
+        "tag": { "for": "Release videos only: which kind of change a caption shows.", "values": { "new": "New", "fix": "Fix", "qol": "QoL" } },
+        "chapter": { "for": "The part of the video that is starting. The same titles are the YouTube chapters.", "maxChars": 34, "seconds": 4.2 },
+        "ring": { "for": "The one control or value the caption is about. Never more than three at once." },
+        "note": { "for": "A label on one line of a code slide.", "maxWords": 4 },
+        "card": { "for": "Title, recap and closing cards.", "titleMaxChars": 40, "bulletsMax": 5, "bulletMaxWords": 14 },
+        "subtitle": { "for": "The narration, as a separate file (SRT, VTT). Never burned into the picture." }
+      },
+      "rules": [
+        "Sentence case everywhere; a theme may set its kicker in capitals.",
+        "A caption says what the viewer gets, in their words. Only claim what the screen shows.",
+        "Text in backticks is code. Code appears on screen, never in the narration.",
+        "No addresses on screen, the closing card included: nobody types one. Links go in the description.",
+        "A caption never covers the control or value it is about: move it to the other edge.",
+        "Captions and narration are different texts. The caption is read, the line is heard: units in words, no symbols.",
+        "Keep the bottom-right corner of a cover free of text: YouTube draws the length there."
+      ]
+    },
+
+    "cover": {
+      "$comment": "One set of inputs for every cover, whatever the theme.",
+      "width": 1280, "height": 720, "scale": 1.5, "format": "jpeg", "quality": 95, "maxBytes": 2000000,
+      "kinds": {
+        "release": { "kicker": "What's new in", "headline": "the version, e.g. 1.8.0" },
+        "tutorial": { "kicker": "Tutorial", "headline": "two or three words, e.g. Getting started" },
+        "promo": { "kicker": "", "headline": "two or three words" }
+      },
+      "numericHeadlineMaxChars": 6,
+      "headlineMaxChars": 22,
+      "pointsMax": 3,
+      "pointMaxChars": 35
+    }
+  },
+
+  "themes": {
+    "classic": {
+      "label": "IvoryOS Classic",
+      "summary": "Warm and loud: a teal glow on slate, heavy type, capital kickers, amber for anything that points.",
+      "product": { "name": "IvoryOS", "badge": "", "tagline": "Open-source orchestrator for self-driving labs", "docs": "https://ivoryos.readthedocs.io" },
+      "font": {
+        "family": "\"Segoe UI\", system-ui, -apple-system, sans-serif",
+        "mono": "ui-monospace, Consolas, \"Cascadia Code\", monospace",
+        "google": ""
+      },
+      "color": {
+        "bg": "#0f172a",
+        "glow": "#1f5560",
+        "panel": "rgba(15,23,42,.93)",
+        "text": "#f8fafc",
+        "soft": "#cbd5e1",
+        "muted": "#94a3b8",
+        "accent": "#2a9d8f",
+        "accentLight": "#7dd3c8",
+        "highlight": "#f5a524",
+        "code": "#fde68a"
+      },
+      "card": {
+        "background": "radial-gradient(circle at 18% 12%, #1f5560, #0f172a 72%)",
+        "align": "left",
+        "kicker": { "size": 17, "weight": 700, "tracking": "0.16em", "uppercase": true, "color": "#7dd3c8" },
+        "title": { "size": 60, "weight": 750, "tracking": "-0.01em" },
+        "sub": { "size": 23, "weight": 400, "color": "#cbd5e1" },
+        "bullet": { "size": 20, "marker": "dot", "markerColor": "#2a9d8f" },
+        "foot": { "size": 16, "color": "#94a3b8", "logo": "tile" },
+        "titleSeconds": 5, "closingSeconds": 5, "titleNarrated": true, "closingNarrated": true
+      },
+      "caption": {
+        "background": "rgba(15,23,42,.93)",
+        "radius": 14, "padding": "13px 22px 14px", "maxWidth": 1000,
+        "shadow": "0 10px 30px rgba(0,0,0,.28)",
+        "title": { "size": 21, "weight": 650, "color": "#f8fafc" },
+        "text": { "size": 15.5, "weight": 400, "color": "#cbd5e1" },
+        "edge": { "bottom": 24, "top": 82 }
+      },
+      "tag": {
+        "shape": "filled", "size": 12, "weight": 700, "tracking": "0.06em", "uppercase": true, "text": "#ffffff",
+        "new": "#2a9d8f", "fix": "#d4892a", "qol": "#5b7fbf"
+      },
+      "chapter": { "onScreen": false },
+      "pointer": { "size": 26, "fill": "#111827", "stroke": "#ffffff", "path": "M4 2 L4 19 L8.6 14.9 L11.7 21.6 L14.5 20.4 L11.5 13.8 L17.7 13.8 Z" },
+      "click": { "color": "#f5a524", "ms": 600 },
+      "ring": { "color": "#f5a524", "width": 3, "radius": 10, "glow": true, "pulse": true },
+      "note": { "background": "#f5a524", "text": "#111827" },
+      "cover": {
+        "template": "cover-classic.html",
+        "background": "radial-gradient(circle at 15% 10%, #24626b, #0f172a 70%)",
+        "shot": "tilted",
+        "logo": "tile"
+      }
+    },
+
+    "next": {
+      "label": "IvoryOS NextGen",
+      "summary": "Quiet and flat: ink navy, steel hairlines, regular-weight type in sentence case, one teal for anything that points.",
+      "product": {
+        "name": "IvoryOS", "badge": "NextGen", "tagline": "Run your lab's instruments from one place",
+        "$docs": "For the video's description, never on screen. Moves to docs.ivoryos.ai once that is set up.",
+        "docs": "https://ivoryos-ai.github.io/ivoryos-next/"
+      },
+      "font": {
+        "family": "\"Geist\", \"Segoe UI\", \"Helvetica Neue\", system-ui, sans-serif",
+        "mono": "\"Geist Mono\", ui-monospace, Consolas, monospace",
+        "google": "Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500"
+      },
+      "color": {
+        "bg": "#121a27",
+        "glow": "#1c3440",
+        "panel": "#1f2b3d",
+        "text": "#f3f5f8",
+        "soft": "#b8c2cf",
+        "muted": "#7f8da0",
+        "accent": "#45c4b5",
+        "accentLight": "#8fdcd2",
+        "highlight": "#45c4b5",
+        "code": "#c9d7e6",
+        "steel": "#a9bed5",
+        "hairline": "rgba(169,190,213,.16)"
+      },
+      "card": {
+        "background": "#1f2b3d",
+        "align": "center",
+        "bar": { "width": 72, "height": 3, "color": "#45c4b5" },
+        "kicker": { "size": 15, "weight": 500, "tracking": "0", "uppercase": false, "color": "#b8c2cf" },
+        "title": { "size": 62, "weight": 400, "tracking": "-0.015em" },
+        "sub": { "size": 30, "weight": 400, "color": "#b8c2cf" },
+        "bullet": { "size": 22, "marker": "dash", "markerColor": "#45c4b5" },
+        "foot": { "size": 16, "color": "#7f8da0", "logo": "plain" },
+        "titleSeconds": 3.2, "closingSeconds": 5, "titleNarrated": false, "closingNarrated": true
+      },
+      "caption": {
+        "background": "#1f2b3d",
+        "radius": 10, "padding": "10px 16px 11px 14px", "maxWidth": 860,
+        "shadow": "0 8px 22px -10px rgba(8,14,24,.55)",
+        "title": { "size": 19, "weight": 600, "color": "#ffffff" },
+        "text": { "size": 16.5, "weight": 400, "color": "#c5d0dc" },
+        "edge": { "bottom": 28, "top": 64 }
+      },
+      "tag": {
+        "shape": "outline", "size": 13, "weight": 500, "tracking": "0", "uppercase": false, "text": "#f3f5f8",
+        "new": "#45c4b5", "fix": "#e0a458", "qol": "#a9bed5"
+      },
+      "chapter": { "onScreen": true, "background": "#1f2b3d", "radius": 8, "height": 40, "size": 21, "dot": "#45c4b5", "edge": "top" },
+      "pointer": { "size": 30, "fill": "#ffffff", "stroke": "#1f2b3d", "path": "M2 1.5 L2 20.5 L7 16.2 L10.3 24 L13.8 22.5 L10.6 14.9 L17.4 14.9 Z" },
+      "click": { "color": "#45c4b5", "ms": 520 },
+      "ring": { "color": "#45c4b5", "width": 2, "radius": 10, "glow": false, "pulse": false },
+      "note": { "background": "#1f2b3d", "text": "#f3f5f8" },
+      "cover": {
+        "template": "cover-next.html",
+        "background": "#121a27",
+        "shot": "flat",
+        "logo": "plain"
+      }
+    }
+  }
+}
