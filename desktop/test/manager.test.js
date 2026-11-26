@@ -60,6 +60,19 @@ test('two profiles cannot share a port, and the message names the other one', as
     await mgr.stopAll();
 });
 
+test('Restart is not refused for the port the deck itself is letting go of', async (t) => {
+    // A Windows venv's python.exe exits before the interpreter it started lets go of the port, and
+    // a deck listening on the network (the default) collides with the port check (issue #104).
+    const mgr = new ProfileManager({ home: tmp(), getRuntime: async () => fakeRuntime() });
+    t.after(() => mgr.stopAll());
+    const port = await freePort();
+    const p = mgr.create({ kind: 'script', name: 'Bench', script: FAKE, port, env: { FAKE_LAUNCHER_MS: '500' } });
+    assert.equal(p.listenOnNetwork, true);
+    await mgr.start(p.id);
+    const status = await mgr.restart(p.id);
+    assert.equal(status.state, 'running');
+});
+
 test('the web Restart button (exit 75) keeps the profile running; a crash is reported', async (t) => {
     const home = tmp();
     const mgr = new ProfileManager({ home, getRuntime: async () => fakeRuntime() });
