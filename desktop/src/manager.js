@@ -10,10 +10,9 @@
 const { EventEmitter } = require('node:events');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
-const net = require('node:net');
 const path = require('node:path');
 
-const { EdgeSupervisor } = require('./supervisor');
+const { EdgeSupervisor, portIsFree } = require('./supervisor');
 const {
     loadProfiles, saveProfiles, withDefaults, validateProfile, commandFor, usesOwnInterpreter, readDeckFile, writeDeckFile,
 } = require('./profiles');
@@ -27,15 +26,6 @@ const {
 } = require('./deckEdit');
 const { addWorkflows } = require('./library');
 const { selectionOf, withSelection } = require('./optimizers');
-
-function portIsFree(port) {
-    return new Promise((resolve) => {
-        const srv = net.createServer();
-        srv.once('error', () => resolve(false));
-        srv.once('listening', () => srv.close(() => resolve(true)));
-        srv.listen(port, '0.0.0.0');
-    });
-}
 
 class ProfileManager extends EventEmitter {
     /**

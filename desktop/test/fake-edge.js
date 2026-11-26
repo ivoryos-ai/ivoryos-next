@@ -4,6 +4,28 @@
 // /api/system/restart, and exits 1 on POST /crash.
 const http = require('node:http');
 
+// FAKE_LAUNCHER_MS: be a Windows venv's python.exe, a launcher that runs the real edge as a child
+// of its own and waits for it. When the launcher is killed, the edge goes on holding its port for
+// that many milliseconds before it ends too (on Windows the launcher's job object ends it, a
+// moment after the launcher). Detached, so nothing here takes it down sooner.
+if (process.env.FAKE_LAUNCHER_MS && !process.env.FAKE_LAUNCHED_BY) {
+    const { spawn } = require('node:child_process');
+    const edge = spawn(process.execPath, process.argv.slice(1), {
+        env: { ...process.env, FAKE_LAUNCHED_BY: String(process.pid) }, stdio: 'inherit', detached: true,
+    });
+    edge.on('exit', (code) => process.exit(code ?? 1));
+    return;
+}
+if (process.env.FAKE_LAUNCHED_BY) {
+    const launcher = Number(process.env.FAKE_LAUNCHED_BY);
+    const watch = setInterval(() => {
+        try { process.kill(launcher, 0); } catch {
+            clearInterval(watch);
+            setTimeout(() => process.exit(0), Number(process.env.FAKE_LAUNCHER_MS));
+        }
+    }, 20);
+}
+
 // FAKE_OWN_PORT: a script that picks its own port, announced the way an ivoryos_edge older than
 // the launcher does ("on port N"). FAKE_NO_RUN: a script that never calls ivoryos_edge.run().
 if (process.env.FAKE_REFUSE) { console.error('Cannot start: Another IvoryOS edge is already running with this data folder (C:\lab): process 4242.'); process.exit(1); }
@@ -20,6 +42,6 @@ setTimeout(() => {
         if (req.method === 'POST' && req.url === '/restart') { res.end('{}'); setTimeout(() => process.exit(75), 50); return; }
         if (req.method === 'POST' && req.url === '/crash') { res.end('{}'); console.error('fake edge: Traceback: boom'); setTimeout(() => process.exit(1), 50); return; }
         res.statusCode = 404; res.end();
-    }).listen(port, '127.0.0.1', () => console.log(`fake edge listening on ${port}`));
+    }).listen(port, process.env.IVORYOS_HOST || '127.0.0.1', () => console.log(`fake edge listening on ${port}`));
 }, delay);
 process.on('SIGTERM', () => process.exit(0));

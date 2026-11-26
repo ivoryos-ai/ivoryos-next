@@ -16,13 +16,36 @@ const { spawn } = require('node:child_process');
 const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const http = require('node:http');
+const net = require('node:net');
 const path = require('node:path');
 
 const RESTART_EXIT_CODE = 75;
 const LOG_LINES = 400;
+// How long stop() waits for the port to be let go of after the process has exited (see stop()).
+const PORT_RELEASE_TIMEOUT_MS = 5000;
 
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Whether nothing on this computer listens on `port`: the launcher's check before every start. */
+function portIsFree(port) {
+    return new Promise((resolve) => {
+        const srv = net.createServer();
+        srv.once('error', () => resolve(false));
+        srv.once('listening', () => srv.close(() => resolve(true)));
+        srv.listen(port, '0.0.0.0');
+    });
+}
+
+/** Resolves true once `port` is free, false if it still is not after `timeoutMs`. */
+async function waitForPortFree(port, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+        if (await portIsFree(port)) return true;
+        if (Date.now() >= deadline) return false;
+        await sleep(25);
+    }
 }
 
 /** GET http://host:port/api/status; resolves true on a 2xx, false otherwise. */
@@ -112,6 +135,7 @@ class EdgeSupervisor extends EventEmitter {
         this.opts.port = this.requestedPort;
         this.announced = false;
         this.fatal = null;
+        this._servedPort = null;
         this._setState('starting');
         if (this.opts.logFile) {
             fs.mkdirSync(path.dirname(this.opts.logFile), { recursive: true });
@@ -152,6 +176,7 @@ class EdgeSupervisor extends EventEmitter {
                 throw new Error(`The edge exited before it was ready (code ${exited ? exited.code : '?'})`);
             }
             if (await probe(this.opts.host, this.opts.port)) {
+                this._servedPort = this.opts.port;
                 this._setState('running');
                 this.emit('ready', { pid: child.pid });
                 return;
@@ -191,7 +216,10 @@ class EdgeSupervisor extends EventEmitter {
         this.emit('crashed', { ...info, logTail: this.logTail });
     }
 
-    /** Stop the edge. SIGTERM first; a process that ignores it for 8s is killed. */
+    /**
+     * Stop the edge. SIGTERM first; a process that ignores it for 8s is killed. Resolves once the
+     * process has exited and, if it was serving, its port is free again.
+     */
     async stop() {
         const child = this.child;
         this._stopping = true;
@@ -199,12 +227,23 @@ class EdgeSupervisor extends EventEmitter {
             if (this.state !== 'stopped') this._setState('stopped');
             return;
         }
+        const served = this._servedPort;
         this._setState('stopping');
         const exited = new Promise((resolve) => this._exitWaiters.push(resolve));
         child.kill('SIGTERM');
         const killer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } }, 8000);
         await exited;
         clearTimeout(killer);
+        // On Windows the process exiting is not the edge letting go of its port. A venv's
+        // python.exe is a launcher that runs the real interpreter as a child of its own: kill()
+        // ends the launcher, the launcher's job object then ends the interpreter, and its sockets
+        // close a moment later (measured: 10-20 ms for a bare server, longer for an edge). A
+        // Restart, or a Stop and then Start, that checked the port in between was refused as "in
+        // use by another program", nearly every time for a deck listening on the network (issue
+        // #104). So stopping includes waiting for the check the next start makes to pass.
+        if (served && !(await waitForPortFree(served, PORT_RELEASE_TIMEOUT_MS))) {
+            this._log(`Port ${served} was still in use ${PORT_RELEASE_TIMEOUT_MS / 1000}s after the edge stopped.\n`);
+        }
     }
 
     /** Stop, start again, and resolve when it is serving. */
@@ -229,4 +268,4 @@ class EdgeSupervisor extends EventEmitter {
     }
 }
 
-module.exports = { EdgeSupervisor, RESTART_EXIT_CODE, probe };
+module.exports = { EdgeSupervisor, RESTART_EXIT_CODE, probe, portIsFree };

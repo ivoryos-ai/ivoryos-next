@@ -6,7 +6,7 @@ const net = require('node:net');
 const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs');
-const { EdgeSupervisor } = require('../src/supervisor');
+const { EdgeSupervisor, portIsFree } = require('../src/supervisor');
 
 const FAKE = path.join(__dirname, 'fake-edge.js');
 
@@ -60,6 +60,32 @@ test('exit code 75 restarts the edge instead of reporting a crash', async () => 
     assert.notEqual((await request(port, 'GET', '/api/status')).pid, firstPid);
     assert.equal(crashed, false);
     await sup.stop();
+});
+
+test('stop resolves once the port is free, even when the edge outlives the process it started as', async () => {
+    // A Windows venv's python.exe: the launcher exits at once, the interpreter holding the port a
+    // moment later. A start checking the port in between was refused (issue #104).
+    const { sup, port } = await supervisorFor({ FAKE_LAUNCHER_MS: '500', IVORYOS_HOST: '0.0.0.0' });
+    await sup.start();
+    assert.equal(await portIsFree(port), false);
+    await sup.stop();
+    assert.equal(await portIsFree(port), true, 'the next start’s check passes');
+    await sup.start();
+    assert.equal(sup.state, 'running');
+    await sup.stop();
+});
+
+test('stopping an edge that never served does not wait for a port someone else holds', async (t) => {
+    const { sup, port } = await supervisorFor({ FAKE_NEVER_READY: '1' }, { readyTimeoutMs: 60000 });
+    const other = net.createServer((socket) => socket.destroy()).listen(port, '0.0.0.0');
+    t.after(() => other.close());
+    const starting = sup.start().catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const began = Date.now();
+    await sup.stop();
+    const took = Date.now() - began;
+    await starting;
+    assert.ok(took < 2000, `stopped in ${took} ms`);
 });
 
 test('any other exit is a crash, reported with the end of the log', async () => {
